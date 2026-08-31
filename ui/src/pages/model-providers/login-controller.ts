@@ -64,8 +64,7 @@ export class ModelProviderLoginController implements ReactiveController {
 
   reset(): void {
     this.cardId = null;
-    this.runner.close();
-    this.state = { phase: "idle" };
+    void this.runner.cancel();
   }
 
   hostDisconnected(): void {
