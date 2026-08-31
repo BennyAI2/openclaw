@@ -63,7 +63,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   @property({ attribute: false }) routeData: ModelProvidersRouteData | undefined;
 
   @state() private data: ModelProvidersData | null = null;
-  @state() private busy: Record<string, boolean> = {};
+  @state() private busy: Record<string, true> = {};
   @state() private messages: Record<string, ModelProviderRowMessage> = {};
   @state() private probeResults: Record<string, ModelsProbeResult> = {};
   @state() private probeUnsupported = false;
