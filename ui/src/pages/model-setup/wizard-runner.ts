@@ -306,6 +306,13 @@ export class ModelSetupWizardRunner {
       );
       if (result.status === "cancelled" || result.status === "error") {
         this.reportTerminalResult(session, { done: true, ...result });
+        // Cancel acknowledges immediately, while terminal status waits for the
+        // Gateway runner and its shared setup admission to finish releasing.
+        await session.client.request<WizardStatusResult>(
+          "wizard.status",
+          { sessionId: session.sessionId },
+          { timeoutMs: MODEL_SETUP_AUTH_START_TIMEOUT_MS },
+        );
       }
     } catch {
       // The Gateway may already have completed or purged the session.

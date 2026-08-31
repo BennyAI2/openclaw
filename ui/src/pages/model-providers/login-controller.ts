@@ -23,6 +23,9 @@ export class ModelProviderLoginController implements ReactiveController {
   private state: ModelSetupWizardState = { phase: "idle" };
   private value: unknown;
   private cardId: string | null = null;
+  // Keep sign-in disabled until terminal status confirms that shared Gateway
+  // admission is free; an early replacement would surface a false busy error.
+  private cancellationPending = false;
   private readonly runner: ModelSetupWizardRunner;
 
   constructor(
@@ -48,7 +51,7 @@ export class ModelProviderLoginController implements ReactiveController {
   }
 
   get busy(): boolean {
-    return this.state.phase !== "idle";
+    return this.state.phase !== "idle" || this.cancellationPending;
   }
 
   start(cardId: string, option: ModelProviderLoginOption): void {
@@ -64,7 +67,14 @@ export class ModelProviderLoginController implements ReactiveController {
 
   reset(): void {
     this.cardId = null;
-    void this.runner.cancel();
+    if (this.cancellationPending) {
+      return;
+    }
+    this.cancellationPending = true;
+    void this.runner.cancel().finally(() => {
+      this.cancellationPending = false;
+      this.host.requestUpdate();
+    });
   }
 
   hostDisconnected(): void {
@@ -84,10 +94,7 @@ export class ModelProviderLoginController implements ReactiveController {
       onAnswer: (value, includeValue) => {
         void this.runner.answer(value, includeValue).then((completion) => this.finish(completion));
       },
-      onCancel: () => {
-        this.cardId = null;
-        void this.runner.cancel();
-      },
+      onCancel: () => this.reset(),
       onClose: () => this.reset(),
     });
   }
