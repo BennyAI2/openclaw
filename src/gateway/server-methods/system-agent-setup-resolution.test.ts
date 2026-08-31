@@ -518,6 +518,30 @@ describe("models.authLogin.start", () => {
     resetCommandQueueStateForTest();
   });
 
+  it("does not replace a retained provider login session", async () => {
+    const { wizardSessions, context } = makeContext();
+    const retained = new WizardSession(async () => {});
+    wizardSessions.set("retained-login", retained);
+    await retained.whenSettled();
+    const { calls, respond } = makeRespond();
+
+    await expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "retained-login", authChoice: "xai-oauth" },
+      respond,
+      context,
+    } as never);
+
+    expect(calls[0]).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: "wizard session already exists" },
+    });
+    expect(wizardSessions.get("retained-login")).toBe(retained);
+    expect(modelsAuthLoginMocks.runModelsAuthLoginFlowCore).not.toHaveBeenCalled();
+  });
+
   it("runs credential-only provider auth through the shared wizard", async () => {
     modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
       await options.prompter.deviceCode?.({
