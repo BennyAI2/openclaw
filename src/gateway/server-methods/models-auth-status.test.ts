@@ -612,6 +612,9 @@ describe("models.authStatus", () => {
   });
 
   it("projects provider capabilities from the published lifecycle metadata", async () => {
+    mocks.getRuntimeConfig.mockReturnValue({
+      plugins: { entries: { "workspace-auth": { enabled: true } } },
+    });
     const plugins = [
       {
         id: "provider-auth",
@@ -638,6 +641,19 @@ describe("models.authStatus", () => {
             choiceId: "github-copilot-oauth",
             choiceLabel: "GitHub Copilot OAuth",
             appGuidedAuth: "device-code",
+          },
+        ],
+      },
+      {
+        id: "workspace-auth",
+        origin: "workspace",
+        providerAuthChoices: [
+          {
+            provider: "workspace-provider",
+            method: "oauth",
+            choiceId: "workspace-oauth",
+            choiceLabel: "Workspace OAuth",
+            appGuidedAuth: "oauth",
           },
         ],
       },

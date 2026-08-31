@@ -30,6 +30,7 @@ export function resolveModelProviderCapabilities(params: {
     env,
     workspaceDir: params.workspaceDir,
     includeUntrustedWorkspacePlugins: false,
+    includeWorkspacePlugins: false,
     metadataSnapshot: params.metadataSnapshot,
   });
   const loginOptionsByChoiceId = new Map(
