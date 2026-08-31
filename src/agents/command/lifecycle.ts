@@ -70,7 +70,6 @@ export function createAgentCommandLifecycle(params: {
     phase: "finishing" | "end" | "error",
     terminal: EmbeddedAgentRunEntryTerminal,
     error?: string,
-    fallbackExhausted?: boolean,
   ) => {
     const { aborted, yielded, replayInvalid, terminalReply } = terminal.metadata;
     const terminalDelivery = normalizeAgentRunTerminalDeliverySnapshot(
@@ -98,7 +97,8 @@ export function createAgentCommandLifecycle(params: {
         ...(error && params.state.lifecycleErrorObservation
           ? { errorObservation: params.state.lifecycleErrorObservation }
           : {}),
-        ...(fallbackExhausted ? { fallbackExhaustedFailure: true } : {}),
+        // Finishing is an attempt fence, not the outer execution's final publication.
+        ...(phase !== "finishing" ? { executionSettled: true } : {}),
         ...(terminalDelivery ? { terminalDelivery } : {}),
         ...(terminalReceipt ? { terminalReceipt } : {}),
         ...(terminalReply ? { terminalReply } : {}),
@@ -128,6 +128,7 @@ export function createAgentCommandLifecycle(params: {
             ? { errorObservation: params.state.lifecycleErrorObservation }
             : {}),
           ...extraData,
+          executionSettled: true,
         },
       });
     },
@@ -168,7 +169,7 @@ export function createAgentCommandLifecycle(params: {
       const error =
         resolveResultError(runResult, fallbackExhausted) ??
         (fallbackExhausted ? "All model fallback candidates failed" : "Agent run failed");
-      emitTerminalPhase("error", terminal, error, fallbackExhausted);
+      emitTerminalPhase("error", terminal, error);
     },
     emitPostTurnError(error: unknown, terminal: EmbeddedAgentRunEntryTerminal) {
       if (params.state.lifecycleEnded) {
@@ -189,6 +190,7 @@ export function createAgentCommandLifecycle(params: {
           error: formatLifecycleError(error),
           ...(terminalDelivery ? { terminalDelivery } : {}),
           ...resolveAgentRunErrorLifecycleFields(error, params.abortSignal),
+          executionSettled: true,
         },
       });
     },
