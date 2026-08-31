@@ -108,6 +108,7 @@
       "method": "oauth",
       "choiceId": "xai-oauth",
       "appGuidedAuth": "device-code",
+      "channelLogin": {},
       "choiceLabel": "xAI OAuth",
       "choiceHint": "Remote-friendly browser sign-in without a localhost callback",
       "groupId": "xai",

@@ -338,6 +338,7 @@ export const validateSystemAgentSetupActivateStartParams = compile(
 export const validateSystemAgentSetupAuthStartParams = compile(
   S.SystemAgentSetupAuthStartParamsSchema,
 );
+export const validateModelAuthLoginStartParams = compile(S.ModelAuthLoginStartParamsSchema);
 export const validateWizardStartParams = compile(S.WizardStartParamsSchema);
 export const validateWizardNextParams = compile(S.WizardNextParamsSchema);
 export const validateWizardCancelParams = compile(S.WizardCancelParamsSchema);

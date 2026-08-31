@@ -882,6 +882,29 @@ describe("modelsAuthLoginCommand", () => {
     expect((readMockCallArg(runProviderAuth) as AuthRunCall).signal).toBe(abortController.signal);
   });
 
+  it("locks remote cancellation before persistence and uses the caller-owned refresh", async () => {
+    const runtime = createRuntime();
+    const beforePersistentEffect = vi.fn(async () => undefined);
+    const refreshAuthState = vi.fn(async () => undefined);
+
+    await runModelsAuthLoginFlowCore({
+      provider: "openai",
+      method: "oauth",
+      config: currentConfig,
+      runtime,
+      prompter: mocks.createClackPrompter(),
+      beforePersistentEffect,
+      refreshAuthState,
+    });
+
+    expect(beforePersistentEffect).toHaveBeenCalledOnce();
+    expect(refreshAuthState).toHaveBeenCalledWith("main");
+    expect(mocks.callGateway).not.toHaveBeenCalled();
+    expect(beforePersistentEffect.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.upsertAuthProfileAfterLoginWithLock.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
   it("does not persist credentials returned after app-owned cancellation", async () => {
     const runtime = createRuntime();
     const abortController = new AbortController();

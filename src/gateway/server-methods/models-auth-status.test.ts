@@ -630,12 +630,14 @@ describe("models.authStatus", () => {
             method: "oauth",
             choiceId: "openai-oauth",
             choiceLabel: "OpenAI OAuth",
+            appGuidedAuth: "oauth",
           },
           {
             provider: "github-copilot",
             method: "oauth",
             choiceId: "github-copilot-oauth",
             choiceLabel: "GitHub Copilot OAuth",
+            appGuidedAuth: "device-code",
           },
         ],
       },
@@ -649,8 +651,24 @@ describe("models.authStatus", () => {
     const result = await readAuthStatus();
 
     expect(result.providerCapabilities).toEqual([
-      { provider: "github-copilot", apiKeySupported: false, quickApiKeySetup: false },
-      { provider: "openai", apiKeySupported: true, quickApiKeySetup: true },
+      {
+        provider: "github-copilot",
+        apiKeySupported: false,
+        quickApiKeySetup: false,
+        loginOptions: [
+          {
+            id: "github-copilot-oauth",
+            label: "GitHub Copilot OAuth",
+            kind: "device-code",
+          },
+        ],
+      },
+      {
+        provider: "openai",
+        apiKeySupported: true,
+        quickApiKeySetup: true,
+        loginOptions: [{ id: "openai-oauth", label: "OpenAI OAuth", kind: "oauth" }],
+      },
     ]);
   });
 

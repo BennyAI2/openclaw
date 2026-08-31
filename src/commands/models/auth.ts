@@ -412,6 +412,8 @@ async function persistProviderAuthResult(params: {
   prompter: WizardPrompter;
   setDefault?: boolean;
   env?: NodeJS.ProcessEnv;
+  beforePersistentEffect?: () => void | Promise<void>;
+  refreshAuthState?: (agentId: string) => Promise<void>;
 }): Promise<ProviderAuthResult["profiles"]> {
   const defaultModel = params.result.defaultModel
     ? normalizeAgentModelRefForConfig(params.result.defaultModel)
@@ -421,8 +423,17 @@ async function persistProviderAuthResult(params: {
   const shouldUpdateConfig = Boolean(
     params.result.configPatch || (params.setDefault && defaultModel),
   );
+  let persistentEffectStarted = false;
+  const beginPersistentEffect = async () => {
+    if (persistentEffectStarted) {
+      return;
+    }
+    await params.beforePersistentEffect?.();
+    persistentEffectStarted = true;
+  };
 
   for (const candidate of profiles) {
+    await beginPersistentEffect();
     const prepared = prepareProviderAuthProfilesForPersistence({
       profiles: [candidate],
       config: params.config,
@@ -465,6 +476,7 @@ async function persistProviderAuthResult(params: {
   // the provider explicitly returns a config patch or the user opts into a
   // default-model write.
   if (shouldUpdateConfig) {
+    await beginPersistentEffect();
     const updated = await updateConfig((cfg) => {
       const priorAgentsDefaultsModel = cfg.agents?.defaults?.model;
       let next = cfg;
@@ -499,7 +511,7 @@ async function persistProviderAuthResult(params: {
     logConfigUpdated(params.runtime);
   }
 
-  await refreshRunningGatewayAuthState(params.agentId);
+  await (params.refreshAuthState ?? refreshRunningGatewayAuthState)(params.agentId);
 
   for (const profile of persistedProfiles) {
     params.runtime.log(
@@ -558,6 +570,8 @@ async function runProviderAuthMethod(params: {
   isRemote?: boolean;
   signal?: AbortSignal;
   openUrl?: (url: string) => Promise<void>;
+  beforePersistentEffect?: () => void | Promise<void>;
+  refreshAuthState?: (agentId: string) => Promise<void>;
 }): Promise<{ result: ProviderAuthResult; profiles: ProviderAuthResult["profiles"] }> {
   params.signal?.throwIfAborted();
   const result = await params.method.run({
@@ -596,6 +610,10 @@ async function runProviderAuthMethod(params: {
     prompter: params.prompter,
     setDefault: params.setDefault,
     env: params.env ?? process.env,
+    ...(params.beforePersistentEffect
+      ? { beforePersistentEffect: params.beforePersistentEffect }
+      : {}),
+    ...(params.refreshAuthState ? { refreshAuthState: params.refreshAuthState } : {}),
   });
 
   return { result, profiles: persistedProfiles };
@@ -924,6 +942,8 @@ export type ModelsAuthLoginFlowOptions = LoginOptions & {
   isRemote?: boolean;
   signal?: AbortSignal;
   openUrl?: (url: string) => Promise<void>;
+  beforePersistentEffect?: () => void | Promise<void>;
+  refreshAuthState?: (agentId: string) => Promise<void>;
 };
 
 /** Resolves a requested login provider or throws with available provider details. */
@@ -1082,12 +1102,14 @@ export async function runModelsAuthLoginFlowCore(
     method: chosenMethod,
     runtime: opts.runtime,
     prompter,
-    profileId: opts.profileId,
-    setDefault: opts.setDefault,
-    env: opts.env,
-    isRemote: opts.isRemote,
-    signal: opts.signal,
-    openUrl: opts.openUrl,
+    ...(opts.profileId ? { profileId: opts.profileId } : {}),
+    ...(opts.setDefault !== undefined ? { setDefault: opts.setDefault } : {}),
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.isRemote !== undefined ? { isRemote: opts.isRemote } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    ...(opts.openUrl ? { openUrl: opts.openUrl } : {}),
+    ...(opts.beforePersistentEffect ? { beforePersistentEffect: opts.beforePersistentEffect } : {}),
+    ...(opts.refreshAuthState ? { refreshAuthState: opts.refreshAuthState } : {}),
   });
   maybeLogOpenAICodexNativeSearchTip(opts.runtime, selectedProvider.id);
   return {

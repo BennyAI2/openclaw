@@ -16,7 +16,8 @@ import {
 export type ModelSetupWizardStartMethod =
   | "openclaw.setup.auth.start"
   | "openclaw.setup.prepare.start"
-  | "openclaw.setup.activate.start";
+  | "openclaw.setup.activate.start"
+  | "models.authLogin.start";
 
 export type ModelSetupWizardCompletion = {
   startMethod: ModelSetupWizardStartMethod;

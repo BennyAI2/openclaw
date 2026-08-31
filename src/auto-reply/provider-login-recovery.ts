@@ -1,15 +1,16 @@
 import type { OAuthRefreshFailureReason } from "../agents/auth-profiles/oauth-refresh-failure.js";
 import type { FailoverReason } from "../agents/failover/signal.js";
 import type { MessagePresentation } from "../interactive/payload.js";
+import { resolveProviderChannelLoginChoice } from "../plugins/provider-login-options.js";
 
-export type CodexLoginRecoveryEvidence = {
+export type ProviderLoginRecoveryEvidence = {
   provider?: string | null;
   oauthReason?: OAuthRefreshFailureReason | null;
   failoverReason?: FailoverReason;
   authMode?: string;
 };
 
-export type CodexLoginRecovery = {
+export type ProviderLoginRecovery = {
   hint: string;
   presentation: MessagePresentation;
 };
@@ -20,30 +21,36 @@ const AUTH_PROFILE_LOGIN_REASONS = new Set<FailoverReason>([
   "session_expired",
 ]);
 
-/** Builds login recovery only from OAuth evidence, never from a provider name alone. */
-export function buildCodexLoginRecovery(
-  evidence: CodexLoginRecoveryEvidence,
-): CodexLoginRecovery | undefined {
-  const provider = evidence.provider?.trim().toLowerCase().replace(/_/gu, "-");
+/** Build an actionable login only from OAuth failure evidence and a trusted channel choice. */
+export function buildProviderLoginRecovery(
+  evidence: ProviderLoginRecoveryEvidence,
+): ProviderLoginRecovery | undefined {
   const needsLogin =
     evidence.oauthReason !== null && evidence.oauthReason !== undefined
       ? true
       : evidence.authMode === "oauth" &&
         evidence.failoverReason !== undefined &&
         AUTH_PROFILE_LOGIN_REASONS.has(evidence.failoverReason);
-  if ((provider !== "openai" && provider !== "codex") || !needsLogin) {
+  if (!needsLogin) {
     return undefined;
   }
+  const resolution = resolveProviderChannelLoginChoice(evidence.provider ?? undefined);
+  if (resolution.status !== "resolved") {
+    return undefined;
+  }
+  const { choice } = resolution;
+  const command = `/login ${choice.command}`;
+  const actionLabel = `Sign in to ${choice.providerLabel}`;
   return {
-    hint: "OpenAI needs a new login. Send `/login codex` from a private chat or Web UI session. Where shown, you can also select **Log in to Codex**.",
+    hint: `${choice.providerLabel} needs a new login. Send \`${command}\` from a private chat or Control UI session. Where shown, you can also select **${actionLabel}**.`,
     presentation: {
       blocks: [
         {
           type: "buttons",
           buttons: [
             {
-              label: "Log in to Codex",
-              action: { type: "command", command: "/login codex" },
+              label: actionLabel,
+              action: { type: "command", command },
             },
           ],
         },

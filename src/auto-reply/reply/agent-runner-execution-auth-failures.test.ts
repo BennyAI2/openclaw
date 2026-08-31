@@ -22,7 +22,7 @@ const CODEX_LOGIN_PRESENTATION = {
       type: "buttons",
       buttons: [
         {
-          label: "Log in to Codex",
+          label: "Sign in to OpenAI",
           action: { type: "command", command: "/login codex" },
         },
       ],
@@ -63,7 +63,7 @@ describe("executeAgentTurn: authentication failures", () => {
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
       expect(result.payload.text).toBe(
-        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Web UI session. Where shown, you can also select **Log in to Codex**. You can also re-auth with `openclaw models auth login --provider openai` on the gateway.",
+        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Control UI session. Where shown, you can also select **Sign in to OpenAI**. You can also re-auth with `openclaw models auth login --provider openai` on the gateway.",
       );
       expect(result.payload.presentation).toEqual(CODEX_LOGIN_PRESENTATION);
     }
@@ -109,7 +109,7 @@ describe("executeAgentTurn: authentication failures", () => {
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
       expect(result.payload.text).toBe(
-        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Web UI session. Where shown, you can also select **Log in to Codex**. You can also re-auth with `openclaw models auth login --provider openai` on the gateway.",
+        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Control UI session. Where shown, you can also select **Sign in to OpenAI**. You can also re-auth with `openclaw models auth login --provider openai` on the gateway.",
       );
       expect(result.payload.presentation).toEqual(CODEX_LOGIN_PRESENTATION);
     }
@@ -130,7 +130,7 @@ describe("executeAgentTurn: authentication failures", () => {
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
       expect(result.payload.text).toBe(
-        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Web UI session. Where shown, you can also select **Log in to Codex**. You can also re-auth with `openclaw models auth login --provider openai --profile-id 'openai:user@example.com'` on the gateway.",
+        "⚠️ OpenAI needs a new login. Send `/login codex` from a private chat or Control UI session. Where shown, you can also select **Sign in to OpenAI**. You can also re-auth with `openclaw models auth login --provider openai --profile-id 'openai:user@example.com'` on the gateway.",
       );
       expect(result.payload.presentation).toEqual(CODEX_LOGIN_PRESENTATION);
     }
@@ -147,6 +147,31 @@ describe("executeAgentTurn: authentication failures", () => {
     });
 
     expect(payload?.presentation).toEqual(CODEX_LOGIN_PRESENTATION);
+  });
+
+  it("offers the provider-owned xAI login command for OAuth failures", () => {
+    const payload = buildKnownAgentRunFailureReplyPayload({
+      err: new OAuthRefreshFailureError({
+        provider: "xai",
+        message: "invalid_grant",
+      }),
+      sessionCtx: { Provider: "telegram", ChatType: "direct" } as TemplateContext,
+      resolvedVerboseLevel: "off",
+    });
+
+    expect(payload?.presentation).toEqual({
+      blocks: [
+        {
+          type: "buttons",
+          buttons: [
+            {
+              label: "Sign in to xAI (Grok)",
+              action: { type: "command", command: "/login xai" },
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("preserves OAuth profile guidance through failover wrappers", async () => {

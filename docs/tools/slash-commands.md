@@ -221,7 +221,7 @@ plugins.
     | `/reasoning [on\|off\|stream]` | Toggle reasoning visibility. Alias: `/reason` |
     | `/elevated [on\|off\|ask\|full]` | Toggle elevated mode. Alias: `/elev` |
     | `/exec host=<auto\|sandbox\|gateway\|node> security=<deny\|allowlist\|full> ask=<off\|on-miss\|always> node=<id>` | Show resolved exec defaults; persist host/node placement, apply security/ask to this message only. See [Session permission modes](/gateway/permission-modes) |
-    | `/login [codex\|openai]` | Pair a Codex or OpenAI login from a private chat or Web UI session. Owner/admin only |
+    | `/login [provider]` | Sign in to a provider from a private chat or Control UI session. Owner/admin only |
     | `/model [name\|default\|list\|status] [-s\|--session\|-a\|--agent\|-g\|--global]` | Show or select a model. `-s` changes only this session; owner/admin `-a` and `-g` also update configured defaults |
     | `/models [provider] [page] [limit=<n>\|all]` | List configured/auth-available providers or models |
     | `/queue <mode>` | Manage active-run queue behavior. See [Queue](/concepts/queue) and [Queue steering](/concepts/queue-steering) |
@@ -564,7 +564,9 @@ See [BTW side questions](/tools/btw) for the full behavior.
     - **Native Discord commands:** `agent:<agentId>:discord:slash:<userId>`
     - **Native Slack commands:** `agent:<agentId>:slack:slash:<userId>` (prefix configurable via `channels.slack.slashCommand.sessionPrefix`)
     - **Native Telegram commands:** `telegram:slash:<userId>` (targets the chat session via `CommandTargetSessionKey`)
-    - **`/login codex`** sends device pairing codes only through private chat or Web UI response paths. Telegram group/topic invocations ask the owner to DM the bot instead.
+    - **`/login`** sends device pairing codes only through private chat or Control UI response paths. Telegram group/topic invocations ask the owner to DM the bot instead.
+    - Fixed-input chat login supports `/login codex` (or `openai`), `/login xai`, `/login minimax-global-oauth`, and `/login minimax-cn-oauth`. Bare `/login` uses the OpenAI device flow.
+    - Providers that need a tenant, redirect URL, confirmation, or other input remain available through **Control UI → Models → Sign in**.
     - **`/stop`** targets the active chat session to abort the current run.
 
   </Accordion>

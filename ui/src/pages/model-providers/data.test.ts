@@ -86,6 +86,29 @@ describe("buildModelProviderCards", () => {
     expect(firstCard(cards).apiKeySupported).toBe(false);
   });
 
+  it("creates an unconfigured provider card for interactive login", () => {
+    const cards = buildModelProviderCards({
+      ...EMPTY_INPUT,
+      authStatus: authStatus(
+        [],
+        [
+          {
+            provider: "xai",
+            apiKeySupported: true,
+            quickApiKeySetup: true,
+            loginOptions: [{ id: "xai-oauth", label: "xAI OAuth", kind: "device-code" }],
+          },
+        ],
+      ),
+    });
+
+    expect(cards).toHaveLength(1);
+    expect(firstCard(cards)).toMatchObject({
+      id: "xai",
+      loginOptions: [{ id: "xai-oauth", label: "xAI OAuth", kind: "device-code" }],
+    });
+  });
+
   it("merges CLI alias auth rows into the canonical provider card", () => {
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,

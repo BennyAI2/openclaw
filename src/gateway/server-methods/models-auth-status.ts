@@ -121,6 +121,20 @@ export function invalidateModelAuthStatusCache(): void {
   clearCurrentProviderAuthState();
 }
 
+/** Refresh transient Gateway auth owners after one durable credential mutation. */
+export async function refreshModelAuthStateAfterMutation(
+  context: GatewayRequestContext,
+  operation: string,
+): Promise<void> {
+  invalidateModelAuthStatusCache();
+  await refreshActiveProviderAuthRuntimeSnapshot();
+  void warmCurrentProviderAuthStateOffMainThread(context.getRuntimeConfig()).catch(
+    (err: unknown) => {
+      log.warn(`provider auth state rewarm after ${operation} failed: ${formatForLog(err)}`);
+    },
+  );
+}
+
 async function refreshModelAuthStatusRuntimeState(): Promise<void> {
   // Durable and CLI auth refresh into the transient prepared owner below. Do not clear the
   // process-wide warmed auth state for a read; mutations still invalidate it explicitly.
@@ -498,13 +512,7 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       }
       // Fence auxiliary usage work that captured the removed profiles before
       // logout. Its later completion must not repopulate the cache.
-      invalidateModelAuthStatusCache();
-      await refreshActiveProviderAuthRuntimeSnapshot();
-      void warmCurrentProviderAuthStateOffMainThread(context.getRuntimeConfig()).catch(
-        (err: unknown) => {
-          log.warn(`provider auth state rewarm after logout failed: ${formatForLog(err)}`);
-        },
-      );
+      await refreshModelAuthStateAfterMutation(context, "logout");
       // A provider-wide abort would terminate runs using credentials this
       // logout preserved (other profiles, tokens, or the config API key). Abort
       // entries do not carry the profile id, so a targeted logout cannot scope
