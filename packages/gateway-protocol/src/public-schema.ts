@@ -403,6 +403,8 @@ export {
   SystemAgentSetupActivateStartResultSchema,
   SystemAgentSetupAuthStartParamsSchema,
   SystemAgentSetupAuthStartResultSchema,
+  ModelAuthLoginStartParamsSchema,
+  ModelAuthLoginStartResultSchema,
   WizardStartParamsSchema,
   WizardNextParamsSchema,
   WizardCancelParamsSchema,

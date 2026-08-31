@@ -39,6 +39,10 @@ export type ModelProviderLogoutTarget = {
   profileIds: string[];
 };
 
+export type ModelProviderLoginOption = NonNullable<
+  NonNullable<ModelAuthStatusResult["providerCapabilities"]>[number]["loginOptions"]
+>[number];
+
 export type ModelProviderCard = {
   /** Canonical provider id used for icon + label lookup. */
   id: string;
@@ -46,6 +50,7 @@ export type ModelProviderCard = {
   configKey?: string;
   configAuthMode?: string;
   apiKeySupported?: boolean;
+  loginOptions: ModelProviderLoginOption[];
   /** Provider ids that own credentials merged into this card. */
   credentialProviderIds: string[];
   /** Saved OAuth/token profiles eligible for targeted logout. */
@@ -119,6 +124,7 @@ function ensureDraft(drafts: CardDraft[], id: string, displayName: string): Card
       profiles: [],
       credentialProviderIds: [],
       logoutTargets: [],
+      loginOptions: [],
       hasConfigApiKey: false,
       modelCount: 0,
       availableModelCount: 0,
@@ -173,6 +179,14 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
       continue;
     }
     apiKeyCapabilities.set(id, apiKeyCapabilities.get(id) === true || capability.apiKeySupported);
+    if (capability.loginOptions?.length) {
+      const card = ensureDraft(drafts, id, providerDisplayLabel(id)).card;
+      for (const option of capability.loginOptions) {
+        if (!card.loginOptions.some((candidate) => candidate.id === option.id)) {
+          card.loginOptions.push(option);
+        }
+      }
+    }
   }
 
   for (const provider of input.configProviderIds ?? []) {
@@ -327,6 +341,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
         Boolean(draft.card.usage) ||
         draft.card.modelCount > 0 ||
         Boolean(draft.card.catalogStatus) ||
+        draft.card.loginOptions.length > 0 ||
         (draft.card.localCost?.totalTokens ?? 0) > 0,
     )
     .map((draft) => {

@@ -41,6 +41,7 @@ function buildLoginParams(
     sessionStore?: HandleCommandsParams["sessionStore"];
     storePath?: string;
     agentId?: string;
+    provider?: string;
   } = {},
 ): HandleCommandsParams {
   const params = buildCommandTestParams(
@@ -64,6 +65,7 @@ function buildLoginParams(
   );
   params.sessionKey = overrides.sessionKey ?? "agent:main:slack:channel:C123";
   params.agentId = overrides.agentId ?? params.agentId;
+  params.provider = overrides.provider ?? "openai";
   params.command = {
     ...params.command,
     channel: "slack",
@@ -131,7 +133,7 @@ describe("handleLoginCommand", () => {
 
     expect(result).toEqual({
       shouldContinue: false,
-      reply: { text: "Codex login complete. Try your request again now." },
+      reply: { text: "OpenAI login complete. Try your request again now." },
     });
     expect(onBlockReply).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -146,6 +148,40 @@ describe("handleLoginCommand", () => {
         isRemote: true,
       }),
     );
+  });
+
+  it("starts xAI device login through the provider-owned OAuth method", async () => {
+    const onBlockReply = vi.fn(async () => {});
+    runModelsAuthLoginFlowMock.mockImplementation(async (opts: ModelsAuthLoginFlowOptions) => {
+      await opts.prompter.note("URL: https://accounts.x.ai/device\nCode: XAI-CODE", "xAI OAuth");
+      return {
+        providerId: "xai",
+        methodId: "oauth",
+        profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+      };
+    });
+
+    const result = await handleLoginCommand(
+      buildLoginParams("/login xai", { opts: { onBlockReply }, provider: "xai" }),
+      true,
+    );
+
+    expect(result?.reply?.text).toBe("xAI (Grok) login complete. Try your request again now.");
+    expect(onBlockReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("XAI-CODE") }),
+    );
+    expect(runModelsAuthLoginFlowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "xai", method: "oauth", isRemote: true }),
+    );
+  });
+
+  it("lists exact choices when a provider family has multiple channel logins", async () => {
+    const result = await handleLoginCommand(buildLoginParams("/login minimax"), true);
+
+    expect(result?.reply?.text).toBe(
+      "Choose one provider login: `/login minimax-cn-oauth`, `/login minimax-global-oauth`.",
+    );
+    expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });
 
   it.each(["web", "discord", "slack"] as const)(
@@ -189,7 +225,7 @@ describe("handleLoginCommand", () => {
       });
       const result = await handleLoginCommand(params, true);
 
-      expect(result?.reply?.text).toBe("Codex login complete. Try your request again now.");
+      expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
       expect(onBlockReply).toHaveBeenCalledWith(
         expect.objectContaining({
           text: expect.stringContaining("https://auth.openai.com/device"),
@@ -212,7 +248,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(buildLoginParams("/login openai"), true);
 
     expect(result?.reply?.text).toBe(
-      "Codex login needs a live private response path so the code can be shown before it expires. Use the Web UI or a private chat and send `/login codex` again.",
+      "OpenAI login needs a live private response path so the code can be shown before it expires. Use the Control UI or a private chat and send `/login codex` again.",
     );
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });
@@ -241,7 +277,7 @@ describe("handleLoginCommand", () => {
     expect(result).toEqual({
       shouldContinue: false,
       reply: {
-        text: "Codex login codes are only sent in a private chat or Web UI session. Open a private chat with OpenClaw and send `/login codex` there.",
+        text: "Provider login codes are only sent in a private chat or Control UI session. Open a private chat with OpenClaw and send `/login codex` there.",
       },
     });
     expect(onBlockReply).not.toHaveBeenCalled();
@@ -302,7 +338,7 @@ describe("handleLoginCommand", () => {
     );
 
     expect(result?.reply?.text).toBe(
-      "Codex login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
     );
   });
 
@@ -319,7 +355,7 @@ describe("handleLoginCommand", () => {
     );
 
     expect(result?.reply?.text).toBe(
-      "Codex login did not complete. Send `/login codex` to request a new code.",
+      "OpenAI login did not complete. Send `/login codex` to try again.",
     );
   });
 
@@ -341,7 +377,7 @@ describe("handleLoginCommand", () => {
 
     const result = await handleLoginCommand(params, true);
 
-    expect(result?.reply?.text).toBe("Codex login complete. Try your request again now.");
+    expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
     expect(params.sessionEntry?.authProfileOverride).toBe("openai:owner@example.com");
   });
 
@@ -367,26 +403,26 @@ describe("handleLoginCommand", () => {
     expect(params.sessionEntry?.authProfileOverrideCompactionCount).toBeUndefined();
   });
 
-  it("does not pass unrelated pinned profiles into OpenAI login", async () => {
+  it("does not pin the new profile when the current model uses another provider", async () => {
     mockSuccessfulLoginFlow();
 
-    await handleLoginCommand(
-      buildLoginParams("/login codex", {
-        opts: blockReplyOpts(),
-        sessionEntry: {
-          authProfileOverride: "anthropic:owner@example.com",
-          sessionId: "sess-owner",
-          updatedAt: 1,
-        },
-      }),
-      true,
-    );
+    const params = buildLoginParams("/login codex", {
+      opts: blockReplyOpts(),
+      provider: "anthropic",
+      sessionEntry: {
+        authProfileOverride: "anthropic:owner@example.com",
+        sessionId: "sess-owner",
+        updatedAt: 1,
+      },
+    });
+    await handleLoginCommand(params, true);
 
     expect(runModelsAuthLoginFlowMock).toHaveBeenCalledWith(
       expect.not.objectContaining({
         profileId: expect.any(String),
       }),
     );
+    expect(params.sessionEntry?.authProfileOverride).toBe("anthropic:owner@example.com");
   });
 
   it("reports partial success and restores the session when profile persistence fails", async () => {
@@ -416,7 +452,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(params, true);
 
     expect(result?.reply?.text).toBe(
-      "Codex login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
     );
     expect(params.sessionEntry).toBe(previousEntry);
     expect(sessionStore["agent:main:slack:channel:C123"]).toBe(previousEntry);
@@ -457,7 +493,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(params, true);
 
     expect(result?.reply?.text).toBe(
-      "Codex login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
     );
     expect(params.sessionEntry).toBe(previousEntry);
     expect(sessionStore["agent:main:slack:channel:C123"]).toBe(previousEntry);
@@ -491,7 +527,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(params, true);
 
     expect(result?.reply?.text).toBe(
-      "Codex login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
     );
     expect(params.sessionEntry).toBe(previousEntry);
   });
@@ -522,7 +558,7 @@ describe("handleLoginCommand", () => {
     expect(second).toEqual({
       shouldContinue: false,
       reply: {
-        text: "A Codex login code is already active for this chat or channel. Complete it, or wait for it to expire before requesting a new one.",
+        text: "OpenAI login is already active for this chat or channel. Complete it, or wait for it to expire before requesting a new one.",
       },
     });
     resolveLogin();
@@ -573,7 +609,7 @@ describe("handleLoginCommand", () => {
     await expect(first).resolves.toEqual({
       shouldContinue: false,
       reply: {
-        text: "Codex login did not complete. Send `/login codex` to request a new code.",
+        text: "OpenAI login did not complete. Send `/login codex` to try again.",
       },
     });
     expect(second?.reply?.text).toContain("could not switch");
@@ -591,7 +627,7 @@ describe("handleLoginCommand", () => {
     expect(result).toEqual({
       shouldContinue: false,
       reply: {
-        text: "Only a configured OpenClaw owner/admin can start Codex login from this channel.",
+        text: "Only a configured OpenClaw owner/admin can start provider login from this channel.",
       },
     });
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
@@ -614,7 +650,7 @@ describe("handleLoginCommand", () => {
     expect(result).toEqual({
       shouldContinue: false,
       reply: {
-        text: "Only a configured OpenClaw owner/admin can start Codex login from this channel.",
+        text: "Only a configured OpenClaw owner/admin can start provider login from this channel.",
       },
     });
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
@@ -625,7 +661,9 @@ describe("handleLoginCommand", () => {
 
     expect(result).toEqual({
       shouldContinue: false,
-      reply: { text: "Unsupported login provider. Use `/login codex`." },
+      reply: {
+        text: "Unsupported login provider. Available private-chat logins: `/login codex`, `/login minimax-cn-oauth`, `/login minimax-global-oauth`, `/login xai`. Providers that need extra input are available in Control UI → Models.",
+      },
     });
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });

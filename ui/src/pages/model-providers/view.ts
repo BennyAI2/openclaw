@@ -24,6 +24,7 @@ import type {
   DefaultModelSelection,
   ModelPickerEntry,
   ModelProviderCard,
+  ModelProviderLoginOption,
   ModelProviderLogoutTarget,
   ProviderOption,
 } from "./data.ts";
@@ -67,6 +68,7 @@ type ModelProvidersViewProps = {
   keyEditorProvider: string | null;
   keyDraft: string;
   pendingLogoutProvider: string | null;
+  providerLoginBusy: boolean;
   addProviderOpen: boolean;
   addProviderId: string;
   addProviderKey: string;
@@ -80,6 +82,7 @@ type ModelProvidersViewProps = {
   onRequestLogout: (provider: string) => void;
   onCancelLogout: () => void;
   onLogout: (cardId: string, targets: ModelProviderLogoutTarget[]) => void;
+  onLogin: (cardId: string, option: ModelProviderLoginOption) => void;
   onAddProviderToggle: () => void;
   onAddProviderIdChange: (provider: string) => void;
   onAddProviderKeyChange: (value: string) => void;
@@ -277,6 +280,21 @@ function renderProviderActions(card: ModelProviderCard, props: ModelProvidersVie
     : blocked;
   return html`
     <div class="model-providers__card-actions">
+      ${card.loginOptions.map(
+        (option) => html`
+          <button
+            class="btn btn--sm"
+            aria-label=${t("modelProviders.login.actionFor", { provider: option.label })}
+            ?disabled=${mutationDisabled || props.providerLoginBusy}
+            title=${blocked}
+            @click=${() => props.onLogin(card.id, option)}
+          >
+            ${isConfigured
+              ? t("modelProviders.login.again", { provider: option.label })
+              : t("modelProviders.login.action", { provider: option.label })}
+          </button>
+        `,
+      )}
       ${isConfigured
         ? html`
             <button

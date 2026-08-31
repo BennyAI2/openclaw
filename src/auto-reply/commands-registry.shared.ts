@@ -5,6 +5,7 @@ import { formatFastModeAutoLabel, resolveFastModeModelAutoOnSeconds } from "../s
 import { COMMAND_ARG_FORMATTERS } from "./commands-args.js";
 import type {
   ChatCommandDefinition,
+  CommandArgChoice,
   CommandArgChoiceContext,
   CommandCategory,
   CommandTier,
@@ -17,6 +18,7 @@ type ListThinkingLevels = (
   catalog?: CommandArgChoiceContext["catalog"],
   agentRuntime?: string | null,
 ) => string[];
+type ListProviderLoginChoices = () => CommandArgChoice[];
 
 const BROWSER_SAFE_THINKING_LEVELS: ThinkLevel[] = [
   ...BASE_THINKING_LEVELS,
@@ -142,7 +144,10 @@ function defineBuiltinCommand(
 
 /** Builds the built-in command list with context-aware thinking choices. */
 export function buildBuiltinChatCommands(
-  params: { listThinkingLevels?: ListThinkingLevels } = {},
+  params: {
+    listThinkingLevels?: ListThinkingLevels;
+    listProviderLoginChoices?: ListProviderLoginChoices;
+  } = {},
 ): ChatCommandDefinition[] {
   const configuredThinkingLevels =
     params.listThinkingLevels ?? (() => BROWSER_SAFE_THINKING_LEVELS);
@@ -221,10 +226,12 @@ export function buildBuiltinChatCommands(
         ],
       },
     ),
-    defineBuiltinCommand("login", "Pair Codex login.", "management", "standard", {
+    defineBuiltinCommand("login", "Sign in to a model provider.", "management", "standard", {
       nativeProviders: ["discord", "slack", "telegram"],
       args: [
-        defineCommandArgument("provider", "Provider to pair", { choices: ["codex", "openai"] }),
+        defineCommandArgument("provider", "Provider to sign in to", {
+          choices: params.listProviderLoginChoices?.(),
+        }),
       ],
     }),
     defineBuiltinCommand(

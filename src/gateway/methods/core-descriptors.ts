@@ -166,6 +166,13 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["models.list", "models", "operator.read", "<=2026.7", { startup: true }],
   ["models.authStatus", "models-auth-status", "operator.read", "<=2026.7"],
   [
+    "models.authLogin.start",
+    "model-login",
+    "operator.admin",
+    "2026.8",
+    { controlPlaneWrite: true },
+  ],
+  [
     "models.authLogout",
     "models-auth-status",
     "operator.admin",

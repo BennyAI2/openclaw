@@ -6,6 +6,11 @@ import type {
   ModelsAuthLoginFlowOptions,
   ModelsAuthLoginFlowResult,
 } from "../commands/models/auth.js";
+import {
+  listProviderChannelLoginChoices,
+  resolveProviderChannelLoginChoice,
+  type ProviderChannelLoginChoice,
+} from "../plugins/provider-login-options.js";
 import { createLazyRuntimeMethodBinder, createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import type { OpenClawConfig } from "./config-contracts.js";
 import type { RuntimeEnv } from "./runtime-env.js";
@@ -14,27 +19,43 @@ export type {
   ModelsAuthLoginFlowOptions,
   ModelsAuthLoginFlowResult,
 } from "../commands/models/auth.js";
+export type { ProviderChannelLoginChoice } from "../plugins/provider-login-options.js";
 
 type ProviderAuthLoginFlowRuntime = typeof import("../commands/models/auth.js");
 type RunModelsAuthLoginFlow = (opts: ModelsAuthLoginFlowOptions) => Promise<unknown>;
 
-const CODEX_LOGIN_PROVIDER = "openai";
-const CODEX_LOGIN_METHOD = "device-code";
-const CODEX_LOGIN_FLOW_TTL_MS = 15 * 60_000;
+export type ProviderLoginSessionEntry = {
+  sessionId: string;
+  authProfileOverride?: string;
+  authProfileOverrideSource?: "auto" | "user";
+  authProfileOverrideCompactionCount?: number;
+};
 
-const CODEX_LOGIN_PROVIDER_ALIASES = new Set(["codex", "openai"]);
+export type ProviderLoginSessionAdoption =
+  | { status: "unchanged" }
+  | {
+      status: "patch";
+      patch: {
+        authProfileOverride: string;
+        authProfileOverrideSource: "user";
+        authProfileOverrideCompactionCount: undefined;
+      };
+    }
+  | { status: "rejected" };
 
-type CodexLoginFlowRecord = {
+const PROVIDER_LOGIN_FLOW_TTL_MS = 15 * 60_000;
+
+type ProviderLoginFlowRecord = {
   expiresAt: number;
   signal: AbortSignal;
   cancel: () => void;
 };
 
-type CodexLoginFlowReservation =
+type ProviderLoginFlowReservation =
   | { status: "active" }
-  | { status: "reserved"; record: CodexLoginFlowRecord };
+  | { status: "reserved"; record: ProviderLoginFlowRecord };
 
-function createCodexLoginFlowRegistry(): Map<string, CodexLoginFlowRecord> {
+function createProviderLoginFlowRegistry(): Map<string, ProviderLoginFlowRecord> {
   return new Map();
 }
 
@@ -48,38 +69,79 @@ const bindProviderAuthLoginFlowRuntime = createLazyRuntimeMethodBinder(
 export const runModelsAuthLoginFlow: ProviderAuthLoginFlowRuntime["runModelsAuthLoginFlowCore"] =
   bindProviderAuthLoginFlowRuntime((runtime) => runtime.runModelsAuthLoginFlowCore);
 
-function resolveCodexLoginProvider(rawProvider: string | undefined): string | null {
-  const normalized = normalizeLowercaseStringOrEmpty(rawProvider ?? "codex").replace(/_/gu, "-");
-  if (!normalized) {
-    return CODEX_LOGIN_PROVIDER;
-  }
-  return CODEX_LOGIN_PROVIDER_ALIASES.has(normalized) ? CODEX_LOGIN_PROVIDER : null;
-}
-
 function hasConfiguredCommandOwnerAllowlist(cfg: OpenClawConfig): boolean {
   const owners = cfg.commands?.ownerAllowFrom;
   return Array.isArray(owners) && owners.some((owner) => normalizeOptionalString(String(owner)));
 }
 
-function resolveProviderScopedProfileId(
-  authProfileOverride: string | undefined,
-  provider: string,
-): string | undefined {
-  const profileId = normalizeOptionalString(authProfileOverride);
-  if (!profileId) {
-    return undefined;
-  }
-  const providerPrefix = `${normalizeLowercaseStringOrEmpty(provider)}:`;
-  return normalizeLowercaseStringOrEmpty(profileId).startsWith(providerPrefix)
-    ? profileId
-    : undefined;
+function matchesLoginSnapshot(
+  current: ProviderLoginSessionEntry,
+  snapshot: ProviderLoginSessionEntry,
+): boolean {
+  return (
+    current.sessionId === snapshot.sessionId &&
+    current.authProfileOverride === snapshot.authProfileOverride &&
+    current.authProfileOverrideSource === snapshot.authProfileOverrideSource &&
+    current.authProfileOverrideCompactionCount === snapshot.authProfileOverrideCompactionCount
+  );
 }
 
-function reserveCodexLoginFlow(params: {
-  flows: Map<string, CodexLoginFlowRecord>;
+/** Decide one session-profile adoption from the authoritative row read immediately before write. */
+export function decideProviderLoginSessionAdoption(params: {
+  currentModelProvider: string | undefined;
+  loginProvider: string;
+  nextProfileId: string | undefined;
+  snapshot: ProviderLoginSessionEntry | undefined;
+  current: ProviderLoginSessionEntry | undefined;
+}): ProviderLoginSessionAdoption {
+  if (!params.nextProfileId) {
+    return { status: "rejected" };
+  }
+  if (
+    !params.currentModelProvider ||
+    normalizeLowercaseStringOrEmpty(params.currentModelProvider) !==
+      normalizeLowercaseStringOrEmpty(params.loginProvider) ||
+    !params.current
+  ) {
+    return { status: "unchanged" };
+  }
+  if (params.snapshot) {
+    if (!matchesLoginSnapshot(params.current, params.snapshot)) {
+      return { status: "rejected" };
+    }
+  } else {
+    const source =
+      params.current.authProfileOverrideSource ??
+      (typeof params.current.authProfileOverrideCompactionCount === "number"
+        ? "auto"
+        : params.current.authProfileOverride
+          ? "user"
+          : undefined);
+    if (source === "user" && params.current.authProfileOverride !== params.nextProfileId) {
+      return { status: "rejected" };
+    }
+  }
+  const needsPatch =
+    params.current.authProfileOverride !== params.nextProfileId ||
+    params.current.authProfileOverrideSource !== "user" ||
+    params.current.authProfileOverrideCompactionCount !== undefined;
+  return needsPatch
+    ? {
+        status: "patch",
+        patch: {
+          authProfileOverride: params.nextProfileId,
+          authProfileOverrideSource: "user",
+          authProfileOverrideCompactionCount: undefined,
+        },
+      }
+    : { status: "unchanged" };
+}
+
+function reserveProviderLoginFlow(params: {
+  flows: Map<string, ProviderLoginFlowRecord>;
   flowKey: string;
   now?: number;
-}): CodexLoginFlowReservation {
+}): ProviderLoginFlowReservation {
   const now = params.now ?? Date.now();
   const activeFlow = params.flows.get(params.flowKey);
   if (activeFlow && activeFlow.expiresAt > now) {
@@ -91,25 +153,25 @@ function reserveCodexLoginFlow(params: {
   }
   const abortController = new AbortController();
   const record = {
-    expiresAt: now + CODEX_LOGIN_FLOW_TTL_MS,
+    expiresAt: now + PROVIDER_LOGIN_FLOW_TTL_MS,
     signal: abortController.signal,
-    cancel: () => abortController.abort(new Error("Codex login was replaced by a newer flow.")),
+    cancel: () => abortController.abort(new Error("Provider login was replaced by a newer flow.")),
   };
   params.flows.set(params.flowKey, record);
   return { status: "reserved", record };
 }
 
-function releaseCodexLoginFlow(params: {
-  flows: Map<string, CodexLoginFlowRecord>;
+function releaseProviderLoginFlow(params: {
+  flows: Map<string, ProviderLoginFlowRecord>;
   flowKey: string;
-  record: CodexLoginFlowRecord;
+  record: ProviderLoginFlowRecord;
 }): void {
   if (params.flows.get(params.flowKey) === params.record) {
     params.flows.delete(params.flowKey);
   }
 }
 
-function buildCodexDeviceLoginPrompter(params: {
+function buildProviderChannelLoginPrompter(params: {
   sendMessage: (message: string) => Promise<void>;
   sendDeviceCode?: NonNullable<ModelsAuthLoginFlowOptions["prompter"]["deviceCode"]>;
   signal?: AbortSignal;
@@ -125,6 +187,7 @@ function buildCodexDeviceLoginPrompter(params: {
   };
   const sendDeviceCode = params.sendDeviceCode;
   const unsupportedPrompt = async () => {
+    await sendCleanMessage(params.unsupportedPromptMessage);
     throw new Error(params.unsupportedPromptMessage);
   };
   return {
@@ -199,8 +262,8 @@ function parseModelsAuthLoginFlowResult(value: unknown): ModelsAuthLoginFlowResu
   };
 }
 
-async function runCodexDeviceLoginFlow(params: {
-  provider: string;
+async function runProviderChannelLoginFlow(params: {
+  choice: ProviderChannelLoginChoice;
   agentId: string;
   profileId?: string;
   config: OpenClawConfig;
@@ -212,14 +275,14 @@ async function runCodexDeviceLoginFlow(params: {
   runLoginFlow?: RunModelsAuthLoginFlow;
 }): Promise<ModelsAuthLoginFlowResult> {
   const result = await (params.runLoginFlow ?? runModelsAuthLoginFlow)({
-    provider: params.provider,
-    method: CODEX_LOGIN_METHOD,
+    provider: params.choice.providerId,
+    method: params.choice.methodId,
     agent: params.agentId,
     ...(params.profileId ? { profileId: params.profileId } : {}),
     config: params.config,
     runtime: params.runtime,
     signal: params.signal,
-    prompter: buildCodexDeviceLoginPrompter({
+    prompter: buildProviderChannelLoginPrompter({
       sendMessage: params.sendMessage,
       sendDeviceCode: params.sendDeviceCode,
       signal: params.signal,
@@ -231,12 +294,40 @@ async function runCodexDeviceLoginFlow(params: {
   return parseModelsAuthLoginFlowResult(result);
 }
 
-export const codexChannelLoginRuntime = {
-  createFlowRegistry: createCodexLoginFlowRegistry,
-  resolveProvider: resolveCodexLoginProvider,
+function formatProviderLoginCommand(choice: ProviderChannelLoginChoice): string {
+  return `/login ${choice.command}`;
+}
+
+function formatProviderLoginComplete(choice: ProviderChannelLoginChoice): string {
+  return `${choice.providerLabel} login complete. Try your request again now.`;
+}
+
+function formatProviderLoginSessionSwitchFailed(
+  choice: ProviderChannelLoginChoice,
+  sessionLabel = "session",
+): string {
+  return `${choice.providerLabel} login completed, but this ${sessionLabel} could not switch to the newly authenticated profile. Retry \`${formatProviderLoginCommand(choice)}\`, or select the profile manually.`;
+}
+
+function formatProviderLoginFailed(choice: ProviderChannelLoginChoice): string {
+  return `${choice.providerLabel} login did not complete. Send \`${formatProviderLoginCommand(choice)}\` to try again.`;
+}
+
+function formatProviderLoginChoices(choices: ProviderChannelLoginChoice[]): string {
+  return choices.map((choice) => `\`${formatProviderLoginCommand(choice)}\``).join(", ");
+}
+
+export const providerChannelLoginRuntime = {
+  createFlowRegistry: createProviderLoginFlowRegistry,
+  listChoices: listProviderChannelLoginChoices,
+  resolveChoice: resolveProviderChannelLoginChoice,
   hasConfiguredCommandOwnerAllowlist,
-  resolveProviderScopedProfileId,
-  reserveFlow: reserveCodexLoginFlow,
-  releaseFlow: releaseCodexLoginFlow,
-  runDeviceLoginFlow: runCodexDeviceLoginFlow,
+  reserveFlow: reserveProviderLoginFlow,
+  releaseFlow: releaseProviderLoginFlow,
+  runLoginFlow: runProviderChannelLoginFlow,
+  formatCommand: formatProviderLoginCommand,
+  formatComplete: formatProviderLoginComplete,
+  formatSessionSwitchFailed: formatProviderLoginSessionSwitchFailed,
+  formatFailed: formatProviderLoginFailed,
+  formatChoices: formatProviderLoginChoices,
 };

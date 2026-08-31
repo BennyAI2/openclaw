@@ -1,4 +1,4 @@
-// Tests Telegram native Codex login command behavior.
+// Tests Telegram native provider login command behavior.
 import {
   createEmptyPluginRegistry,
   withPluginRuntimeRegistryScope,
@@ -171,7 +171,7 @@ describe("registerTelegramNativeCommands /login", () => {
     const registeredCommands = setMyCommands.mock.calls[0]?.[0];
     expect(registeredCommands).toContainEqual({
       command: "login",
-      description: "Pair Codex login.",
+      description: "Sign in to a model provider.",
     });
 
     await handler(createPrivateCommandContext({ match: "codex", userId: 200 }));
@@ -183,7 +183,48 @@ describe("registerTelegramNativeCommands /login", () => {
     expect(texts[0]).toContain("Code: <code>ABCD-EFGH</code>");
     expect(texts[0]).toContain("Never share it.");
     expect(sendMessage.mock.calls[0]?.[2]).toEqual(expect.objectContaining({ parse_mode: "HTML" }));
-    expect(texts.at(-1)).toContain("Codex login complete. Try your request again now.");
+    expect(texts.at(-1)).toContain("OpenAI login complete. Try your request again now.");
+  });
+
+  it("handles /login xai with the same tap-to-copy device-code flow", async () => {
+    const loginFlow = vi.fn(async (params: ModelsAuthLoginFlowOptions) => {
+      await params.prompter.deviceCode?.({
+        title: "xAI OAuth",
+        code: "XAI-ABCD",
+        expiresInMinutes: 10,
+        message:
+          "Open this URL in your LOCAL browser and enter the code below.\nURL: https://accounts.x.ai/oauth2/device",
+      });
+      return {
+        providerId: "xai",
+        methodId: "oauth",
+        profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+      };
+    });
+    const { handler, sendMessage } = registerLoginCommand({
+      cfg: {
+        commands: { native: true, ownerAllowFrom: ["200"] },
+        agents: {
+          defaults: { model: { primary: "xai/grok-4" } },
+          list: [{ id: "main", default: true }],
+        },
+      } as OpenClawConfig,
+      loginFlow,
+    });
+
+    await handler(createPrivateCommandContext({ match: "xai", userId: 200 }));
+
+    expect(loginFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "xai", method: "oauth", agent: "main" }),
+    );
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain("Code: <code>XAI-ABCD</code>");
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain(
+      "URL: https://accounts.x.ai/oauth2/device",
+    );
+    expect(String(sendMessage.mock.calls[1]?.[1])).toBe(
+      "xAI (Grok) login complete. Try your request again now.",
+    );
   });
 
   it("releases the chat lane only after structured device-code delivery", async () => {
@@ -241,14 +282,14 @@ describe("registerTelegramNativeCommands /login", () => {
       expect.objectContaining({ parse_mode: "HTML" }),
     );
     expect(sendMessage.mock.calls.map((call) => String(call[1]))).not.toContain(
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
     );
 
     finishLogin.resolve();
     await vi.waitFor(() => expect(loginCompleted).toBe(true));
     await vi.waitFor(() =>
       expect(sendMessage.mock.calls.map((call) => String(call[1]))).toContain(
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
       ),
     );
   });
@@ -289,7 +330,7 @@ describe("registerTelegramNativeCommands /login", () => {
         date: Math.floor(Date.now() / 1000),
         chat: { id: 100, type: "private" as const, first_name: "Owner" },
         reply_markup: {
-          inline_keyboard: [[{ text: "Log in to Codex", callback_data: "tgcmd:/login codex" }]],
+          inline_keyboard: [[{ text: "Sign in to OpenAI", callback_data: "tgcmd:/login codex" }]],
         },
       },
     };
@@ -309,13 +350,13 @@ describe("registerTelegramNativeCommands /login", () => {
       expect.objectContaining({ parse_mode: "HTML" }),
     );
     expect(sendMessage.mock.calls.map((call) => String(call[1]))).not.toContain(
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
     );
 
     finishLogin.resolve();
     await vi.waitFor(() =>
       expect(sendMessage.mock.calls.map((call) => String(call[1]))).toContain(
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
       ),
     );
   });
@@ -346,7 +387,7 @@ describe("registerTelegramNativeCommands /login", () => {
     expect(loginFlow).not.toHaveBeenCalled();
     const texts = sendMessage.mock.calls.map((call) => String(call[1]));
     expect(texts).toContain(
-      "For safety, Codex login codes are only sent in a private chat with this bot. DM this bot `/login codex` to pair Codex.",
+      "For safety, provider login codes are only sent in a private chat with this bot. DM this bot `/login codex` to sign in.",
     );
     expect(texts.join("\n")).not.toContain("SECRET");
     expect(texts.join("\n")).not.toContain("https://auth.openai.com/codex/device");
@@ -373,7 +414,7 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(loginFlow).not.toHaveBeenCalled();
     expect(sendMessage.mock.calls.map((call) => String(call[1]))).toContain(
-      "Only a configured OpenClaw owner can start Codex login from Telegram.",
+      "Only a configured OpenClaw owner can start provider login from Telegram.",
     );
   });
 
@@ -409,13 +450,13 @@ describe("registerTelegramNativeCommands /login", () => {
     deferred.resolve();
     await vi.waitFor(() =>
       expect(sendMessage.mock.calls.map((call) => String(call[1]))).toContain(
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
       ),
     );
 
     expect(loginFlow).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls.map((call) => String(call[1]))).toContain(
-      "A Codex login code is already active for this Telegram chat. Complete it, or wait for it to expire before requesting a new one.",
+      "OpenAI login is already active for this Telegram chat. Complete it, or wait for it to expire before requesting a new one.",
     );
   });
 
@@ -437,8 +478,7 @@ describe("registerTelegramNativeCommands /login", () => {
     expect(loginFlow).toHaveBeenCalledTimes(2);
     expect(
       sendMessage.mock.calls.filter(
-        (call) =>
-          call[1] === "Codex login did not complete. Send `/login codex` to request a new code.",
+        (call) => call[1] === "OpenAI login did not complete. Send `/login codex` to try again.",
       ),
     ).toHaveLength(2);
   });
@@ -473,7 +513,7 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(sendMessage.mock.calls.map((call) => String(call[1]))).not.toContain(
-      "Codex login did not complete. Send `/login codex` to request a new code.",
+      "OpenAI login did not complete. Send `/login codex` to try again.",
     );
   });
 
@@ -555,7 +595,7 @@ describe("registerTelegramNativeCommands /login", () => {
     await vi.waitFor(() =>
       expect(sendMessageTelegram).toHaveBeenCalledWith(
         "telegram:100",
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
         expect.objectContaining({ accountId, token: "token" }),
       ),
     );
@@ -636,7 +676,7 @@ describe("registerTelegramNativeCommands /login", () => {
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
         100,
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
         {},
       ),
     );
@@ -699,7 +739,7 @@ describe("registerTelegramNativeCommands /login", () => {
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
         100,
-        "Codex login complete. Try your request again now.",
+        "OpenAI login complete. Try your request again now.",
         {},
       ),
     );
@@ -744,14 +784,14 @@ describe("registerTelegramNativeCommands /login", () => {
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
         100,
-        "Codex login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+        "OpenAI login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
         {},
       ),
     );
     expect(sessionStore["agent:main:main"]?.authProfileOverride).toBe("openai:later-user-profile");
     expect(sendMessage).not.toHaveBeenCalledWith(
       100,
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
       expect.any(Object),
     );
   });
@@ -838,12 +878,12 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       100,
-      "Codex login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
       {},
     );
     expect(sendMessage).not.toHaveBeenCalledWith(
       100,
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
       expect.any(Object),
     );
   });
@@ -867,12 +907,12 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       100,
-      "Codex login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
       {},
     );
     expect(sendMessage).not.toHaveBeenCalledWith(
       100,
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
       expect.any(Object),
     );
   });
@@ -914,12 +954,12 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       100,
-      "Codex login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
+      "OpenAI login completed, but this Telegram session could not switch to the newly authenticated profile. Retry `/login codex`, or select the profile manually.",
       {},
     );
     expect(sendMessage).not.toHaveBeenCalledWith(
       100,
-      "Codex login complete. Try your request again now.",
+      "OpenAI login complete. Try your request again now.",
       expect.any(Object),
     );
   });

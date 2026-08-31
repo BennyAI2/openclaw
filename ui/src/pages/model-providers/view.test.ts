@@ -16,6 +16,7 @@ function card(overrides: Partial<ModelProviderCard> = {}): ModelProviderCard {
     profiles: [],
     credentialProviderIds: ["openai"],
     logoutTargets: [],
+    loginOptions: [],
     hasConfigApiKey: false,
     modelCount: 1,
     availableModelCount: 1,
@@ -55,6 +56,7 @@ function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProviders
     keyEditorProvider: null,
     keyDraft: "",
     pendingLogoutProvider: null,
+    providerLoginBusy: false,
     addProviderOpen: false,
     addProviderId: "",
     addProviderKey: "",
@@ -68,6 +70,7 @@ function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProviders
     onRequestLogout: () => undefined,
     onCancelLogout: () => undefined,
     onLogout: () => undefined,
+    onLogin: () => undefined,
     onAddProviderToggle: () => undefined,
     onAddProviderIdChange: () => undefined,
     onAddProviderKeyChange: () => undefined,
@@ -1041,5 +1044,28 @@ describe("renderModelProviders", () => {
       }),
     );
     expect(button(container, "Set API key")).toBeUndefined();
+  });
+
+  it("starts provider-owned login from an unconfigured card", () => {
+    const onLogin = vi.fn();
+    const loginOption = { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" } as const;
+    const container = mount(
+      props({
+        cards: [
+          card({
+            id: "xai",
+            displayName: "xAI",
+            profiles: [],
+            apiKey: undefined,
+            loginOptions: [loginOption],
+          }),
+        ],
+        onLogin,
+      }),
+    );
+
+    button(container, "Sign in with xAI OAuth")?.click();
+
+    expect(onLogin).toHaveBeenCalledWith("xai", loginOption);
   });
 });

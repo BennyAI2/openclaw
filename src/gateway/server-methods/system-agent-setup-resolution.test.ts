@@ -12,6 +12,7 @@ import { buildPluginCapabilityConsentReview } from "../../plugins/capability-sum
 import { resetCommandQueueStateForTest } from "../../process/command-queue.test-support.js";
 import { createPluginCapabilityConsentPrompter } from "../../wizard/plugin-capability-consent.js";
 import { WizardSession } from "../../wizard/session.js";
+import { handlers as modelsAuthLoginHandlers } from "./models-auth-login.js";
 import { whenAdmittedWizardSessionSettled } from "./setup-admission.js";
 import { systemAgentHandlers } from "./system-agent.js";
 import type { GatewayRequestContext } from "./types.js";
@@ -25,6 +26,12 @@ const setupSharedMocks = vi.hoisted(() => ({
   readSetupConfigFileSnapshot: vi.fn(),
   writeWizardConfigFile: vi.fn(),
 }));
+const modelsAuthLoginMocks = vi.hoisted(() => ({
+  runModelsAuthLoginFlowCore: vi.fn(),
+  resolveManifestProviderAuthChoice: vi.fn(),
+  resolveManifestProviderAuthChoices: vi.fn(() => []),
+  refreshModelAuthStateAfterMutation: vi.fn(async () => undefined),
+}));
 
 vi.mock("../../system-agent/setup-inference.js", () => ({
   activateSetupInference: setupInferenceMocks.activateSetupInference,
@@ -35,6 +42,16 @@ vi.mock("../../plugins/provider-auth-choice.js", () => ({
 vi.mock("../../wizard/setup.shared.js", () => ({
   readSetupConfigFileSnapshot: setupSharedMocks.readSetupConfigFileSnapshot,
   writeWizardConfigFile: setupSharedMocks.writeWizardConfigFile,
+}));
+vi.mock("../../commands/models/auth.js", () => ({
+  runModelsAuthLoginFlowCore: modelsAuthLoginMocks.runModelsAuthLoginFlowCore,
+}));
+vi.mock("../../plugins/provider-auth-choices.js", () => ({
+  resolveManifestProviderAuthChoice: modelsAuthLoginMocks.resolveManifestProviderAuthChoice,
+  resolveManifestProviderAuthChoices: modelsAuthLoginMocks.resolveManifestProviderAuthChoices,
+}));
+vi.mock("./models-auth-status.js", () => ({
+  refreshModelAuthStateAfterMutation: modelsAuthLoginMocks.refreshModelAuthStateAfterMutation,
 }));
 
 const config: OpenClawConfig = {
@@ -50,6 +67,7 @@ function makeContext() {
       wizardSessions,
       findRunningWizard: () => undefined,
       purgeWizardSession: (id: string) => wizardSessions.delete(id),
+      getRuntimeConfig: () => config,
     } as unknown as GatewayRequestContext,
   };
 }
@@ -480,5 +498,99 @@ describe("openclaw.setup provider resolution", () => {
       baseSnapshot: expect.objectContaining({ hash: "setup-resolution-config" }),
       baseHash: "setup-resolution-config",
     });
+  });
+});
+
+describe("models.authLogin.start", () => {
+  beforeEach(() => {
+    modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValue({
+      pluginId: "xai",
+      providerId: "xai",
+      methodId: "oauth",
+      choiceId: "xai-oauth",
+      choiceLabel: "xAI OAuth",
+      appGuidedAuth: "device-code",
+    });
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+    resetCommandQueueStateForTest();
+  });
+
+  it("runs credential-only provider auth through the shared wizard", async () => {
+    modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
+      await options.prompter.deviceCode?.({
+        title: "xAI OAuth",
+        code: "XAI-CODE",
+        message: "URL: https://accounts.x.ai/device",
+      });
+      await options.beforePersistentEffect?.();
+      await options.refreshAuthState?.("research");
+      return {
+        providerId: "xai",
+        methodId: "oauth",
+        defaultModel: "xai/grok-4",
+        profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+      };
+    });
+    const { wizardSessions, context } = makeContext();
+    const { calls, respond } = makeRespond();
+
+    await expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "provider-login", agentId: "research", authChoice: "xai-oauth" },
+      respond,
+      context,
+    } as never);
+
+    expect(calls[0]).toMatchObject({
+      ok: true,
+      payload: { sessionId: "provider-login", done: false, status: "running" },
+    });
+    const session = expectDefined(wizardSessions.get("provider-login"), "provider login session");
+    const deviceCode = await callWizardNext(context, { sessionId: "provider-login" });
+    expect(deviceCode).toMatchObject({
+      done: false,
+      step: { type: "note", title: "xAI OAuth", deviceCode: { code: "XAI-CODE" } },
+    });
+    const done = await callWizardNext(context, {
+      sessionId: "provider-login",
+      answer: { stepId: expectDefined(deviceCode.step, "device code step").id, value: null },
+    });
+
+    expect(done).toEqual({ done: true, status: "done" });
+    const loginOptions = modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mock.calls[0]?.[0];
+    expect(loginOptions).toMatchObject({ provider: "xai", method: "oauth", agent: "research" });
+    expect(loginOptions).not.toHaveProperty("setDefault");
+    expect(modelsAuthLoginMocks.refreshModelAuthStateAfterMutation).toHaveBeenCalledWith(
+      context,
+      "login",
+    );
+    expect(session.cancel()).toBe(false);
+  });
+
+  it("rejects a stale provider choice before starting a wizard", async () => {
+    modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValueOnce(undefined);
+    const { wizardSessions, context } = makeContext();
+    const { calls, respond } = makeRespond();
+
+    await expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "stale-login", authChoice: "removed-provider" },
+      respond,
+      context,
+    } as never);
+
+    expect(calls[0]).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("Refresh Models") },
+    });
+    expect(wizardSessions.size).toBe(0);
+    expect(modelsAuthLoginMocks.runModelsAuthLoginFlowCore).not.toHaveBeenCalled();
   });
 });

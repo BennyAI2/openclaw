@@ -33,12 +33,14 @@ import {
   type DefaultModelSelection,
   type ModelProviderLogoutTarget,
 } from "./data.ts";
+import { updateModelProviderKeyedState } from "./keyed-state.ts";
 import {
   EMPTY_MODEL_PROVIDERS_DATA,
   loadModelProvidersData,
   MODEL_PROVIDERS_COST_DAYS,
   type ModelProvidersData,
 } from "./load.ts";
+import { ModelProviderLoginController } from "./login-controller.ts";
 import { readModelBehaviorConfig, type ModelBehaviorConfig } from "./model-behavior.ts";
 import {
   buildDefaultsPatch,
@@ -159,6 +161,13 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       () => this.context?.agentSelection,
       (selection) => selection.subscribe(() => this.syncSelectedAgent()),
     );
+  private readonly providerLogin = new ModelProviderLoginController(this, {
+    getClient: () => this.gateway.client,
+    getAgentId: () => this.selectedAgentId || null,
+    canStart: () => this.canMutate(),
+    refresh: () => this.refresh({ force: true }),
+    setMessage: (key, message) => this.setMessage(key, message),
+  });
 
   override disconnectedCallback() {
     this.subscriptions.clear();
@@ -232,6 +241,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   }
 
   private resetAgentScopeState() {
+    this.providerLogin.reset();
     this.busy = {};
     this.messages = {};
     this.probeResults = {};
@@ -323,23 +333,11 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   }
 
   private setBusy(key: string, value: boolean) {
-    const next = { ...this.busy };
-    if (value) {
-      next[key] = true;
-    } else {
-      delete next[key];
-    }
-    this.busy = next;
+    this.busy = updateModelProviderKeyedState(this.busy, key, value || undefined);
   }
 
   private setMessage(key: string, message: ModelProviderRowMessage | null) {
-    const next = { ...this.messages };
-    if (message) {
-      next[key] = message;
-    } else {
-      delete next[key];
-    }
-    this.messages = next;
+    this.messages = updateModelProviderKeyedState(this.messages, key, message ?? undefined);
   }
 
   private clearProbe(provider: string) {
@@ -669,6 +667,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       keyEditorProvider: this.keyEditorProvider,
       keyDraft: this.keyDraft,
       pendingLogoutProvider: this.pendingLogoutProvider,
+      providerLoginBusy: this.providerLogin.busy,
       addProviderOpen: this.addProviderOpen,
       addProviderId: this.addProviderId,
       addProviderKey: this.addProviderKey,
@@ -683,6 +682,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       onRequestLogout: (provider) => (this.pendingLogoutProvider = provider),
       onCancelLogout: () => (this.pendingLogoutProvider = null),
       onLogout: (cardId, providers) => void this.logout(cardId, providers),
+      onLogin: (cardId, option) => this.providerLogin.start(cardId, option),
       onAddProviderToggle: () => {
         this.addProviderOpen = !this.addProviderOpen;
         this.addProviderKey = "";
@@ -731,7 +731,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
           </button>
         `,
       })}
-      ${renderSettingsWorkspace(body)}
+      ${renderSettingsWorkspace(body)} ${this.providerLogin.render()}
     `;
   }
 }

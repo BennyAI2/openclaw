@@ -227,6 +227,12 @@ describe("commands registry", () => {
     expect(command.textAliases).toEqual(["/login"]);
     expect(command.nativeName).toBe("login");
     expect(command.nativeProviders).toEqual(["discord", "slack", "telegram"]);
+    expect(command.args?.[0]?.choices).toEqual([
+      { value: "codex", label: "ChatGPT Device Pairing" },
+      { value: "minimax-cn-oauth", label: "MiniMax OAuth (CN)" },
+      { value: "minimax-global-oauth", label: "MiniMax OAuth (Global)" },
+      { value: "xai", label: "xAI OAuth" },
+    ]);
 
     expect(nativeNameSet(listNativeCommandSpecs()).has("login")).toBe(false);
     for (const provider of ["discord", "slack"] as const) {
