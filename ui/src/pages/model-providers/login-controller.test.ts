@@ -7,6 +7,10 @@ describe("ModelProviderLoginController", () => {
   it("cancels an admitted Gateway wizard on reset before another login starts", async () => {
     let runningSessionId: string | null = null;
     let starts = 0;
+    let confirmRelease!: () => void;
+    const releaseConfirmed = new Promise<void>((resolve) => {
+      confirmRelease = resolve;
+    });
     const request = vi.fn(
       async (method: string, params?: { sessionId?: string }): Promise<unknown> => {
         if (method === "models.authLogin.start") {
@@ -34,6 +38,11 @@ describe("ModelProviderLoginController", () => {
         }
         if (method === "wizard.cancel") {
           expect(params?.sessionId).toBe(runningSessionId);
+          return { status: "cancelled" };
+        }
+        if (method === "wizard.status") {
+          expect(params?.sessionId).toBe(runningSessionId);
+          await releaseConfirmed;
           runningSessionId = null;
           return { status: "cancelled" };
         }
@@ -45,8 +54,9 @@ describe("ModelProviderLoginController", () => {
       requestUpdate: vi.fn(),
     } as unknown as ReactiveControllerHost;
     const refresh = vi.fn(async () => undefined);
+    const client = { request } as unknown as GatewayBrowserClient;
     const controller = new ModelProviderLoginController(host, {
-      getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+      getClient: () => client,
       getAgentId: () => "main",
       canStart: () => true,
       refresh,
@@ -67,8 +77,20 @@ describe("ModelProviderLoginController", () => {
         { timeoutMs: 30_000 },
       ),
     );
-    expect(runningSessionId).toBeNull();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "wizard.status",
+        { sessionId: expect.any(String) },
+        { timeoutMs: 30_000 },
+      ),
+    );
+    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    await Promise.resolve();
+    expect(starts).toBe(1);
+    expect(controller.busy).toBe(true);
 
+    confirmRelease();
+    await vi.waitFor(() => expect(controller.busy).toBe(false));
     controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
     await vi.waitFor(() => expect(starts).toBe(2));
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
