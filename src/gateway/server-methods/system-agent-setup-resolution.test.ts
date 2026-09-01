@@ -591,6 +591,7 @@ describe("models.authLogin.start", () => {
       provider: "xai",
       method: "oauth",
       ownerPluginId: "xai",
+      credentialOnly: true,
       agent: "research",
     });
     expect(loginOptions).not.toHaveProperty("setDefault");

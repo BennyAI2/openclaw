@@ -20,6 +20,7 @@ const PROBE_KEY = Symbol.for("openclaw.test.providerLoginOwnerCollision");
 
 type CollisionProbe = {
   selectedAuthRuns: number;
+  selectedAuthRelease: Promise<void>;
   workspaceAuthRuns: number;
   workspaceModuleLoads: number;
 };
@@ -87,8 +88,9 @@ export default {
             code: ${JSON.stringify(params.selected ? "SELECTED-CODE" : "WORKSPACE-CODE")},
             message: "https://example.invalid/device",
           });
+          ${params.selected ? "await probe.selectedAuthRelease;" : ""}
           return {
-            ${params.selected ? 'configPatch: { agents: { defaults: { model: "collision-provider/default" } } },' : ""}
+            ${params.selected ? 'configPatch: { agents: { defaults: { model: "collision-provider/default" } }, messages: { responsePrefix: "provider-stale" } },' : ""}
             profiles: [{
               profileId: ${JSON.stringify(`${COLLISION_PROVIDER}:${profile}`)},
               credential: {
@@ -143,8 +145,13 @@ describe("models.authLogin.start owner binding", () => {
       const workspacePluginsDir = path.join(workspaceDir, ".openclaw", "extensions");
       const configPath = path.join(stateDir, "openclaw.json");
       const token = "provider-login-owner-proof";
+      let releaseSelectedAuth!: () => void;
+      const selectedAuthRelease = new Promise<void>((resolve) => {
+        releaseSelectedAuth = resolve;
+      });
       const probe: CollisionProbe = {
         selectedAuthRuns: 0,
+        selectedAuthRelease,
         workspaceAuthRuns: 0,
         workspaceModuleLoads: 0,
       };
@@ -211,6 +218,17 @@ describe("models.authLogin.start owner binding", () => {
           type: "note",
           deviceCode: { code: "SELECTED-CODE" },
         });
+        expect(probe).toMatchObject({
+          selectedAuthRuns: 1,
+          workspaceAuthRuns: 0,
+          workspaceModuleLoads: 0,
+        });
+        const liveConfig = await gateway.client.request<{ hash: string }>("config.get", {});
+        await gateway.client.request("config.patch", {
+          raw: JSON.stringify({ messages: { responsePrefix: "concurrent-edit" } }),
+          baseHash: liveConfig.hash,
+        });
+        releaseSelectedAuth();
         const completed = await gateway.client.request<WizardNextResult>("wizard.next", {
           sessionId: started.sessionId,
           answer: { stepId: deviceCode.step?.id ?? "", value: null },
@@ -218,16 +236,16 @@ describe("models.authLogin.start owner binding", () => {
         expect(completed).toMatchObject({ done: true, status: "done" });
 
         const store = loadAuthProfileStoreWithoutExternalProfiles(resolveAgentDir(cfg, "main"));
-        expect(probe).toEqual({
+        expect(probe).toMatchObject({
           selectedAuthRuns: 1,
           workspaceAuthRuns: 0,
-          workspaceModuleLoads: 0,
         });
         expect(Object.keys(store.profiles)).toContain("collision-provider:selected");
         expect(Object.keys(store.profiles)).not.toContain("collision-provider:workspace");
         const configAfterLogin = JSON.parse(await fs.readFile(configPath, "utf8"));
         expect(configAfterLogin.agents?.defaults?.model).toBeUndefined();
         expect(configAfterLogin.agents?.defaults?.workspace).toBe(workspaceDir);
+        expect(configAfterLogin.messages?.responsePrefix).toBe("concurrent-edit");
       } finally {
         if (gateway) {
           await disconnectGatewayClient(gateway.client);

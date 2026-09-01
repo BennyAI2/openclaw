@@ -145,6 +145,7 @@ describe("handleLoginCommand", () => {
         provider: "openai",
         method: "device-code",
         ownerPluginId: "openai",
+        credentialOnly: true,
         agent: "main",
         isRemote: true,
       }),
@@ -176,6 +177,7 @@ describe("handleLoginCommand", () => {
         provider: "xai",
         method: "oauth",
         ownerPluginId: "xai",
+        credentialOnly: true,
         isRemote: true,
       }),
     );

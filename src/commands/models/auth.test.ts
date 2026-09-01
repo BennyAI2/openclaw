@@ -1554,6 +1554,39 @@ describe("modelsAuthLoginCommand", () => {
     });
   });
 
+  it("keeps credential-only login from applying provider setup config", async () => {
+    currentConfig = { messages: { responsePrefix: "concurrent-edit" } };
+    runProviderAuth.mockResolvedValueOnce({
+      profiles: [
+        {
+          profileId: "openai:user@example.com",
+          credential: {
+            type: "oauth",
+            provider: "openai",
+            access: "access-token",
+            refresh: "refresh-token",
+            expires: Date.now() + 60_000,
+          },
+        },
+      ],
+      configPatch: { messages: { responsePrefix: "provider-stale" } },
+      defaultModel: "openai/gpt-5.5",
+    });
+
+    await runModelsAuthLoginFlowCore({
+      provider: "openai",
+      method: "oauth",
+      credentialOnly: true,
+      config: currentConfig,
+      runtime: createRuntime(),
+      prompter: mocks.createClackPrompter(),
+    });
+
+    expect(mocks.updateConfig).not.toHaveBeenCalled();
+    expect(currentConfig.messages?.responsePrefix).toBe("concurrent-edit");
+    expect(mocks.upsertAuthProfileAfterLoginWithLock).toHaveBeenCalledOnce();
+  });
+
   it("writes pasted Anthropic setup-tokens and logs the preference note", async () => {
     const runtime = createRuntime();
     mocks.clackPassword.mockResolvedValue(`sk-ant-oat01-${"a".repeat(80)}`);

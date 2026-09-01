@@ -54,6 +54,7 @@ export const handlers: GatewayRequestHandlers = {
           provider: choice.providerId,
           method: choice.methodId,
           ownerPluginId: choice.pluginId,
+          credentialOnly: true,
           ...(params.agentId ? { agent: params.agentId } : {}),
           config,
           runtime: {
