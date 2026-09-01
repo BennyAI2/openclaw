@@ -14,6 +14,30 @@ export type OwnedManagedUpdateContext = {
   pluginInstallRecords: Record<string, PluginInstallRecord>;
 };
 
+export type OwnedManagedUpdatePreflightContext = Pick<
+  OwnedManagedUpdateContext,
+  "env" | "configSnapshot"
+>;
+
+function resolveOwnedManagedUpdateContextEnv(params: {
+  stopState: PreManagedServiceStop | undefined;
+  processEnv?: NodeJS.ProcessEnv;
+  invocationCwd?: string;
+}): NodeJS.ProcessEnv | undefined {
+  const stopState = params.stopState;
+  if (stopState?.serviceUpdateVerdict?.kind !== "owned" || !stopState.serviceEnv) {
+    return undefined;
+  }
+  return stripGatewayServiceMarkerEnv(
+    resolveOwnedManagedUpdateEnv({
+      processEnv: params.processEnv,
+      serviceEnv: stopState.serviceEnv,
+      serviceDefinitionEnv: stopState.serviceDefinitionEnv,
+      invocationCwd: params.invocationCwd,
+    }),
+  );
+}
+
 /** Run one update phase under the stopped managed Gateway's authoritative environment. */
 export async function withOwnedManagedUpdateEnv<T>(
   env: NodeJS.ProcessEnv | undefined,
@@ -45,27 +69,35 @@ export async function captureOwnedManagedUpdateContext(params: {
   invocationCwd?: string;
 }): Promise<OwnedManagedUpdateContext | undefined> {
   const stopState = params.stopState;
-  if (
-    stopState?.stopped !== true ||
-    stopState.serviceUpdateVerdict?.kind !== "owned" ||
-    !stopState.serviceEnv
-  ) {
+  if (stopState?.stopped !== true) {
     return undefined;
   }
-  const env = stripGatewayServiceMarkerEnv(
-    resolveOwnedManagedUpdateEnv({
-      processEnv: params.processEnv,
-      serviceEnv: stopState.serviceEnv,
-      serviceDefinitionEnv: stopState.serviceDefinitionEnv,
-      invocationCwd: params.invocationCwd,
-    }),
-  );
-  // Every later schema, doctor, recovery, and restart step consumes serviceEnv. Promote the
-  // normalized owned environment before I/O so even capture failure recovery targets its owner.
+  const env = resolveOwnedManagedUpdateContextEnv(params);
+  if (!env) {
+    return undefined;
+  }
+  // Every later doctor, recovery, and restart step consumes serviceEnv. Promote the
+  // normalized owned environment before I/O so capture failure recovery targets its owner.
   stopState.serviceEnv = env;
   return await withOwnedManagedUpdateEnv(env, async () => {
     const configSnapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
     const pluginInstallRecords = await loadInstalledPluginIndexInstallRecords({ env });
     return { env, configSnapshot, pluginInstallRecords };
+  });
+}
+
+/** Read the owned Gateway's configuration without stopping or mutating its service. */
+export async function captureOwnedManagedUpdatePreflightContext(params: {
+  stopState: PreManagedServiceStop | undefined;
+  processEnv?: NodeJS.ProcessEnv;
+  invocationCwd?: string;
+}): Promise<OwnedManagedUpdatePreflightContext | undefined> {
+  const env = resolveOwnedManagedUpdateContextEnv(params);
+  if (!env) {
+    return undefined;
+  }
+  return await withOwnedManagedUpdateEnv(env, async () => {
+    const configSnapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
+    return { env, configSnapshot };
   });
 }

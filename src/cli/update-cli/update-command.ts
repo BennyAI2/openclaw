@@ -85,10 +85,7 @@ import {
   resolvePackageRuntimePreflight,
   type ManagedServiceRootRedirect,
 } from "./update-command-service-plan.js";
-import {
-  createAggregateErrorWithCause,
-  type UpdateCommandRecoveryState,
-} from "./update-command-service.js";
+import type { UpdateCommandRecoveryState } from "./update-command-service.js";
 import { withUpdateFailureTriage } from "./update-command-triage.js";
 
 const CLI_NAME = resolveCliName();
@@ -117,47 +114,51 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
     return;
   }
   recoveryState.triageTarget.root = prepared.discoveredRoot;
-  await withUpdateFailureTriage(opts, recoveryState.triageTarget, async () => {
-    await withUpdateInProgressEnv(invocationCwd, async () => {
-      let failure: { error: unknown } | undefined;
-      try {
-        await updateCommandInternal(opts, recoveryState, invocationCwd, prepared);
-      } catch (error) {
-        failure = { error };
-      }
-      try {
-        await recoveryState.windowsTaskAutoStartRecovery?.restore();
-      } catch (error) {
-        if (failure?.error instanceof UpdateCommandFailure) {
-          // A rejected restore promise can be observed again during unwinding.
-          // Keep the reported failure and never turn cleanup into safe-exit 80.
-          failure = {
-            error: new UpdateCommandFailure(
-              { ...failure.error.result, status: "error" },
-              1,
-              `${failure.error.message}; Windows autostart recovery: ${formatErrorMessage(error)}`,
-              { cause: error },
-            ),
-          };
-        } else {
-          failure = {
-            error: failure
-              ? createAggregateErrorWithCause(
-                  [failure.error, error],
-                  `Update failed (${formatErrorMessage(failure.error)}) and Windows autostart recovery failed (${formatErrorMessage(error)})`,
-                  failure.error,
-                )
-              : error,
-          };
+  await withUpdateFailureTriage(
+    { ...opts, invocationCwd },
+    recoveryState.triageTarget,
+    async () => {
+      await withUpdateInProgressEnv(invocationCwd, async () => {
+        let failure: { error: unknown } | undefined;
+        try {
+          await updateCommandInternal(opts, recoveryState, invocationCwd, prepared);
+        } catch (error) {
+          failure = { error };
         }
-      } finally {
-        recoveryState.windowsTaskAutoStartRecovery?.complete();
-      }
-      if (failure) {
-        throw failure.error;
-      }
-    });
-  });
+        try {
+          await recoveryState.windowsTaskAutoStartRecovery?.restore();
+        } catch (error) {
+          if (failure?.error instanceof UpdateCommandFailure) {
+            // A rejected restore promise can be observed again during unwinding.
+            // Keep the reported failure and never turn cleanup into safe-exit 80.
+            failure = {
+              error: new UpdateCommandFailure(
+                { ...failure.error.result, status: "error" },
+                1,
+                `${failure.error.message}; Windows autostart recovery: ${formatErrorMessage(error)}`,
+                { cause: error },
+              ),
+            };
+          } else {
+            failure = {
+              error: failure
+                ? new AggregateError(
+                    [failure.error, error],
+                    `Update failed (${formatErrorMessage(failure.error)}) and Windows autostart recovery failed (${formatErrorMessage(error)})`,
+                    { cause: failure.error },
+                  )
+                : error,
+            };
+          }
+        } finally {
+          recoveryState.windowsTaskAutoStartRecovery?.complete();
+        }
+        if (failure) {
+          throw failure.error;
+        }
+      });
+    },
+  );
 }
 
 async function prepareUpdateCommand(opts: UpdateCommandOptions) {
@@ -638,16 +639,6 @@ async function updateCommandInternal(
   // Preload execution and recovery before the package swap can remove these chunks.
   const { executeMutableUpdate, finishUpdate } = await import("./update-execution.runtime.js");
 
-  // Cleanup deletes handoff directories, so previews and rejected invocations must never run it.
-  await cleanupStaleManagedServiceUpdateHandoffs().catch(() => undefined);
-
-  // Startup migrations belong to the freshly installed Doctor. Admit shared-state
-  // mutation only after every pre-install refusal has passed.
-  await assertOpenClawStateWriteAllowedAtPath({
-    databasePath: resolveOpenClawStateSqlitePath(process.env),
-  });
-  await disableCurrentOpenClawUpdateLaunchdJob().catch(() => undefined);
-
   const showProgress = !opts.json;
   if (!opts.json) {
     defaultRuntime.log(theme.heading("Updating OpenClaw..."));
@@ -656,6 +647,20 @@ async function updateCommandInternal(
 
   const { progress, stop } = createUpdateProgress(showProgress);
   const preUpdatePluginInstallRecords = await loadInstalledPluginIndexInstallRecords();
+  let mutableUpdatePrepared = false;
+  const prepareMutableUpdate = async () => {
+    if (mutableUpdatePrepared) {
+      return;
+    }
+    // These operations can delete handoffs, touch shared state, or disable a service job.
+    // Defer them until the exact package/Git target and every owned database have passed.
+    await cleanupStaleManagedServiceUpdateHandoffs().catch(() => undefined);
+    await assertOpenClawStateWriteAllowedAtPath({
+      databasePath: resolveOpenClawStateSqlitePath(process.env),
+    });
+    await disableCurrentOpenClawUpdateLaunchdJob().catch(() => undefined);
+    mutableUpdatePrepared = true;
+  };
 
   const execution = await executeMutableUpdate({
     root,
@@ -682,20 +687,23 @@ async function updateCommandInternal(
     invocationCwd,
     recoveryState,
     config: preflightConfig,
+    prepareMutableUpdate,
   });
   if (!execution) {
     return;
   }
-  const { result, preManagedServiceStop, ownedManagedUpdateContext } = execution;
+  const { result, preManagedServiceStop, ownedManagedUpdateContext, recoveryEnv } = execution;
   recoveryState.triageTarget.root = result.root ?? root;
   recoveryState.triageTarget.failureResult = result;
-  recoveryState.triageTarget.env = ownedManagedUpdateContext?.env ?? recoveryState.triageTarget.env;
+  recoveryState.triageTarget.env =
+    recoveryEnv ?? ownedManagedUpdateContext?.env ?? recoveryState.triageTarget.env;
   const finalizationConfigSnapshot = ownedManagedUpdateContext?.configSnapshot ?? configSnapshot;
   const finalizationPluginInstallRecords =
     ownedManagedUpdateContext?.pluginInstallRecords ?? preUpdatePluginInstallRecords;
   stop();
   await finishUpdate({
     result,
+    failure: execution.failure,
     root,
     previousInstallRoot: discoveredRoot,
     installKindChanged: switchToGit || switchToPackage,
