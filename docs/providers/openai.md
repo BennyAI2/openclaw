@@ -658,6 +658,13 @@ openclaw migrate plan codex --from <codex-home> --agent <agent-id> --include-sec
 openclaw migrate apply codex --from <codex-home> --agent <agent-id> --include-secrets --item auth:openai --yes
 ```
 
+An explicit OpenAI subscription login also checks the operator's personal
+`$CODEX_HOME/auth.json` first. `/login codex` and the Control UI OpenAI sign-in
+action import a valid ChatGPT OAuth credential into the selected agent's
+OpenClaw auth store, then refresh the running Gateway. If no valid credential
+is available, the normal browser or device flow starts. This one-time pickup
+does not run during `/models` or model catalog discovery.
+
 A local ChatGPT/Codex subscription sign-in is not replaced just because the
 gateway process also has `OPENAI_API_KEY` for direct OpenAI models or
 embeddings. The env API-key fallback applies only to the local stdio no-account

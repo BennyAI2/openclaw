@@ -14,6 +14,12 @@ function isMemoryOnlyMigration(ctx: MigrationProviderContext): boolean {
   );
 }
 
+function isAuthOnlyMigration(ctx: MigrationProviderContext): boolean {
+  return Boolean(
+    ctx.itemKinds && ctx.itemKinds.length > 0 && ctx.itemKinds.every((kind) => kind === "auth"),
+  );
+}
+
 export function buildCodexMigrationProvider(
   params: {
     runtime?: MigrationProviderContext["runtime"];
@@ -24,14 +30,20 @@ export function buildCodexMigrationProvider(
     label: "Codex",
     description:
       "Import Codex memory and skills while keeping Codex native plugins and hooks explicit.",
-    supportedItemKinds: ["memory"],
+    supportedItemKinds: ["memory", "auth"],
     async detect(ctx) {
       const source = await discoverCodexSource({
         input: ctx.source,
         memoryOnly: isMemoryOnlyMigration(ctx),
+        authOnly: isAuthOnlyMigration(ctx),
       });
       const memoryOnly = isMemoryOnlyMigration(ctx);
-      const found = memoryOnly ? source.memoryFiles.length > 0 : hasCodexSource(source);
+      const authOnly = isAuthOnlyMigration(ctx);
+      const found = memoryOnly
+        ? source.memoryFiles.length > 0
+        : authOnly
+          ? Boolean(source.authPath)
+          : hasCodexSource(source);
       return {
         found,
         source: source.root,

@@ -279,7 +279,7 @@ async function runChannelProviderLogin(params: {
       text:
         switchResult === "failed"
           ? providerChannelLoginRuntime.formatSessionSwitchFailed(params.choice)
-          : providerChannelLoginRuntime.formatComplete(params.choice),
+          : providerChannelLoginRuntime.formatComplete(params.choice, loginResult.imported),
     };
   } catch {
     return { text: providerChannelLoginRuntime.formatFailed(params.choice) };
