@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
   WizardNextResult,
   WizardStartResult,
 } from "../../packages/gateway-protocol/src/index.js";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveAgentDir } from "../agents/agent-scope.js";
 import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-profiles/store.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
@@ -131,6 +131,7 @@ afterEach(() => {
   closeOpenClawStateDatabaseForTest();
   Reflect.deleteProperty(globalThis, PROBE_KEY);
 });
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("models.authLogin.start owner binding", () => {
   it(
@@ -138,7 +139,7 @@ describe("models.authLogin.start owner binding", () => {
     { timeout: 90_000 },
     async () => {
       const envSnapshot = captureEnv([...envKeys]);
-      const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-provider-login-owner-"));
+      const tempHome = tempDirs.make("openclaw-provider-login-owner-");
       const stateDir = path.join(tempHome, ".openclaw");
       const workspaceDir = path.join(tempHome, "workspace");
       const bundledPluginsDir = path.join(tempHome, "bundled-plugins");
@@ -252,7 +253,6 @@ describe("models.authLogin.start owner binding", () => {
           await gateway.server.close({ reason: "provider login owner proof complete" });
         }
         envSnapshot.restore();
-        await fs.rm(tempHome, { recursive: true, force: true });
       }
     },
   );

@@ -308,15 +308,19 @@ export class ModelSetupWizardRunner {
         { sessionId: session.sessionId },
         { timeoutMs: MODEL_SETUP_AUTH_START_TIMEOUT_MS },
       );
-      while (waitForRelease && result.status === "running") {
-        // A commit-locked wizard cannot cancel, but the card must stay busy until
-        // a later cancel observes terminal state and releases shared admission.
-        await new Promise((resolve) => setTimeout(resolve, WIZARD_RELEASE_POLL_MS));
-        result = await session.client.request<WizardStatusResult>(
-          "wizard.cancel",
-          { sessionId: session.sessionId },
-          { timeoutMs: MODEL_SETUP_AUTH_START_TIMEOUT_MS },
-        );
+      if (waitForRelease) {
+        while (result.status === "running") {
+          // A commit-locked wizard cannot cancel, but the card must stay busy until
+          // a later cancel observes terminal state and releases shared admission.
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, WIZARD_RELEASE_POLL_MS);
+          });
+          result = await session.client.request<WizardStatusResult>(
+            "wizard.cancel",
+            { sessionId: session.sessionId },
+            { timeoutMs: MODEL_SETUP_AUTH_START_TIMEOUT_MS },
+          );
+        }
       }
       if (result.status === "cancelled" || result.status === "error") {
         this.reportTerminalResult(session, { done: true, ...result });
