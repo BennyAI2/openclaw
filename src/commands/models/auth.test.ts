@@ -1078,6 +1078,9 @@ describe("modelsAuthLoginCommand", () => {
     expect(runtime.log).toHaveBeenCalledWith(
       "Auth profile: openai:account-owner (openai/oauth, imported)",
     );
+    expect(runtime.log).toHaveBeenCalledWith(
+      "Tip: Codex-capable models can use native Codex web search. Configure the `web_search` tool with `openclaw configure --section web`. Docs: https://docs.openclaw.ai/tools/web",
+    );
   });
 
   it("rejects a CLI credential imported for another provider", async () => {

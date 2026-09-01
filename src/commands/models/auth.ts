@@ -698,12 +698,7 @@ async function runProviderAuthMethod(params: {
   signal?: AbortSignal;
   openUrl?: (url: string) => Promise<void>;
   beforePersistentEffect?: () => void | Promise<void>;
-  refreshAuthState?: (agentId: string) => Promise<void>;
-}): Promise<{
-  result: ProviderAuthResult;
-  profiles: ProviderAuthResult["profiles"];
-  modelAccess: ProviderModelAccessResult;
-}> {
+}): Promise<PendingModelsAuthLoginFlowResult> {
   params.signal?.throwIfAborted();
   const result = await params.method.run({
     config: params.config,
@@ -746,18 +741,16 @@ async function runProviderAuthMethod(params: {
       ? { beforePersistentEffect: params.beforePersistentEffect }
       : {}),
   });
-  const modelAccess =
-    persistedProfiles.length > 0
-      ? await adoptProviderModelPolicy({
-          provider: params.provider.id,
-          agentId: params.agentId,
-          runtime: params.runtime,
-          prompter: params.prompter,
-        })
-      : "failed";
-  await (params.refreshAuthState ?? refreshRunningGatewayAfterLogin)(params.agentId);
-
-  return { result, profiles: persistedProfiles, modelAccess };
+  return {
+    providerId: params.provider.id,
+    methodId: params.method.id,
+    ...(result.defaultModel ? { defaultModel: result.defaultModel } : {}),
+    profiles: persistedProfiles.map((profile) => ({
+      profileId: profile.profileId,
+      provider: profile.credential.provider,
+      mode: credentialMode(profile.credential),
+    })),
+  };
 }
 
 /** Runs an interactive provider setup-token auth flow. */
@@ -806,7 +799,7 @@ export async function modelsAuthSetupTokenCommand(
     throw new Error(`Provider "${provider.id}" does not expose a token auth method.`);
   }
 
-  await runProviderAuthMethod({
+  const pendingLogin = await runProviderAuthMethod({
     config,
     agentId,
     agentDir,
@@ -816,6 +809,7 @@ export async function modelsAuthSetupTokenCommand(
     runtime,
     prompter,
   });
+  await finalizeProviderLogin({ agentId, runtime, prompter }, pendingLogin);
 }
 
 /** Reads a pasted bearer/setup token and stores it as an auth profile. */
@@ -998,7 +992,7 @@ export async function modelsAuthAddCommand(opts: { agent?: string }, runtime: Ru
           `Unknown token auth method "${methodId}". Run ${formatCliCommand("openclaw models auth login --provider " + providerPlugin.id)} to choose interactively.`,
         );
       }
-      await runProviderAuthMethod({
+      const pendingLogin = await runProviderAuthMethod({
         config,
         agentId,
         agentDir,
@@ -1008,6 +1002,7 @@ export async function modelsAuthAddCommand(opts: { agent?: string }, runtime: Ru
         runtime,
         prompter,
       });
+      await finalizeProviderLogin({ agentId, runtime, prompter }, pendingLogin);
       return;
     }
   }
@@ -1077,6 +1072,8 @@ export type ModelsAuthLoginFlowResult = {
   }>;
 };
 
+type PendingModelsAuthLoginFlowResult = Omit<ModelsAuthLoginFlowResult, "modelAccess">;
+
 export type ModelsAuthLoginFlowOptions = LoginOptions & {
   /** Manifest owner selected by a remote provider-login choice. */
   ownerPluginId?: string;
@@ -1138,6 +1135,34 @@ function maybeLogOpenAICodexNativeSearchTip(runtime: RuntimeEnv, providerId: str
   runtime.log(
     `Tip: Codex-capable models can use native Codex web search. Configure the \`web_search\` tool with \`${formatCliCommand("openclaw configure --section web")}\`. Docs: https://docs.openclaw.ai/tools/web`,
   );
+}
+
+async function finalizeProviderLogin(
+  params: {
+    agentId: string;
+    runtime: RuntimeEnv;
+    prompter: WizardPrompter;
+    refreshAuthState?: (agentId: string) => Promise<void>;
+    logCompletion?: () => void;
+    showOpenAiTip?: boolean;
+  },
+  result: PendingModelsAuthLoginFlowResult,
+): Promise<ModelsAuthLoginFlowResult> {
+  const modelAccess =
+    result.profiles.length > 0
+      ? await adoptProviderModelPolicy({
+          provider: result.providerId,
+          agentId: params.agentId,
+          runtime: params.runtime,
+          prompter: params.prompter,
+        })
+      : "failed";
+  await (params.refreshAuthState ?? refreshRunningGatewayAfterLogin)(params.agentId);
+  params.logCompletion?.();
+  if (params.showOpenAiTip) {
+    maybeLogOpenAICodexNativeSearchTip(params.runtime, result.providerId);
+  }
+  return { ...result, modelAccess };
 }
 
 export async function runModelsAuthLoginFlowCore(
@@ -1246,33 +1271,35 @@ export async function runModelsAuthLoginFlowCore(
         `Credential import for provider "${selectedProvider.id}" returned provider "${importedCredential.provider}".`,
       );
     }
-    const modelAccess = await adoptProviderModelPolicy({
-      provider: selectedProvider.id,
-      agentId: context.agentId,
-      runtime: opts.runtime,
-      prompter,
-    });
-    await (opts.refreshAuthState ?? refreshRunningGatewayAfterLogin)(context.agentId);
-    if (importedCredential.configUpdated) {
-      logConfigUpdated(opts.runtime);
-    }
-    opts.runtime.log(
-      `Auth profile: ${importedCredential.profileId} (${importedCredential.provider}/${importedCredential.mode}, imported)`,
-    );
-    maybeLogOpenAICodexNativeSearchTip(opts.runtime, selectedProvider.id);
-    return {
-      providerId: selectedProvider.id,
-      methodId: chosenMethod.id,
-      imported: true,
-      modelAccess,
-      profiles: [
-        {
-          profileId: importedCredential.profileId,
-          provider: importedCredential.provider,
-          mode: importedCredential.mode,
+    return await finalizeProviderLogin(
+      {
+        agentId: context.agentId,
+        runtime: opts.runtime,
+        prompter,
+        ...(opts.refreshAuthState ? { refreshAuthState: opts.refreshAuthState } : {}),
+        showOpenAiTip: true,
+        logCompletion: () => {
+          if (importedCredential.configUpdated) {
+            logConfigUpdated(opts.runtime);
+          }
+          opts.runtime.log(
+            `Auth profile: ${importedCredential.profileId} (${importedCredential.provider}/${importedCredential.mode}, imported)`,
+          );
         },
-      ],
-    };
+      },
+      {
+        providerId: selectedProvider.id,
+        methodId: chosenMethod.id,
+        imported: true,
+        profiles: [
+          {
+            profileId: importedCredential.profileId,
+            provider: importedCredential.provider,
+            mode: importedCredential.mode,
+          },
+        ],
+      },
+    );
   }
 
   if (opts.force) {
@@ -1304,7 +1331,7 @@ export async function runModelsAuthLoginFlowCore(
     }
   }
 
-  const { result, profiles, modelAccess } = await runProviderAuthMethod({
+  const pendingLogin = await runProviderAuthMethod({
     config: context.config,
     agentId: context.agentId,
     agentDir: context.agentDir,
@@ -1321,20 +1348,17 @@ export async function runModelsAuthLoginFlowCore(
     ...(opts.signal ? { signal: opts.signal } : {}),
     ...(opts.openUrl ? { openUrl: opts.openUrl } : {}),
     ...(opts.beforePersistentEffect ? { beforePersistentEffect: opts.beforePersistentEffect } : {}),
-    ...(opts.refreshAuthState ? { refreshAuthState: opts.refreshAuthState } : {}),
   });
-  maybeLogOpenAICodexNativeSearchTip(opts.runtime, selectedProvider.id);
-  return {
-    providerId: selectedProvider.id,
-    methodId: chosenMethod.id,
-    ...(result.defaultModel ? { defaultModel: result.defaultModel } : {}),
-    modelAccess,
-    profiles: profiles.map((profile) => ({
-      profileId: profile.profileId,
-      provider: profile.credential.provider,
-      mode: credentialMode(profile.credential),
-    })),
-  };
+  return await finalizeProviderLogin(
+    {
+      agentId: context.agentId,
+      runtime: opts.runtime,
+      prompter,
+      ...(opts.refreshAuthState ? { refreshAuthState: opts.refreshAuthState } : {}),
+      showOpenAiTip: true,
+    },
+    pendingLogin,
+  );
 }
 
 export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: RuntimeEnv) {
