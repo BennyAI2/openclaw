@@ -179,7 +179,7 @@ describe("ModelProvidersPage agent scope", () => {
     const page = appendPage(context);
     await waitForFast(() => expect(page.data?.providerUsage).toMatchObject({ ok: true }));
     deferNextAuthStatus();
-    void page.refresh({ force: true });
+    void page.refresh("discover");
     await vi.waitFor(() => expect(requestCount(request, "models.authStatus")).toBe(2));
 
     source.publish({ ...snapshot, phase: "reconnecting" });
@@ -221,6 +221,121 @@ describe("ModelProvidersPage agent scope", () => {
         agents: { defaults: { model: "openai/replacement-model" } },
       }),
     );
+  });
+
+  it("adopts published model changes without discovery or supplemental reloads", async () => {
+    const { context, emitEvent, request } = createHarness("main");
+    const page = appendPage(context);
+    await waitForFast(() => expect(page.data?.providerUsage).toMatchObject({ ok: true }));
+    await vi.waitFor(() => expect(requestCount(request, "sessions.usage")).toBe(1));
+    const previousUsage = page.data?.providerUsage;
+    const modelsBefore = requestCount(request, "models.list");
+    const authBefore = requestCount(request, "models.authStatus");
+    const configBefore = requestCount(request, "config.get");
+    const usageBefore = requestCount(request, "usage.status");
+    const costBefore = requestCount(request, "sessions.usage");
+    const originalRequest = request.getMockImplementation()!;
+    request.mockImplementation(async (method: string) => {
+      if (method === "models.list") {
+        return {
+          models: [{ id: "grok-4.6", name: "Grok 4.6", provider: "xai", available: true }],
+        };
+      }
+      return originalRequest(method);
+    });
+
+    emitEvent("chat.metadata.changed");
+
+    await waitForFast(() =>
+      expect(page.data?.models?.map((model) => model.id)).toEqual(["grok-4.6"]),
+    );
+    expect(requestCount(request, "models.list")).toBe(modelsBefore + 1);
+    expect(requestCount(request, "models.authStatus")).toBe(authBefore + 1);
+    expect(requestCount(request, "config.get")).toBe(configBefore + 1);
+    expect(requestCount(request, "usage.status")).toBe(usageBefore);
+    expect(requestCount(request, "sessions.usage")).toBe(costBefore);
+    expect(page.data?.providerUsage).toBe(previousUsage);
+    expect(request.mock.calls.filter(([method]) => method === "models.list").at(-1)).toEqual([
+      "models.list",
+      { agentId: "main", preparedOnly: true, view: "configured" },
+      { signal: expect.any(AbortSignal) },
+    ]);
+    expect(
+      request.mock.calls.some(
+        ([method, params]) => method === "models.list" && params?.refresh === true,
+      ),
+    ).toBe(false);
+  });
+
+  it("queues one prepared read when publication arrives during discovery", async () => {
+    const { context, emitEvent, request } = createHarness("main");
+    const page = appendPage(context);
+    await waitForFast(() => expect(page.data?.config).toEqual({}));
+    await vi.waitFor(() => expect(requestCount(request, "sessions.usage")).toBe(1));
+    const discovery = deferred<{
+      models: Array<{ id: string; name: string; provider: string; available: boolean }>;
+    }>();
+    const originalRequest = request.getMockImplementation()!;
+    let discoverySignal: AbortSignal | undefined;
+    let published = false;
+    request.mockImplementation(
+      async (
+        method: string,
+        params?: Record<string, unknown>,
+        options?: { signal?: AbortSignal },
+      ) => {
+        if (method === "models.list" && params?.refresh === true) {
+          discoverySignal = options?.signal;
+          return discovery.promise;
+        }
+        if (method === "models.list" && params?.preparedOnly === true) {
+          return {
+            models: published
+              ? [{ id: "grok-4.6", name: "Grok 4.6", provider: "xai", available: true }]
+              : [],
+          };
+        }
+        return originalRequest(method);
+      },
+    );
+    request.mockClear();
+
+    const refresh = page.refresh("discover");
+    await vi.waitFor(() =>
+      expect(
+        request.mock.calls.some(
+          ([method, params]) => method === "models.list" && params?.refresh === true,
+        ),
+      ).toBe(true),
+    );
+    emitEvent("chat.metadata.changed");
+    emitEvent("chat.metadata.changed");
+    emitEvent("config.changed");
+    expect(requestCount(request, "models.list")).toBe(1);
+    expect(discoverySignal?.aborted).toBe(false);
+
+    published = true;
+    discovery.resolve({
+      models: [{ id: "grok-4.5", name: "Grok 4.5", provider: "xai", available: true }],
+    });
+    await refresh;
+    await waitForFast(() =>
+      expect(page.data?.models?.map((model) => model.id)).toEqual(["grok-4.6"]),
+    );
+
+    expect(discoverySignal?.aborted).toBe(false);
+    expect(request.mock.calls.filter(([method]) => method === "models.list")).toEqual([
+      [
+        "models.list",
+        { agentId: "main", refresh: true, view: "configured" },
+        { signal: expect.any(AbortSignal) },
+      ],
+      [
+        "models.list",
+        { agentId: "main", preparedOnly: true, view: "configured" },
+        { signal: expect.any(AbortSignal) },
+      ],
+    ]);
   });
 
   it("switches application ownership from the concrete agent picker", async () => {
@@ -694,8 +809,11 @@ describe("ModelProvidersPage agent scope", () => {
       return await originalRequest(method);
     });
     const gatewayHarness = createGatewayHarness(snapshot.client as GatewayBrowserClient);
+    const gateway = Object.assign(gatewayHarness.gateway, {
+      subscribeEvents: () => () => undefined,
+    });
     const runtimeConfig = createRuntimeConfigCapability(gatewayHarness.gateway);
-    Object.assign(context, { gateway: gatewayHarness.gateway, runtimeConfig });
+    Object.assign(context, { gateway, runtimeConfig });
     await runtimeConfig.ensureLoaded();
     const page = appendPage(context);
     await waitForFast(() => expect(page.data?.config).toEqual(storedConfig));
@@ -863,7 +981,7 @@ describe("ModelProvidersPage agent scope", () => {
   });
 
   it("recovers when the agent changes while a refresh is in flight", async () => {
-    const { agentSelection, context, notifySelection, request, deferNextAuthStatus } =
+    const { agentSelection, context, emitEvent, notifySelection, request, deferNextAuthStatus } =
       createHarness("main");
     const release = deferNextAuthStatus();
     const page = appendPage(context);
@@ -875,8 +993,10 @@ describe("ModelProvidersPage agent scope", () => {
         { signal: expect.any(AbortSignal) },
       ),
     );
+    emitEvent("chat.metadata.changed");
     // Invalidate the in-flight refresh mid-await; the stale completion must
-    // clear `refreshing` so the new agent's load can proceed.
+    // clear `refreshing` and its queued revalidation so the new agent's load
+    // can proceed without a trailing request for the old owner.
     agentSelection.state.selectedId = "writer";
     agentSelection.state.scopeId = "writer";
     notifySelection();
@@ -890,6 +1010,18 @@ describe("ModelProvidersPage agent scope", () => {
       ),
     );
     await waitForFast(() => expect(page.data?.updatedAt).toEqual(expect.any(Number)));
+    expect(
+      request.mock.calls.filter(
+        ([method, params]) =>
+          method === "models.list" && params?.agentId === "main" && params?.preparedOnly === true,
+      ),
+    ).toHaveLength(1);
+    expect(
+      request.mock.calls.filter(
+        ([method, params]) =>
+          method === "models.list" && params?.agentId === "writer" && params?.preparedOnly === true,
+      ),
+    ).toHaveLength(1);
   });
 
   it("discards stale route data when selection changes during preload", async () => {

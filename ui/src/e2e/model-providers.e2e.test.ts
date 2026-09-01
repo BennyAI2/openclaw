@@ -222,6 +222,95 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
     }
   });
 
+  it("updates provider models when the published catalog changes", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1200 },
+    });
+    const page = await context.newPage();
+    const config = { auth: { profiles: { "xai:owner": { provider: "xai" } } } };
+    const gateway = await installMockGateway(page, {
+      methodResponses: {
+        "config.get": {
+          config,
+          sourceConfig: config,
+          hash: "published-models-a",
+          issues: [],
+          raw: JSON.stringify(config),
+          valid: true,
+        },
+        "models.list": {
+          models: [
+            { id: "grok-4.5", name: "Grok 4.5", provider: "xai", available: true },
+            { id: "grok-4.5-mini", name: "Grok 4.5 Mini", provider: "xai", available: true },
+          ],
+        },
+        "models.authStatus": {
+          ts: NOW,
+          providers: [
+            {
+              provider: "xai",
+              displayName: "xAI",
+              status: "ok",
+              profiles: [{ profileId: "xai:owner", type: "oauth", status: "ok" }],
+            },
+          ],
+        },
+        "usage.status": { updatedAt: NOW, providers: [] },
+        "sessions.usage": { aggregates: { byProvider: [] } },
+      },
+    });
+
+    try {
+      await page.goto(`${server.baseUrl}settings/model-providers`);
+      const xaiCard = page.locator('[data-provider-id="xai"]');
+      await xaiCard.waitFor();
+      await expect.poll(async () => xaiCard.textContent()).toContain("2 models");
+      await expect
+        .poll(() => page.locator('wa-option[value="xai/grok-4.5"]').count())
+        .toBeGreaterThan(0);
+      if (recordVisuals) {
+        await page.screenshot({
+          animations: "disabled",
+          fullPage: true,
+          path: path.join(artifactDir, "published-models-before.png"),
+        });
+      }
+      const modelsBefore = (await gateway.getRequests("models.list")).length;
+      const usageBefore = (await gateway.getRequests("usage.status")).length;
+      const costBefore = (await gateway.getRequests("sessions.usage")).length;
+
+      await gateway.setMethodResponse("models.list", {
+        models: [{ id: "grok-4.6", name: "Grok 4.6", provider: "xai", available: true }],
+      });
+      await gateway.emitGatewayEvent("chat.metadata.changed", {});
+
+      await expect.poll(async () => xaiCard.textContent()).toContain("1 model");
+      await expect
+        .poll(() => page.locator('wa-option[value="xai/grok-4.6"]').count())
+        .toBeGreaterThan(0);
+      await expect.poll(() => page.locator('wa-option[value="xai/grok-4.5"]').count()).toBe(0);
+      expect(await gateway.getRequests("models.list")).toHaveLength(modelsBefore + 1);
+      expect((await gateway.getRequests("models.list")).at(-1)?.params).toEqual({
+        agentId: "main",
+        preparedOnly: true,
+        view: "configured",
+      });
+      expect(await gateway.getRequests("usage.status")).toHaveLength(usageBefore);
+      expect(await gateway.getRequests("sessions.usage")).toHaveLength(costBefore);
+      if (recordVisuals) {
+        await page.screenshot({
+          animations: "disabled",
+          fullPage: true,
+          path: path.join(artifactDir, "published-models-after.png"),
+        });
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
   it("keeps defaults read-only without an admin warning when config patches are unavailable", async () => {
     const context = await browser.newContext({
       colorScheme: "dark",

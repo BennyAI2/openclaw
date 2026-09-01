@@ -14,6 +14,7 @@ import { renderSettingsWorkspace } from "../../components/settings-workspace.ts"
 import { t } from "../../i18n/index.ts";
 import { normalizeAgentLabel } from "../../lib/agents/display.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
+import { invalidateModelCatalogCache } from "../../lib/model-catalog-store.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -55,6 +56,7 @@ import { renderModelProviders, type ModelProviderRowMessage } from "./view.ts";
 const MODEL_PROVIDERS_DOCS_URL = "https://docs.openclaw.ai/concepts/model-providers";
 
 type DefaultsDraft = DefaultModelSelection & ModelBehaviorConfig;
+type ModelProvidersRefreshMode = "discover" | "prepared" | "revalidate";
 
 export class ModelProvidersPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
@@ -76,6 +78,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   private dataClient: GatewayBrowserClient | null = null;
   // Null Task runs supersede stale work without counting as a real load.
   private loadClient: GatewayBrowserClient | null = null;
+  private revalidatePending = false;
   private routeDataObserved = false;
   // Global config writes survive agent switches; their card state does not.
   private agentEpoch = 0;
@@ -83,7 +86,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   private readonly refreshTask = new Task(this, {
     autoRun: false,
     task: (
-      [client, agentId, force]: [GatewayBrowserClient | null, string, boolean],
+      [client, agentId, mode]: [GatewayBrowserClient | null, string, ModelProvidersRefreshMode],
       { signal },
     ) => {
       if (!client || !agentId) {
@@ -91,16 +94,18 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       }
       return loadModelProvidersData(client, {
         agentId,
-        ...(force ? { refresh: true } : {}),
+        ...(mode === "discover" ? { refresh: true } : {}),
         signal,
-      }).then((data) => ({ client, data }));
+      }).then((data) => ({ client, data, mode }));
     },
-    onComplete: ({ client, data }) => {
+    onComplete: ({ client, data, mode }) => {
       this.loadClient = null;
-      this.adoptLoadedData(client, data);
+      this.adoptLoadedData(client, data, mode !== "revalidate");
+      this.finishCoreRefresh();
     },
     onError: () => {
       this.loadClient = null;
+      this.finishCoreRefresh();
     },
   });
   private readonly refreshPolicy = new UsageRefreshPolicy({
@@ -131,7 +136,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
         this.resetConnectionState({ preserveVisibleData: true });
       }
       if (change.becameConnected && !change.initial) {
-        void this.refresh({ force: false });
+        void this.refresh("prepared");
       }
     },
     onPageActivation: () => this.refreshPolicy.request("focus"),
@@ -158,13 +163,26 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     .effect(
       () => this.context?.agentSelection,
       (selection) => selection.subscribe(() => this.syncSelectedAgent()),
+    )
+    .effect(
+      () => this.context?.gateway,
+      (gateway) =>
+        gateway.subscribeEvents((event) => {
+          if (
+            this.context?.gateway !== gateway ||
+            (event.event !== "config.changed" && event.event !== "chat.metadata.changed")
+          ) {
+            return;
+          }
+          this.revalidateAfterMetadataChange();
+        }),
     );
   private readonly providerLogin = new ModelProviderLoginController(this, {
     getClient: () => this.gateway.client,
     getAgentId: () => this.selectedAgentId || null,
     getRuntimeConfig: () => this.context.runtimeConfig,
     canStart: () => this.canMutate(),
-    refresh: () => this.refresh({ force: false }),
+    refresh: () => this.refresh("prepared"),
     setMessage: (key, message) => this.setMessage(key, message),
   });
   private readonly connect = new ModelConnectController(this, {
@@ -222,16 +240,21 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     ) {
       return;
     }
-    void this.refresh({ force: false });
+    void this.refresh("prepared");
   }
 
-  private adoptLoadedData(client: GatewayBrowserClient | null, data: ModelProvidersData) {
-    this.supplemental.adoptCoreData(client, data);
+  private adoptLoadedData(
+    client: GatewayBrowserClient | null,
+    data: ModelProvidersData,
+    startSupplemental = true,
+  ) {
+    this.supplemental.adoptCoreData(client, data, { startSupplemental });
   }
 
   private invalidateRequests() {
     this.loadClient = null;
-    void this.refreshTask.run([null, this.selectedAgentId, false]);
+    this.revalidatePending = false;
+    void this.refreshTask.run([null, this.selectedAgentId, "prepared"]);
     this.supplemental.invalidate();
   }
 
@@ -291,7 +314,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     this.ensureInitialData();
   }
 
-  private refresh(opts: { force: boolean }): Promise<void> {
+  private refresh(mode: ModelProvidersRefreshMode): Promise<void> {
     if (this.routeData?.view === "connect" || !this.selectedAgentId) {
       return Promise.resolve();
     }
@@ -301,9 +324,38 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       return Promise.resolve();
     }
     // Cancel the old supplemental generation before it can publish during core loading.
-    this.supplemental.beginCoreRefresh(opts.force);
+    if (mode !== "revalidate") {
+      this.supplemental.beginCoreRefresh(mode === "discover");
+    }
+    this.revalidatePending = false;
     this.loadClient = client;
-    return this.refreshTask.run([client, this.selectedAgentId, opts.force]);
+    return this.refreshTask.run([client, this.selectedAgentId, mode]);
+  }
+
+  private revalidateAfterMetadataChange(): void {
+    const client = this.gateway.client;
+    if (!this.gateway.connected || !client) {
+      return;
+    }
+    // The shared UI cache can remain warm for 60 seconds. Invalidate it here
+    // so correctness does not depend on shell event-listener ordering.
+    invalidateModelCatalogCache(client);
+    if (this.loadClient !== null) {
+      this.revalidatePending = true;
+      return;
+    }
+    void this.refresh("revalidate");
+  }
+
+  private finishCoreRefresh(): void {
+    if (this.revalidatePending) {
+      this.revalidatePending = false;
+      void this.refresh("revalidate");
+      return;
+    }
+    // A focus request can arrive while the core read is active. Event-driven
+    // reads do not restart supplemental work, so release that request here.
+    this.refreshPolicy.flushPending();
   }
 
   private mutationBlockedReason(): string | null {
@@ -370,7 +422,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
         agentEpoch,
         isCurrentClient: () => this.isCurrentClient(client, clientEpoch),
         isCurrentAgent: () => this.agentEpoch === agentEpoch,
-        refreshProviders: () => this.refresh({ force: true }),
+        refreshProviders: () => this.refresh("discover"),
         setBusy: (busy) => this.setBusy(params.key, busy),
         setMessage: (message) => this.setMessage(params.key, message),
       },
@@ -524,7 +576,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       }
       // Logout already invalidates auth state. A prepared read reflects removal
       // without making the visible mutation wait for full provider discovery.
-      await this.refresh({ force: false });
+      await this.refresh("prepared");
       if (!this.isCurrentClient(client, clientEpoch) || this.agentEpoch !== agentEpoch) {
         return;
       }
@@ -637,7 +689,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       pendingLogoutProvider: this.pendingLogoutProvider,
       providerLoginBusy: this.providerLogin.busy,
       onRefresh: () =>
-        void (rosterError ? this.context.agents.refreshList() : this.refresh({ force: true })),
+        void (rosterError ? this.context.agents.refreshList() : this.refresh("discover")),
       onOpenKeyEditor: (provider) => this.openKeyEditor(provider),
       onCloseKeyEditor: () => this.closeKeyEditor(),
       onKeyDraftChange: (value) => (this.keyDraft = value),

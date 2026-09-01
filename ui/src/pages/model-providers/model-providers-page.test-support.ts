@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { GatewayBrowserClient, GatewayEventFrame } from "../../api/gateway.ts";
 import type { ModelsProbeResult } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";
@@ -25,7 +25,7 @@ export type ModelProvidersPageTestElement = HTMLElement & {
   };
   probe: (cardId: string, providers: string[]) => Promise<void>;
   probeResults: Record<string, ModelsProbeResult>;
-  refresh: (opts: { force: boolean }) => Promise<void>;
+  refresh: (mode: "discover" | "prepared" | "revalidate") => Promise<void>;
   routeData: ModelProvidersRouteData | undefined;
   requestUpdate: () => void;
   saveDefaults: () => Promise<void>;
@@ -185,6 +185,7 @@ export function createHarness(initialScopeId: string) {
       snapshot.phase = phase;
       gatewaySource.publish({ ...snapshot });
     },
+    emitEvent: gatewaySource.emitEvent,
     setUsageStatus: (value: unknown) => {
       usageStatus = value;
     },
@@ -197,6 +198,7 @@ export function createHarness(initialScopeId: string) {
 export function publishableGateway(initial: ApplicationGatewaySnapshot) {
   let current = initial;
   const listeners = new Set<(value: ApplicationGatewaySnapshot) => void>();
+  const eventListeners = new Set<(event: GatewayEventFrame) => void>();
   return {
     gateway: {
       get snapshot() {
@@ -206,11 +208,21 @@ export function publishableGateway(initial: ApplicationGatewaySnapshot) {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      subscribeEvents(listener: (event: GatewayEventFrame) => void) {
+        eventListeners.add(listener);
+        return () => eventListeners.delete(listener);
+      },
     },
     publish(next: ApplicationGatewaySnapshot) {
       current = next;
       for (const listener of listeners) {
         listener(next);
+      }
+    },
+    emitEvent(event: string, payload: unknown = {}) {
+      const frame = { event, payload } as GatewayEventFrame;
+      for (const listener of eventListeners) {
+        listener(frame);
       }
     },
   };

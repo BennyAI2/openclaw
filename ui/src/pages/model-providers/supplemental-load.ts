@@ -61,7 +61,11 @@ export class ModelProviderSupplementalLoader {
     return this.pending.has("usage");
   }
 
-  adoptCoreData(client: GatewayBrowserClient | null, data: ModelProvidersData): void {
+  adoptCoreData(
+    client: GatewayBrowserClient | null,
+    data: ModelProvidersData,
+    options: { startSupplemental: boolean },
+  ): void {
     const previous = client === this.options.getDataClient() ? this.options.getData() : null;
     // Keep the last supplemental snapshot visible until its replacement finishes.
     this.options.setData({
@@ -79,7 +83,13 @@ export class ModelProviderSupplementalLoader {
     }
     // The same route data can be adopted more than once. Core refresh cancels
     // the prior generation before its replacement reaches this boundary.
-    if (client && !this.loading && data.providerUsage === null && data.costByProvider === null) {
+    if (
+      options.startSupplemental &&
+      client &&
+      !this.loading &&
+      data.providerUsage === null &&
+      data.costByProvider === null
+    ) {
       void this.load(client);
     }
   }
