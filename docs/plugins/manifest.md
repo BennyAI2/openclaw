@@ -517,12 +517,14 @@ stops and directs the owner to the Control UI if the provider asks for text,
 selection, or confirmation. Choice, provider, default, and alias collisions
 also stop with an explicit list of unambiguous `/login <choice>` commands.
 
-The Control UI lists every manifest-declared provider auth choice. Choices with
-`appGuidedAuth`, or `appGuidedSecret` without `appGuidedDiscovery`, run as
-credential-only **Sign in** flows. Other declared choices run as **Set up**
-flows because their endpoint, local runtime, or cloud configuration is part of
-the provider contract. Descriptor-only `setup.providers[].authMethods` entries
-remain discovery facts and do not create executable Control UI actions.
+The Control UI lists eligible, unambiguous manifest-declared provider auth
+choices. Manual-only choices, choices outside text-inference onboarding, and
+colliding choice IDs do not create actions. Choices with `appGuidedAuth`, or
+`appGuidedSecret` without `appGuidedDiscovery`, run as credential-only **Sign
+in** flows. Other eligible choices run as **Set up** flows because their
+endpoint, local runtime, or cloud configuration is part of the provider
+contract. Descriptor-only `setup.providers[].authMethods` entries remain
+discovery facts and do not create executable Control UI actions.
 
 ## cliCommands reference
 
