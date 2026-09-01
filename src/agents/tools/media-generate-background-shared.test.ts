@@ -399,7 +399,8 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
         provider: "openai",
         model: "gpt-image-1",
         count: 1,
-        wakeResult: "generated",
+        wakeResult: 'Generated 1 image.\nAttachments:\n1. type=image path="/tmp/proof.png"',
+        attachments: [{ type: "image" as const, path: "/tmp/proof.png" }],
         mediaUrls: ["/tmp/proof.png"],
       }),
     });
@@ -410,6 +411,7 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
     expect(detachedTaskRuntimeMocks.completeTaskRunByRunId).toHaveBeenCalledWith(
       expect.objectContaining({
         terminalOutcome: "blocked",
+        terminalSummary: expect.stringContaining('path="/tmp/proof.png"'),
       }),
     );
     expect(
