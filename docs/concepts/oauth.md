@@ -215,6 +215,13 @@ Example (session override):
 
 - `/model Opus@anthropic:work -s`
 
+### 3) Multi-user: one profile per person
+
+On a shared gateway, each teammate can link one profile per provider to their
+Gateway profile (**Settings → Profile → Model accounts**). Sessions a linked
+person starts are pinned to their account automatically. See
+[Per-person model accounts](/concepts/multi-user#per-person-model-accounts).
+
 List existing profile IDs with:
 
 ```bash

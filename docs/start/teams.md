@@ -68,6 +68,8 @@ A conversation that starts in the team channel can continue as a session the who
 
 For coding work, verified GitHub identity pays off at the commit: with **Git co-author credit** enabled, commits from a shared session carry `Co-authored-by` trailers for the people who steered it, and generated pull requests link back to the session so reviewers can read the conversation that produced the diff.
 
+Teammates with their own model subscriptions can link them under **Settings → Profile → Model accounts** so sessions they start bill their own ChatGPT or Claude account instead of one shared credential - see [Per-person model accounts](/concepts/multi-user#per-person-model-accounts).
+
 ## Step 5: Bound what each person can do
 
 Named operator roles bind authenticated profiles to a policy: which sessions they can touch, which agents they can use, a maximum set of operator scopes, and whether their new sessions must be sandboxed:

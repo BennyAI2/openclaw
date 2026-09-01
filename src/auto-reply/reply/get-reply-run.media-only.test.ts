@@ -2888,7 +2888,7 @@ describe("runPreparedReply media-only handling", () => {
       return sessionEntry?.authProfileOverride
         ? {
             profileId: sessionEntry.authProfileOverride,
-            source: sessionEntry.authProfileOverrideSource ?? "user",
+            source: sessionEntry.authProfileOverrideSource === "auto" ? "auto" : "user",
             routeRequirement: undefined,
           }
         : undefined;

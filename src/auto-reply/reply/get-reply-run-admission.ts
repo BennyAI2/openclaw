@@ -5,7 +5,7 @@ import { clearAutoFallbackPrimaryProbeSelection } from "../../agents/agent-scope
 import { resolveSessionAuthSelection } from "../../agents/auth-profiles/session-override.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import { hasResolvedThinkingCatalogEntry } from "../../agents/thinking-runtime.js";
-import { resolveSessionAuthProfileOverrideSource } from "../../config/sessions/auth-profile-override-provenance.js";
+import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
 import { formatSqliteSessionFileMarker } from "../../config/sessions/legacy-sqlite-marker.js";
 import {
   resolveSessionFilePathCore,
@@ -17,6 +17,7 @@ import { logVerbose } from "../../globals.js";
 import { isFastTestRuntimeEnv } from "../../infra/env.js";
 import { clearCommandLane, getQueueSize } from "../../process/command-queue.js";
 import { interruptSessionWorkAdmissions } from "../../sessions/session-lifecycle-admission.js";
+import { readSessionInputProfileId } from "../../sessions/session-participant-input.js";
 import { resolveCommandTurnTargetSessionKey } from "../command-turn-context.js";
 import {
   formatThinkingLevels,
@@ -411,7 +412,7 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     if (useFastReplyRuntime) {
       return {
         authProfileId: preparedSessionState.sessionEntry?.authProfileOverride,
-        authProfileIdSource: resolveSessionAuthProfileOverrideSource(
+        authProfileIdSource: resolveCollapsedSessionAuthPinSource(
           preparedSessionState.sessionEntry,
         ),
       };
@@ -440,6 +441,9 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
       sessionKey: authSessionKey,
       storePath: shouldUseEphemeralSession ? undefined : storePath,
       isNewSession,
+      // Only an authenticated Gateway profile establishes a person-linked pin;
+      // channel senders read as observations and resolve to undefined here.
+      requesterProfileId: readSessionInputProfileId(ctx),
     });
     return {
       authProfileId: selection?.profileId,

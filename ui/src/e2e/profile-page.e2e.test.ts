@@ -506,6 +506,61 @@ suite.define(() => {
     );
   });
 
+  it("renders linked model accounts and opens the ChatGPT connect flow", async () => {
+    await suite.withPage(undefined, async ({ page }) => {
+      await openProfilePage(page, {
+        "users.listAuthLinks": {
+          links: [
+            { provider: "openai", authProfileId: "openai:scott", updatedAt: 1_700_000_000_000 },
+          ],
+        },
+        "users.authConnect.start": {
+          connectId: "connect-1",
+          url: "https://auth.openai.com/oauth/authorize?demo",
+          expiresAtMs: 4_100_000_000_000,
+          autoCallback: true,
+        },
+      });
+      // Anchor on the always-rendered manual-link row: the Connect button swaps
+      // for the flow UI once clicked, so it cannot identify the section.
+      const section = page.locator("section.settings-section", {
+        has: page.locator(".profile-auth-link-input"),
+      });
+
+      await expect(section.locator(".model-accounts__id").textContent()).resolves.toBe(
+        "openai:scott",
+      );
+      await expect(section.locator(".model-accounts__provider").textContent()).resolves.toContain(
+        "ChatGPT",
+      );
+      await expect(section.locator(".profile-auth-link-unlink").isEnabled()).resolves.toBe(true);
+      if (captureUiProof) {
+        await section.screenshot({
+          animations: "disabled",
+          path: path.join(proofDir, "model-accounts-linked.png"),
+        });
+      }
+
+      await section.locator(".profile-auth-connect-start").click();
+      const openSignIn = section.locator(".profile-auth-connect-open");
+      await openSignIn.waitFor({ timeout: 10_000 });
+      await expect(openSignIn.getAttribute("href")).resolves.toBe(
+        "https://auth.openai.com/oauth/authorize?demo",
+      );
+      // Finish stays disabled until a redirect URL is pasted; auto mode shows the wait hint.
+      await expect(section.locator(".profile-auth-connect-finish").isEnabled()).resolves.toBe(
+        false,
+      );
+      await expect(section.locator(".model-accounts-hint").isVisible()).resolves.toBe(true);
+      if (captureUiProof) {
+        await section.screenshot({
+          animations: "disabled",
+          path: path.join(proofDir, "model-accounts-flow.png"),
+        });
+      }
+    });
+  });
+
   it("retries the missing identity bootstrap and opens the profile editor", async () => {
     await suite.withPage(undefined, async ({ page }) => {
       const gateway = await installMockGateway(page, {

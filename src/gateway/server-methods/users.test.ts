@@ -19,6 +19,10 @@ const ensureProfileForEmail = vi.hoisted(() => vi.fn());
 const getUserProfileDisplay = vi.hoisted(() => vi.fn());
 const getUserProfileListItem = vi.hoisted(() => vi.fn());
 const resolveUserProfileId = vi.hoisted(() => vi.fn());
+const setUserProfileAuthLink = vi.hoisted(() => vi.fn());
+const clearUserProfileAuthLink = vi.hoisted(() => vi.fn());
+const listUserProfileAuthLinks = vi.hoisted(() => vi.fn());
+const ensureAuthProfileStoreWithoutExternalProfiles = vi.hoisted(() => vi.fn());
 
 vi.mock("../../state/user-profiles.js", () => ({
   ensureProfileForEmail,
@@ -31,6 +35,20 @@ vi.mock("../../state/user-profiles.js", () => ({
   setDisplayName,
   setUserProfileRole,
   UserProfileNotFoundError: class UserProfileNotFoundError extends Error {},
+}));
+
+vi.mock("../../state/user-profile-auth-links.js", () => ({
+  clearUserProfileAuthLink,
+  listUserProfileAuthLinks,
+  setUserProfileAuthLink,
+}));
+
+vi.mock("../../agents/auth-profiles/shared-main-dir.js", () => ({
+  resolveSharedMainAuthAgentDir: () => "/tmp/shared-main-agent",
+}));
+
+vi.mock("../../agents/auth-profiles/store.js", () => ({
+  ensureAuthProfileStoreWithoutExternalProfiles,
 }));
 
 vi.mock("../operator-role-policy.js", () => ({ invalidateOperatorRolePolicy }));
@@ -78,6 +96,11 @@ describe("users gateway methods", () => {
     setDisplayName.mockReset();
     setUserProfileRole.mockReset();
     invalidateOperatorRolePolicy.mockReset();
+    setUserProfileAuthLink.mockReset();
+    clearUserProfileAuthLink.mockReset();
+    listUserProfileAuthLinks.mockReset();
+    ensureAuthProfileStoreWithoutExternalProfiles.mockReset();
+    ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({ version: 1, profiles: {} });
     getUserProfileDisplay.mockReturnValue({
       id: profile.id,
       displayName: profile.displayName,
@@ -103,6 +126,15 @@ describe("users gateway methods", () => {
     {
       method: "users.setAvatar",
       params: { profileId: "profile-1", mime: "image/png", avatarBase64: "AQ==" },
+    },
+    { method: "users.listAuthLinks", params: { profileId: "profile-1" } },
+    {
+      method: "users.linkAuthProfile",
+      params: { profileId: "profile-1", authProfileId: "openai:ada" },
+    },
+    {
+      method: "users.unlinkAuthProfile",
+      params: { profileId: "profile-1", provider: "openai" },
     },
   ])("rejects malformed $method before reaching user state", async ({ method, params }) => {
     const invalid = { ...params, unexpected: true };
@@ -140,6 +172,10 @@ describe("users gateway methods", () => {
       setDisplayName,
       setUserProfileRole,
       invalidateOperatorRolePolicy,
+      setUserProfileAuthLink,
+      clearUserProfileAuthLink,
+      listUserProfileAuthLinks,
+      ensureAuthProfileStoreWithoutExternalProfiles,
     ]) {
       expect(effect).not.toHaveBeenCalled();
     }
@@ -672,5 +708,124 @@ describe("users gateway methods", () => {
       ),
     ).toHaveBeenCalledWith(true, { profile });
     expect(resolveUserProfileId).toHaveBeenCalledWith("merged-profile-1");
+  });
+
+  it("lists a profile's model auth links", async () => {
+    const links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 2 }];
+    listUserProfileAuthLinks.mockReturnValue(links);
+
+    expect(
+      await runUsersHandler("users.listAuthLinks", { profileId: "profile-1" }),
+    ).toHaveBeenCalledWith(true, { links });
+    expect(listUserProfileAuthLinks).toHaveBeenCalledWith("profile-1");
+  });
+
+  it("links an auth profile with the provider derived from the stored credential", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue(profile.id);
+    ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({
+      version: 1,
+      profiles: { "openai:ada": { type: "oauth", provider: "openai" } },
+    });
+    const links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 2 }];
+    setUserProfileAuthLink.mockReturnValue(links);
+
+    const respond = await runUsersHandler(
+      "users.linkAuthProfile",
+      { profileId: "profile-1", authProfileId: "openai:ada" },
+      selfClient,
+      { getRuntimeConfig: () => ({}) },
+    );
+
+    expect(respond).toHaveBeenCalledWith(true, { links });
+    expect(setUserProfileAuthLink).toHaveBeenCalledWith({
+      profileId: "profile-1",
+      provider: "openai",
+      authProfileId: "openai:ada",
+    });
+  });
+
+  it("links config-declared auth routes when no stored credential exists", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue(profile.id);
+    const links = [{ provider: "amazon-bedrock", authProfileId: "bedrock:team", updatedAt: 2 }];
+    setUserProfileAuthLink.mockReturnValue(links);
+
+    const respond = await runUsersHandler(
+      "users.linkAuthProfile",
+      { profileId: "profile-1", authProfileId: "bedrock:team" },
+      selfClient,
+      {
+        getRuntimeConfig: () => ({
+          auth: { profiles: { "bedrock:team": { provider: "amazon-bedrock", mode: "aws-sdk" } } },
+        }),
+      },
+    );
+
+    expect(respond).toHaveBeenCalledWith(true, { links });
+    expect(setUserProfileAuthLink).toHaveBeenCalledWith({
+      profileId: "profile-1",
+      provider: "amazon-bedrock",
+      authProfileId: "bedrock:team",
+    });
+  });
+
+  it("rejects links to unknown auth profiles with sign-in guidance", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue(profile.id);
+
+    const respond = await runUsersHandler(
+      "users.linkAuthProfile",
+      { profileId: "profile-1", authProfileId: "openai:missing" },
+      selfClient,
+      { getRuntimeConfig: () => ({}) },
+    );
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("openclaw models auth login"),
+      }),
+    );
+    expect(setUserProfileAuthLink).not.toHaveBeenCalled();
+  });
+
+  it("denies linking another person's profile without operator.admin", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue("profile-2");
+
+    const respond = await runUsersHandler(
+      "users.linkAuthProfile",
+      { profileId: "profile-2", authProfileId: "openai:ada" },
+      selfClient,
+      { getRuntimeConfig: () => ({}) },
+    );
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "FORBIDDEN" }),
+    );
+    expect(setUserProfileAuthLink).not.toHaveBeenCalled();
+  });
+
+  it("unlinks a provider for the caller's own profile", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue(profile.id);
+    clearUserProfileAuthLink.mockReturnValue([]);
+
+    const respond = await runUsersHandler(
+      "users.unlinkAuthProfile",
+      { profileId: "profile-1", provider: "openai" },
+      selfClient,
+    );
+
+    expect(respond).toHaveBeenCalledWith(true, { links: [] });
+    expect(clearUserProfileAuthLink).toHaveBeenCalledWith({
+      profileId: "profile-1",
+      provider: "openai",
+    });
   });
 });

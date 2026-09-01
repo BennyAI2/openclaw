@@ -3,11 +3,17 @@ import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import type {
   UserProfile,
+  UserProfileAuthLink,
+  UsersAuthConnectResult,
+  UsersAuthConnectStartResult,
+  UsersLinkAuthProfileResult,
+  UsersListAuthLinksResult,
   UsersPrefsGetResult,
   UsersPrefsSetResult,
   UsersSelfResult,
   UsersSetAvatarResult,
   UsersSetDisplayNameResult,
+  UsersUnlinkAuthProfileResult,
 } from "../../../../packages/gateway-protocol/src/index.ts";
 import {
   GIT_COAUTHOR_PREFERENCE_KEY,
@@ -24,7 +30,6 @@ import { resolveControlUiAuthCandidates } from "../../app/control-ui-auth.ts";
 import { hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import type { AuthenticatedUser } from "../../app/user-profile.ts";
 import { resolveCurrentSelfUser } from "../../app/user-profile.ts";
-import { icons } from "../../components/icons.ts";
 import {
   renderLearnMoreLink,
   renderSettingsEmpty,
@@ -37,14 +42,15 @@ import {
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { t } from "../../i18n/index.ts";
 import { AuthenticatedAvatarRouteLoader } from "../../lib/authenticated-avatar-route.ts";
-import { resolveAgentAvatarUrl, resolveAssistantTextAvatar } from "../../lib/avatar.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { PROFILE_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import { processProfileAvatar, ProfileAvatarError } from "./avatar-processing.ts";
 import "../../styles/profile.css";
 import { renderIdentitySection } from "./identity-section.ts";
+import { renderModelAccountsSection } from "./model-accounts-section.ts";
 import { userProfileAvatarUrl } from "./profile-avatar-url.ts";
+import { renderProfileHero } from "./profile-hero.ts";
 
 const PROFILE_DOCS_URL = "https://docs.openclaw.ai/concepts/user-model";
 
@@ -63,6 +69,14 @@ export class ProfilePage extends OpenClawLightDomElement {
   @state() private identityLoading = false;
   @state() private identityBusy: "display-name" | "avatar" | "git-coauthor" | null = null;
   @state() private identityError: string | null = null;
+  @state() private authLinks: UserProfileAuthLink[] | null = null;
+  @state() private authLinkBusy = false;
+  @state() private authLinkError: string | null = null;
+  @state() private authLinkDraft = "";
+  @state() private connectFlow: { connectId: string; url: string; autoCallback: boolean } | null =
+    null;
+  @state() private connectRedirectDraft = "";
+  @state() private claudeTokenDraft = "";
   @state() private failedHeroAvatarUrl: string | null = null;
 
   private client: GatewayBrowserClient | null = null;
@@ -73,6 +87,8 @@ export class ProfilePage extends OpenClawLightDomElement {
   private readonly heroAvatarLoader = new AuthenticatedAvatarRouteLoader(this);
   private identityRequestId = 0;
   private subscriptions: Array<() => void> = [];
+  private connectPollTimer: ReturnType<typeof setInterval> | null = null;
+  private connectPrevLinkUpdatedAt: number | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -89,6 +105,7 @@ export class ProfilePage extends OpenClawLightDomElement {
       unsubscribe();
     }
     this.subscriptions = [];
+    this.stopConnectPoll();
     this.identityRequestId += 1;
     this.heroAvatarAuthCandidates = [];
     this.heroAvatarAuthReady = false;
@@ -143,6 +160,14 @@ export class ProfilePage extends OpenClawLightDomElement {
       this.identityLoading = false;
       this.identityBusy = null;
       this.identityError = null;
+      this.authLinks = null;
+      this.authLinkBusy = false;
+      this.authLinkError = null;
+      this.authLinkDraft = "";
+      this.stopConnectPoll();
+      this.connectFlow = null;
+      this.connectRedirectDraft = "";
+      this.claudeTokenDraft = "";
     }
     if (!nextConnected || !snapshot.client) {
       return;
@@ -183,6 +208,7 @@ export class ProfilePage extends OpenClawLightDomElement {
       this.ownProfile = profile;
       this.displayName = hasUnsavedDisplayName ? displayNameDraft : (profile.displayName ?? "");
       this.gitCoauthorEnabled = true;
+      void this.loadAuthLinks(client, requestId, profile.id);
       if (profile.githubIdentity) {
         const preferences = await client.request<UsersPrefsGetResult>("users.prefs.get", {
           keys: [GIT_COAUTHOR_PREFERENCE_KEY],
@@ -208,6 +234,83 @@ export class ProfilePage extends OpenClawLightDomElement {
   private applyOwnProfile(profile: UserProfile) {
     this.ownProfile = profile;
     this.displayName = profile.displayName ?? "";
+  }
+
+  private async loadAuthLinks(client: GatewayBrowserClient, requestId: number, profileId: string) {
+    try {
+      const result = await client.request<UsersListAuthLinksResult>("users.listAuthLinks", {
+        profileId,
+      });
+      if (client !== this.client || requestId !== this.identityRequestId) {
+        return;
+      }
+      this.authLinks = result.links;
+      this.authLinkError = null;
+    } catch (error) {
+      if (client === this.client && requestId === this.identityRequestId) {
+        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
+      }
+    }
+  }
+
+  private async linkAuthProfile() {
+    const client = this.client;
+    const profile = this.ownProfile;
+    const authProfileId = this.authLinkDraft.trim();
+    if (!client || !profile || !this.canWrite || this.authLinkBusy || !authProfileId) {
+      return;
+    }
+    this.authLinkBusy = true;
+    this.authLinkError = null;
+    const identityRequestId = this.identityRequestId;
+    try {
+      const result = await client.request<UsersLinkAuthProfileResult>("users.linkAuthProfile", {
+        profileId: profile.id,
+        authProfileId,
+      });
+      if (client !== this.client || identityRequestId !== this.identityRequestId) {
+        return;
+      }
+      this.authLinks = result.links;
+      this.authLinkDraft = "";
+    } catch (error) {
+      if (client === this.client && identityRequestId === this.identityRequestId) {
+        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
+      }
+    } finally {
+      if (identityRequestId === this.identityRequestId) {
+        this.authLinkBusy = false;
+      }
+    }
+  }
+
+  private async unlinkAuthProfile(provider: string) {
+    const client = this.client;
+    const profile = this.ownProfile;
+    if (!client || !profile || !this.canWrite || this.authLinkBusy) {
+      return;
+    }
+    this.authLinkBusy = true;
+    this.authLinkError = null;
+    const identityRequestId = this.identityRequestId;
+    try {
+      const result = await client.request<UsersUnlinkAuthProfileResult>("users.unlinkAuthProfile", {
+        profileId: profile.id,
+        provider,
+      });
+      if (client !== this.client || identityRequestId !== this.identityRequestId) {
+        return;
+      }
+      this.authLinks = result.links;
+    } catch (error) {
+      if (client === this.client && identityRequestId === this.identityRequestId) {
+        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
+      }
+    } finally {
+      if (identityRequestId === this.identityRequestId) {
+        this.authLinkBusy = false;
+      }
+    }
   }
 
   private async saveDisplayName() {
@@ -408,65 +511,179 @@ export class ProfilePage extends OpenClawLightDomElement {
     });
   }
 
+  private async runModelAccountAction(action: (profileId: string) => Promise<void>) {
+    const client = this.client;
+    const profile = this.ownProfile;
+    if (!client || !profile || !this.canWrite || this.authLinkBusy) {
+      return;
+    }
+    this.authLinkBusy = true;
+    this.authLinkError = null;
+    const identityRequestId = this.identityRequestId;
+    try {
+      await action(profile.id);
+    } catch (error) {
+      if (client === this.client && identityRequestId === this.identityRequestId) {
+        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
+      }
+    } finally {
+      if (identityRequestId === this.identityRequestId) {
+        this.authLinkBusy = false;
+      }
+    }
+  }
+
+  private startOpenAIConnect() {
+    return this.runModelAccountAction(async (profileId) => {
+      const result = await this.client!.request<UsersAuthConnectStartResult>(
+        "users.authConnect.start",
+        { profileId, provider: "openai" },
+      );
+      this.connectFlow = {
+        connectId: result.connectId,
+        url: result.url,
+        autoCallback: result.autoCallback === true,
+      };
+      this.connectRedirectDraft = "";
+      this.connectPrevLinkUpdatedAt =
+        (this.authLinks ?? []).find((link) => link.provider === "openai")?.updatedAt ?? null;
+      if (this.connectFlow.autoCallback) {
+        this.startConnectPoll();
+      }
+    });
+  }
+
+  // The gateway completes local sign-ins through its loopback callback; the
+  // page discovers that by watching the person's links until they change.
+  private startConnectPoll() {
+    this.stopConnectPoll();
+    this.connectPollTimer = setInterval(() => void this.pollConnectCompletion(), 2000);
+  }
+
+  private stopConnectPoll() {
+    if (this.connectPollTimer !== null) {
+      clearInterval(this.connectPollTimer);
+      this.connectPollTimer = null;
+    }
+  }
+
+  private async pollConnectCompletion() {
+    const client = this.client;
+    const profile = this.ownProfile;
+    if (!client || !profile || !this.connectFlow) {
+      this.stopConnectPoll();
+      return;
+    }
+    try {
+      const result = await client.request<UsersListAuthLinksResult>("users.listAuthLinks", {
+        profileId: profile.id,
+      });
+      if (client !== this.client || !this.connectFlow) {
+        return;
+      }
+      const openai = result.links.find((link) => link.provider === "openai");
+      if (openai && openai.updatedAt !== this.connectPrevLinkUpdatedAt) {
+        this.authLinks = result.links;
+        this.stopConnectPoll();
+        this.connectFlow = null;
+        this.connectRedirectDraft = "";
+      }
+    } catch {
+      // Transient poll failures resolve on the next tick or via manual paste.
+    }
+  }
+
+  private completeOpenAIConnect() {
+    const flow = this.connectFlow;
+    const redirectInput = this.connectRedirectDraft.trim();
+    if (!flow || !redirectInput) {
+      return;
+    }
+    void this.runModelAccountAction(async (profileId) => {
+      const result = await this.client!.request<UsersAuthConnectResult>(
+        "users.authConnect.complete",
+        { profileId, connectId: flow.connectId, redirectInput },
+      );
+      this.authLinks = result.links;
+      this.stopConnectPoll();
+      this.connectFlow = null;
+      this.connectRedirectDraft = "";
+    });
+  }
+
+  private connectClaudeToken() {
+    const token = this.claudeTokenDraft.trim();
+    if (!token) {
+      return;
+    }
+    void this.runModelAccountAction(async (profileId) => {
+      const result = await this.client!.request<UsersAuthConnectResult>("users.authConnect.token", {
+        profileId,
+        provider: "anthropic",
+        token,
+      });
+      this.authLinks = result.links;
+      this.claudeTokenDraft = "";
+    });
+  }
+
+  private renderModelAccounts() {
+    if (!this.selfUser || !this.canWrite || !this.ownProfile) {
+      return nothing;
+    }
+    return renderModelAccountsSection({
+      links: this.authLinks ?? [],
+      busy: this.authLinkBusy,
+      error: this.authLinkError,
+      linkDraft: this.authLinkDraft,
+      connectFlow: this.connectFlow,
+      connectRedirectDraft: this.connectRedirectDraft,
+      claudeTokenDraft: this.claudeTokenDraft,
+      onLinkDraftInput: (value) => {
+        this.authLinkDraft = value;
+      },
+      onLink: () => void this.linkAuthProfile(),
+      onUnlink: (provider) => void this.unlinkAuthProfile(provider),
+      onConnectStart: () => void this.startOpenAIConnect(),
+      onConnectRedirectInput: (value) => {
+        this.connectRedirectDraft = value;
+      },
+      onConnectComplete: () => this.completeOpenAIConnect(),
+      onConnectCancel: () => {
+        this.stopConnectPoll();
+        this.connectFlow = null;
+        this.connectRedirectDraft = "";
+      },
+      onClaudeTokenInput: (value) => {
+        this.claudeTokenDraft = value;
+      },
+      onClaudeConnect: () => this.connectClaudeToken(),
+    });
+  }
+
   private refreshManually() {
     if (this.selfUser && this.canWrite && !this.identityBusy && !this.identityLoading) {
       void this.loadIdentity();
     }
   }
 
-  private featuredAgent() {
+  private renderHero() {
     const list = this.context.agents.state.agentsList;
     const agentId = list?.defaultId ?? "main";
     const row = list?.agents.find((agent) => agent.id === agentId) ?? { id: agentId };
-    const identity = this.context.agentIdentity.get(agentId);
-    const avatarUrl = resolveAgentAvatarUrl(row, identity);
-    const textAvatar =
-      resolveAssistantTextAvatar(identity?.avatar) ??
-      resolveAssistantTextAvatar(row.identity?.emoji) ??
-      resolveAssistantTextAvatar(row.identity?.avatar);
-    const name =
-      identity?.name?.trim() || row.identity?.name?.trim() || row.name?.trim() || agentId;
-    return { agentId, name, avatarUrl, textAvatar };
-  }
-
-  private renderAvatar(avatarUrl: string | null, textAvatar: string | null, name: string) {
-    const imageUrl = avatarUrl?.startsWith("/")
-      ? this.heroAvatarAuthReady
-        ? this.heroAvatarLoader.resolve(avatarUrl, this.heroAvatarAuthCandidates)
-        : null
-      : avatarUrl;
-    if (avatarUrl && avatarUrl !== this.failedHeroAvatarUrl) {
-      if (imageUrl) {
-        return html`<img
-          class="profile-hero__avatar-image"
-          src=${imageUrl}
-          alt=${name}
-          @error=${() => {
-            this.failedHeroAvatarUrl = avatarUrl;
-          }}
-        />`;
-      }
-    }
-    if (textAvatar) {
-      return html`<span class="profile-hero__avatar-text">${textAvatar}</span>`;
-    }
-    return html`<span class="profile-hero__avatar-mascot" aria-hidden="true"
-      >${icons.lobster}</span
-    >`;
-  }
-
-  private renderHero() {
-    const { agentId, name, avatarUrl, textAvatar } = this.featuredAgent();
-    return renderSettingsGroup(html`
-      <section class="profile-hero">
-        <div class="profile-hero__avatar">${this.renderAvatar(avatarUrl, textAvatar, name)}</div>
-        <div class="profile-hero__name">${name}</div>
-        <div class="profile-hero__handle">
-          <span>@${agentId}</span>
-          <span class="profile-hero__badge">OpenClaw</span>
-        </div>
-      </section>
-    `);
+    return renderProfileHero({
+      agentId,
+      row,
+      identity: this.context.agentIdentity.get(agentId),
+      resolveImageUrl: (avatarUrl) =>
+        this.heroAvatarAuthReady
+          ? this.heroAvatarLoader.resolve(avatarUrl, this.heroAvatarAuthCandidates)
+          : null,
+      failedAvatarUrl: this.failedHeroAvatarUrl,
+      onAvatarError: (avatarUrl) => {
+        this.failedHeroAvatarUrl = avatarUrl;
+      },
+    });
   }
 
   private renderBody() {
@@ -474,7 +691,7 @@ export class ProfilePage extends OpenClawLightDomElement {
       return renderSettingsPage(renderSettingsGroup(renderSettingsEmpty(t("profilePage.offline"))));
     }
     return renderSettingsPage(html`
-      ${this.renderHero()} ${this.renderIdentity()}
+      ${this.renderHero()} ${this.renderIdentity()} ${this.renderModelAccounts()}
       ${renderSettingsGroup(
         renderSettingsNavRow({
           title: t("profilePage.usageStatistics"),

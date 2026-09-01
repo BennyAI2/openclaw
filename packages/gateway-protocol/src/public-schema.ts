@@ -1,4 +1,5 @@
 // Explicit schema exports keep public protocol changes reviewable.
+export * from "./public-schema-users.js";
 export * from "./schema/sessions-goal.js";
 export * from "./public-schema-push.js";
 export {
@@ -326,28 +327,6 @@ export {
   AuditEventSchema,
   AuditListParamsSchema,
   AuditListResultSchema,
-  GIT_COAUTHOR_PREFERENCE_KEY,
-  isGitCoauthorCreditEnabled,
-  normalizeUiAppearancePreference,
-  UI_APPEARANCE_PREFERENCE_KEYS,
-  UserProfileSchema,
-  UsersLinkEmailParamsSchema,
-  UsersLinkEmailResultSchema,
-  UsersListParamsSchema,
-  UsersListResultSchema,
-  UsersPrefsGetParamsSchema,
-  UsersPrefsGetResultSchema,
-  UsersPrefsChangedEventSchema,
-  UsersPrefsSetParamsSchema,
-  UsersPrefsSetResultSchema,
-  UsersSelfParamsSchema,
-  UsersSelfResultSchema,
-  UsersSetAvatarParamsSchema,
-  UsersSetAvatarResultSchema,
-  UsersSetDisplayNameParamsSchema,
-  UsersSetDisplayNameResultSchema,
-  UsersSetRoleParamsSchema,
-  UsersSetRoleResultSchema,
   TaskSuggestionSchema,
   TaskSuggestionEventSchema,
   TaskSuggestionResolutionSchema,

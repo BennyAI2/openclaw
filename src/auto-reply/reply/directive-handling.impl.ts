@@ -10,7 +10,7 @@ import {
 } from "../../agents/fast-mode.js";
 import { persistStickyModelSelectionBestEffort } from "../../agents/sticky-model-selection.js";
 import { resolveEffectiveAgentRuntime } from "../../agents/thinking-runtime.js";
-import { resolveSessionAuthProfileOverrideSource } from "../../config/sessions/auth-profile-override-provenance.js";
+import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
 import { triggerSessionPatchHook } from "../../gateway/session-patch-hooks.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { applyModelOverrideWithAuthProfileCompatibility } from "../../sessions/auth-profile-preservation.js";
@@ -555,7 +555,7 @@ export async function handleDirectiveOnly(
         nextRouteResolution: "resolved",
         nextModelOverrideSource: modelSelection.isDefault ? undefined : "user",
         nextAuthProfileId: appliedSessionEntry.authProfileOverride,
-        nextAuthProfileIdSource: resolveSessionAuthProfileOverrideSource(appliedSessionEntry),
+        nextAuthProfileIdSource: resolveCollapsedSessionAuthPinSource(appliedSessionEntry),
         nextThinking: {
           level: appliedSessionEntry.thinkingLevel,
           catalog: thinkingCatalog,

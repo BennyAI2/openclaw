@@ -115,6 +115,14 @@ export const validateUsersSetRoleParams = compile(S.UsersSetRoleParamsSchema);
 export const validateUsersSetRoleResult = compile(S.UsersSetRoleResultSchema);
 export const validateUsersSetAvatarParams = compile(S.UsersSetAvatarParamsSchema);
 export const validateUsersSetAvatarResult = compile(S.UsersSetAvatarResultSchema);
+export const validateUsersListAuthLinksParams = compile(S.UsersListAuthLinksParamsSchema);
+export const validateUsersAuthConnectStartParams = compile(S.UsersAuthConnectStartParamsSchema);
+export const validateUsersAuthConnectCompleteParams = compile(
+  S.UsersAuthConnectCompleteParamsSchema,
+);
+export const validateUsersAuthConnectTokenParams = compile(S.UsersAuthConnectTokenParamsSchema);
+export const validateUsersLinkAuthProfileParams = compile(S.UsersLinkAuthProfileParamsSchema);
+export const validateUsersUnlinkAuthProfileParams = compile(S.UsersUnlinkAuthProfileParamsSchema);
 export const validateAgentIdentityParams = compile(S.AgentIdentityParamsSchema);
 export const validateAgentWaitParams = compile(S.AgentWaitParamsSchema);
 export const validateWakeParams = compile(S.WakeParamsSchema);

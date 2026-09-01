@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ProviderModelRouteAuthRequirement } from "../../plugin-sdk/provider-model-types.js";
 import { resolveProviderModelRoutes } from "../../plugins/provider-model-routes.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
+import { resolveUserProfileAuthLink } from "../../state/user-profile-auth-links.js";
 import {
   isConfiguredAwsSdkAuthProfileForProvider,
   isStoredCredentialCompatibleWithAuthProvider,
@@ -253,6 +254,7 @@ async function resolveSessionAuthProfileOverride(params: {
   storePath?: string;
   isNewSession: boolean;
   acceptedProviderIds?: string[];
+  requesterProfileId?: string;
 }): Promise<SessionAuthProfileOverrideResult> {
   const {
     cfg,
@@ -312,9 +314,35 @@ async function resolveSessionAuthProfileOverride(params: {
     current = undefined;
   }
 
-  // Explicit user pins are strict until the profile disappears or changes provider.
-  if (source === "user" && current) {
+  // Explicit user pins and person-linked pins are strict until the profile
+  // disappears or changes provider.
+  if ((source === "user" || source === "user-link") && current) {
     return { profileId: current, store };
+  }
+
+  // A requester's person-linked account establishes a sticky pin at session
+  // start. Cooldowns are deliberately not consulted here: silently billing a
+  // different account would break the session-owner-pays contract, and pinned
+  // profiles already retry through ordered same-provider siblings on failure.
+  if (params.requesterProfileId && (isNewSession || !current)) {
+    const linked = resolveUserProfileAuthLink({
+      profileId: params.requesterProfileId,
+      providers,
+    });
+    if (linked && isProfileForProvider({ cfg, providers, profileId: linked, store })) {
+      await persistSessionAuthProfileOverrideState({
+        sessionEntry,
+        sessionStore,
+        sessionKey,
+        state: {
+          authProfileOverride: linked,
+          authProfileOverrideSource: "user-link",
+          authProfileOverrideCompactionCount: undefined,
+        },
+        storePath,
+      });
+      return { profileId: linked, store };
+    }
   }
 
   // Automatic pins must stay inside the currently configured rotation order.
@@ -352,7 +380,7 @@ async function resolveSessionAuthProfileOverride(params: {
       return {
         profileId:
           latestProfileId &&
-          latestSource === "user" &&
+          (latestSource === "user" || latestSource === "user-link") &&
           isProfileForProvider({ cfg, providers, profileId: latestProfileId, store })
             ? latestProfileId
             : undefined,
@@ -447,6 +475,7 @@ export async function resolveSessionAuthSelection(params: {
   sessionKey?: string;
   storePath?: string;
   isNewSession: boolean;
+  requesterProfileId?: string;
 }): Promise<SessionAuthSelection | undefined> {
   const acceptedProviderIds = listOpenAIAuthProfileProvidersForAgentRuntime({
     provider: params.provider,
@@ -463,7 +492,10 @@ export async function resolveSessionAuthSelection(params: {
       ? (resolveSessionAuthProfileOverrideSource(params.sessionEntry) ?? "auto")
       : "auto"
     : undefined;
-  const rotatedUserProfileId = rotatedSource === "user" ? rotatedProfileId : undefined;
+  // Person-linked pins carry user strength: whose account pays outranks the
+  // static model-ref @profile configured on the agent.
+  const rotatedPinnedProfileId =
+    rotatedSource === "user" || rotatedSource === "user-link" ? rotatedProfileId : undefined;
   const configuredProfileId = params.configuredProfileId?.trim() || undefined;
   const authStore =
     store ??
@@ -484,13 +516,13 @@ export async function resolveSessionAuthSelection(params: {
       `Auth profile "${configuredProfileId}" is not configured for ${params.provider}.`,
     );
   }
-  const profileId = rotatedUserProfileId ?? configuredProfileId ?? rotatedProfileId;
+  const profileId = rotatedPinnedProfileId ?? configuredProfileId ?? rotatedProfileId;
   if (!profileId) {
     return undefined;
   }
   return {
     profileId,
-    source: rotatedUserProfileId || configuredProfileId ? "user" : (rotatedSource ?? "auto"),
+    source: rotatedPinnedProfileId || configuredProfileId ? "user" : "auto",
     routeRequirement: profileAuthRequirement({ cfg: params.cfg, store: authStore, profileId }),
   };
 }

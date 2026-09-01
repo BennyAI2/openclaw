@@ -3,7 +3,9 @@ import {
   ErrorCodes,
   GatewayErrorDetailCodes,
   errorShape,
+  validateUsersLinkAuthProfileParams,
   validateUsersLinkEmailParams,
+  validateUsersListAuthLinksParams,
   validateUsersListParams,
   validateUsersPrefsGetParams,
   validateUsersPrefsSetParams,
@@ -11,11 +13,19 @@ import {
   validateUsersSetAvatarParams,
   validateUsersSetDisplayNameParams,
   validateUsersSetRoleParams,
+  validateUsersUnlinkAuthProfileParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveSharedMainAuthAgentDir } from "../../agents/auth-profiles/shared-main-dir.js";
+import { ensureAuthProfileStoreWithoutExternalProfiles } from "../../agents/auth-profiles/store.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { getUserPreferences, setUserPreferences } from "../../state/user-preferences.js";
 import {
-  ensureProfileForEmail,
+  clearUserProfileAuthLink,
+  listUserProfileAuthLinks,
+  setUserProfileAuthLink,
+} from "../../state/user-profile-auth-links.js";
+import {
   getUserProfileDisplay,
   getUserProfileListItem,
   linkEmail,
@@ -27,12 +37,16 @@ import {
   UserProfileNotFoundError,
 } from "../../state/user-profiles.js";
 import { invalidateOperatorRolePolicy } from "../operator-role-policy.js";
-import { ADMIN_SCOPE } from "../operator-scopes.js";
 import {
   authenticatedProfileUnavailableError,
   isGatewayClientProfilePending,
 } from "./gateway-client-identity.js";
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
+import { usersAuthConnectHandlers } from "./users-auth-connect.js";
+import {
+  requireProfileMutationAccess,
+  resolveAuthenticatedProfileId,
+} from "./users-profile-access.js";
 import { assertValidParams } from "./validation.js";
 
 function refreshConnectedProfile(
@@ -66,60 +80,100 @@ function profileError(error: unknown) {
   return errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(error));
 }
 
-function resolveAuthenticatedProfileId(
-  client: GatewayRequestHandlerOptions["client"],
+// A link may target a stored credential or a config-declared auth route
+// (e.g. aws-sdk); the provider is derived server-side so clients cannot
+// claim a provider the profile does not satisfy.
+function resolveLinkableAuthProfileProvider(
+  cfg: OpenClawConfig,
+  authProfileId: string,
 ): string | undefined {
-  if (client?.authenticatedUserProfile?.profileId) {
-    return resolveUserProfileId(client.authenticatedUserProfile.profileId);
-  }
-  if (client?.authenticatedGitHubIdentitySync) {
-    return undefined;
-  }
-  const authenticatedUserId = client?.authenticatedUserId;
-  if (!authenticatedUserId) {
-    return undefined;
-  }
-  // A failed Tailscale profile snapshot must not recreate its provider login
-  // through the legacy email resolver on a later self-profile request.
-  if (client.authenticatedUserIsTailscaleProvider) {
-    return undefined;
-  }
-  return ensureProfileForEmail(authenticatedUserId).id;
-}
-
-function canMutateProfile(
-  client: GatewayRequestHandlerOptions["client"],
-  profileId: string,
-): boolean {
-  if (client?.connect.scopes?.includes(ADMIN_SCOPE)) {
-    return true;
-  }
-  const authenticatedProfileId = resolveAuthenticatedProfileId(client);
-  return (
-    authenticatedProfileId !== undefined &&
-    authenticatedProfileId === resolveUserProfileId(profileId)
-  );
-}
-
-function requireProfileMutationAccess(
-  client: GatewayRequestHandlerOptions["client"],
-  profileId: string,
-  respond: GatewayRequestHandlerOptions["respond"],
-): boolean {
-  // These methods are write-scoped so an identified caller can edit only its own profile;
-  // edits targeting any other profile remain admin-only.
-  if (canMutateProfile(client, profileId)) {
-    return true;
-  }
-  respond(
-    false,
-    undefined,
-    errorShape(ErrorCodes.FORBIDDEN, "profile edits require the owning user or operator.admin"),
-  );
-  return false;
+  const store = ensureAuthProfileStoreWithoutExternalProfiles(resolveSharedMainAuthAgentDir(), {
+    readOnly: true,
+  });
+  const storedProvider = store.profiles[authProfileId]?.provider;
+  return storedProvider ?? cfg.auth?.profiles?.[authProfileId]?.provider;
 }
 
 export const usersHandlers: GatewayRequestHandlers = {
+  ...usersAuthConnectHandlers,
+  "users.listAuthLinks": ({ params, respond }) => {
+    if (
+      !assertValidParams(params, validateUsersListAuthLinksParams, "users.listAuthLinks", respond)
+    ) {
+      return;
+    }
+    try {
+      respond(true, { links: listUserProfileAuthLinks(params.profileId) });
+    } catch (error) {
+      respond(false, undefined, profileError(error));
+    }
+  },
+  "users.linkAuthProfile": ({ client, context, params, respond }) => {
+    if (
+      !assertValidParams(
+        params,
+        validateUsersLinkAuthProfileParams,
+        "users.linkAuthProfile",
+        respond,
+      )
+    ) {
+      return;
+    }
+    try {
+      if (!requireProfileMutationAccess(client, params.profileId, respond)) {
+        return;
+      }
+      const provider = resolveLinkableAuthProfileProvider(
+        context.getRuntimeConfig(),
+        params.authProfileId,
+      );
+      if (!provider) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `unknown auth profile "${params.authProfileId}"; sign the account in first with "openclaw models auth login --provider <id> --profile-id ${params.authProfileId}", then link it`,
+          ),
+        );
+        return;
+      }
+      respond(true, {
+        links: setUserProfileAuthLink({
+          profileId: params.profileId,
+          provider,
+          authProfileId: params.authProfileId,
+        }),
+      });
+    } catch (error) {
+      respond(false, undefined, profileError(error));
+    }
+  },
+  "users.unlinkAuthProfile": ({ client, params, respond }) => {
+    if (
+      !assertValidParams(
+        params,
+        validateUsersUnlinkAuthProfileParams,
+        "users.unlinkAuthProfile",
+        respond,
+      )
+    ) {
+      return;
+    }
+    try {
+      if (!requireProfileMutationAccess(client, params.profileId, respond)) {
+        return;
+      }
+      respond(true, {
+        links: clearUserProfileAuthLink({
+          profileId: params.profileId,
+          provider: params.provider,
+        }),
+      });
+    } catch (error) {
+      respond(false, undefined, profileError(error));
+    }
+  },
   "users.list": ({ params, respond }) => {
     if (!assertValidParams(params, validateUsersListParams, "users.list", respond)) {
       return;

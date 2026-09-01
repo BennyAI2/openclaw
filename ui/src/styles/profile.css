@@ -75,3 +75,55 @@
   align-items: center;
   gap: var(--space-3);
 }
+
+/* ── Model accounts (per-person OAuth links and connect flows) ── */
+
+.model-accounts__id {
+  font-family: var(--mono);
+  font-size: var(--control-ui-text-sm);
+  color: var(--text-strong);
+}
+
+.model-accounts__provider {
+  margin-left: var(--space-2);
+  font-size: var(--control-ui-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
+.model-accounts-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.model-accounts-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.model-accounts-form .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-accounts-hint {
+  font-size: var(--control-ui-text-sm);
+  color: var(--muted);
+}
+
+.model-accounts-error .settings-row__desc {
+  color: var(--danger);
+}

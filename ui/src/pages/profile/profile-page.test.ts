@@ -208,6 +208,9 @@ it("renders identity before a Usage statistics link without requesting usage dat
     if (method === "users.self") {
       return { profile };
     }
+    if (method === "users.listAuthLinks") {
+      return { links: [] };
+    }
     throw new Error(`unexpected method: ${method}`);
   });
   const harness = createConnectedContext(request as GatewayBrowserClient["request"], {
@@ -221,7 +224,10 @@ it("renders identity before a Usage statistics link without requesting usage dat
   document.body.append(provider);
   await waitForFast(() => expect(page.querySelector("#settings-profile-identity")).not.toBeNull());
 
-  expect(request.mock.calls.map(([method]) => method)).toEqual(["users.self"]);
+  expect(request.mock.calls.map(([method]) => method)).toEqual([
+    "users.self",
+    "users.listAuthLinks",
+  ]);
   const docsLink = page.querySelector<HTMLAnchorElement>(".page-subtitle a");
   expect(docsLink?.textContent?.trim()).toBe("Learn more");
   expect(docsLink?.href).toBe("https://docs.openclaw.ai/concepts/user-model");
@@ -257,6 +263,9 @@ it("loads and updates co-author consent separately from verified GitHub identity
     if (method === "users.self") {
       return { profile };
     }
+    if (method === "users.listAuthLinks") {
+      return { links: [] };
+    }
     if (method === "users.prefs.get") {
       expect(params).toEqual({ keys: [GIT_COAUTHOR_PREFERENCE_KEY] });
       return { status: "ok", entries: { [GIT_COAUTHOR_PREFERENCE_KEY]: false } };
@@ -277,7 +286,11 @@ it("loads and updates co-author consent separately from verified GitHub identity
   document.body.append(provider);
 
   await waitForFast(() => expect(page.querySelector(".settings-account")).not.toBeNull());
-  expect(request.mock.calls.map(([method]) => method)).toEqual(["users.self", "users.prefs.get"]);
+  expect(request.mock.calls.map(([method]) => method)).toEqual([
+    "users.self",
+    "users.listAuthLinks",
+    "users.prefs.get",
+  ]);
   expect(page.querySelector(".identity-github-form")).toBeNull();
   const toggle = page.querySelector<HTMLElement & { checked: boolean }>("wa-switch");
   expect(toggle?.checked).toBe(false);
@@ -291,6 +304,7 @@ it("loads and updates co-author consent separately from verified GitHub identity
   await waitForFast(() => expect(toggle?.checked).toBe(true));
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     "users.self",
+    "users.listAuthLinks",
     "users.prefs.get",
     "users.prefs.set",
   ]);
@@ -677,10 +691,15 @@ it("replaces an in-flight identity request after a same-client reconnect", async
     resolveFresh = resolve;
   });
   const request = vi.fn(async (method: string) => {
+    if (method === "users.listAuthLinks") {
+      return { links: [] };
+    }
     if (method !== "users.self") {
       throw new Error(`unexpected method: ${method}`);
     }
-    return await (request.mock.calls.length === 1 ? staleRequest : freshRequest);
+    return await (request.mock.calls.filter(([called]) => called === "users.self").length === 1
+      ? staleRequest
+      : freshRequest);
   });
   const harness = createConnectedContext(request as GatewayBrowserClient["request"], {
     id: staleProfile.id,
@@ -692,11 +711,12 @@ it("replaces an in-flight identity request after a same-client reconnect", async
   provider.append(page);
   document.body.append(provider);
 
-  await waitForFast(() => expect(request).toHaveBeenCalledTimes(1));
+  const selfCalls = () => request.mock.calls.filter(([method]) => method === "users.self");
+  await waitForFast(() => expect(selfCalls()).toHaveLength(1));
   harness.emitConnected(false);
   await page.updateComplete;
   harness.emitConnected(true);
-  await waitForFast(() => expect(request).toHaveBeenCalledTimes(2));
+  await waitForFast(() => expect(selfCalls()).toHaveLength(2));
 
   resolveFresh?.({ profile: freshProfile });
   await waitForFast(() =>
@@ -712,7 +732,7 @@ it("replaces an in-flight identity request after a same-client reconnect", async
   expect(page.querySelector<HTMLInputElement>(".identity-name-control input")?.value).toBe(
     "Fresh identity",
   );
-  expect(request).toHaveBeenCalledTimes(2);
+  expect(selfCalls()).toHaveLength(2);
 });
 
 it("bootstraps and refreshes the connected user's profile through users.self", async () => {
@@ -737,6 +757,9 @@ it("bootstraps and refreshes the connected user's profile through users.self", a
         return {};
       }
       return { profile };
+    }
+    if (method === "users.listAuthLinks") {
+      return { links: [] };
     }
     if (method === "users.setDisplayName") {
       expect(params).toEqual({ profileId: "profile-1", displayName: "Augusta Ada" });
@@ -875,4 +898,141 @@ it("bootstraps and refreshes the connected user's profile through users.self", a
   page.querySelector<HTMLButtonElement>(".profile-refresh")?.click();
   await Promise.resolve();
   expect(request.mock.calls.some(([method]) => method === "users.self")).toBe(false);
+});
+
+it("links and unlinks a model account through the profile page", async () => {
+  const profile: UserProfile = {
+    id: "profile-1",
+    displayName: "Ada",
+    avatarMime: null,
+    mergedInto: null,
+    createdAt: 1,
+    updatedAt: 2,
+    emails: ["ada@example.test"],
+    githubIdentity: null,
+    hasAvatar: false,
+  };
+  let links: Array<{ provider: string; authProfileId: string; updatedAt: number }> = [];
+  const request = vi.fn(async (method: string, params?: unknown) => {
+    if (method === "users.self") {
+      return { profile };
+    }
+    if (method === "users.listAuthLinks") {
+      return { links };
+    }
+    if (method === "users.linkAuthProfile") {
+      expect(params).toEqual({ profileId: "profile-1", authProfileId: "openai:ada" });
+      links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 5 }];
+      return { links };
+    }
+    if (method === "users.unlinkAuthProfile") {
+      expect(params).toEqual({ profileId: "profile-1", provider: "openai" });
+      links = [];
+      return { links };
+    }
+    throw new Error(`unexpected method: ${method}`);
+  });
+  const harness = createConnectedContext(request as GatewayBrowserClient["request"], {
+    id: "profile-1",
+    email: "ada@example.test",
+    name: "Ada",
+  });
+  const provider = createApplicationContextProvider(harness.context);
+  const page = document.createElement(PROFILE_PAGE_TEST_TAG) as ProfilePageElement;
+  provider.append(page);
+  document.body.append(provider);
+
+  await waitForFast(() => expect(page.querySelector(".profile-auth-link-input")).not.toBeNull());
+  expect(page.textContent).toContain(t("profilePage.modelAccounts.empty"));
+
+  const input = page.querySelector<HTMLInputElement>(".profile-auth-link-input")!;
+  input.value = "openai:ada";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await page.updateComplete;
+  page.querySelector<HTMLButtonElement>(".profile-auth-link-submit")!.click();
+
+  await waitForFast(() =>
+    expect(request.mock.calls.some(([method]) => method === "users.linkAuthProfile")).toBe(true),
+  );
+  await waitForFast(() => expect(page.textContent).toContain("openai:ada"));
+  expect(page.querySelector<HTMLInputElement>(".profile-auth-link-input")?.value).toBe("");
+
+  page.querySelector<HTMLButtonElement>(".profile-auth-link-unlink")!.click();
+  await waitForFast(() =>
+    expect(request.mock.calls.some(([method]) => method === "users.unlinkAuthProfile")).toBe(true),
+  );
+  await waitForFast(() => expect(page.textContent).toContain(t("profilePage.modelAccounts.empty")));
+});
+
+it("connects a ChatGPT account through the two-phase browser flow", async () => {
+  const profile: UserProfile = {
+    id: "profile-1",
+    displayName: "Ada",
+    avatarMime: null,
+    mergedInto: null,
+    createdAt: 1,
+    updatedAt: 2,
+    emails: ["ada@example.test"],
+    githubIdentity: null,
+    hasAvatar: false,
+  };
+  let links: Array<{ provider: string; authProfileId: string; updatedAt: number }> = [];
+  const request = vi.fn(async (method: string, params?: unknown) => {
+    if (method === "users.self") {
+      return { profile };
+    }
+    if (method === "users.listAuthLinks") {
+      return { links };
+    }
+    if (method === "users.authConnect.start") {
+      expect(params).toEqual({ profileId: "profile-1", provider: "openai" });
+      return {
+        connectId: "connect-1",
+        url: "https://auth.openai.com/oauth/authorize?state=s",
+        expiresAtMs: 9,
+      };
+    }
+    if (method === "users.authConnect.complete") {
+      expect(params).toEqual({
+        profileId: "profile-1",
+        connectId: "connect-1",
+        redirectInput: "http://localhost:1455/auth/callback?code=abc&state=s",
+      });
+      links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 5 }];
+      return { authProfileId: "openai:ada", links };
+    }
+    throw new Error(`unexpected method: ${method}`);
+  });
+  const harness = createConnectedContext(request as GatewayBrowserClient["request"], {
+    id: "profile-1",
+    email: "ada@example.test",
+    name: "Ada",
+  });
+  const provider = createApplicationContextProvider(harness.context);
+  const page = document.createElement(PROFILE_PAGE_TEST_TAG) as ProfilePageElement;
+  provider.append(page);
+  document.body.append(provider);
+
+  await waitForFast(() => expect(page.querySelector(".profile-auth-connect-start")).not.toBeNull());
+  page.querySelector<HTMLButtonElement>(".profile-auth-connect-start")!.click();
+  await waitForFast(() =>
+    expect(page.querySelector(".profile-auth-connect-redirect")).not.toBeNull(),
+  );
+  expect(page.querySelector<HTMLAnchorElement>(".profile-auth-connect-open")?.href).toContain(
+    "auth.openai.com",
+  );
+
+  const redirect = page.querySelector<HTMLInputElement>(".profile-auth-connect-redirect")!;
+  redirect.value = "http://localhost:1455/auth/callback?code=abc&state=s";
+  redirect.dispatchEvent(new Event("input", { bubbles: true }));
+  await page.updateComplete;
+  page.querySelector<HTMLButtonElement>(".profile-auth-connect-finish")!.click();
+
+  await waitForFast(() =>
+    expect(request.mock.calls.some(([method]) => method === "users.authConnect.complete")).toBe(
+      true,
+    ),
+  );
+  await waitForFast(() => expect(page.textContent).toContain("openai:ada"));
+  expect(page.querySelector(".profile-auth-connect-redirect")).toBeNull();
 });

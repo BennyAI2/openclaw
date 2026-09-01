@@ -1,6 +1,6 @@
 export type ChatMetadataSessionEntry = {
   authProfileOverride?: string;
-  authProfileOverrideSource?: "auto" | "user";
+  authProfileOverrideSource?: "auto" | "user" | "user-link";
   authProfileOverrideCompactionCount?: number;
 };
 

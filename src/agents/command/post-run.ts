@@ -2,7 +2,7 @@ import { getReplyPayloadMetadata } from "../../auto-reply/reply-payload.js";
 import type { FollowupRun } from "../../auto-reply/reply/queue.js";
 import { recordAgentRunTerminalOutcome } from "../../channels/turn/agent-run-terminal-outcome.js";
 import type { CliDeps } from "../../cli/deps.types.js";
-import { resolveSessionAuthProfileOverrideSource } from "../../config/sessions/auth-profile-override-provenance.js";
+import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
 import { formatSqliteSessionFileMarker } from "../../config/sessions/legacy-sqlite-marker.js";
 import { buildRestartRecoveryClaimCleanupPatch } from "../../config/sessions/restart-recovery-state.js";
 import type { RestartRecoveryTerminalDeliveryEvidenceResult } from "../../config/sessions/restart-recovery-types.js";
@@ -265,7 +265,7 @@ export async function finalizeEmbeddedAgentCommand(params: {
       const flushModel = result.meta.agentMeta?.model ?? fallbackModel;
       const maintenanceAuthProfile = params.attempt.maintenanceAuthProfile ?? {
         authProfileId: sessionEntry.authProfileOverride?.trim() || undefined,
-        authProfileIdSource: resolveSessionAuthProfileOverrideSource(sessionEntry),
+        authProfileIdSource: resolveCollapsedSessionAuthPinSource(sessionEntry),
       };
       followupRun = {
         prompt: "",

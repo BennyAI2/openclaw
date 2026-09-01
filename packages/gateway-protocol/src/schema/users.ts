@@ -89,6 +89,60 @@ export const UsersSetAvatarResultSchema = closedObject({
   avatarRevision: NonEmptyString,
 });
 
+const ModelAuthProfileIdSchema = Type.String({ minLength: 1, maxLength: 256 });
+const ModelAuthProviderIdSchema = Type.String({ minLength: 1, maxLength: 128 });
+export const UserProfileAuthLinkSchema = closedObject({
+  provider: ModelAuthProviderIdSchema,
+  authProfileId: ModelAuthProfileIdSchema,
+  updatedAt: Type.Integer({ minimum: 0 }),
+});
+
+export const UsersListAuthLinksParamsSchema = closedObject({ profileId: UserProfileIdSchema });
+export const UsersListAuthLinksResultSchema = closedObject({
+  links: Type.Array(UserProfileAuthLinkSchema),
+});
+
+export const UsersLinkAuthProfileParamsSchema = closedObject({
+  profileId: UserProfileIdSchema,
+  authProfileId: ModelAuthProfileIdSchema,
+});
+export const UsersLinkAuthProfileResultSchema = closedObject({
+  links: Type.Array(UserProfileAuthLinkSchema),
+});
+
+export const UsersUnlinkAuthProfileParamsSchema = closedObject({
+  profileId: UserProfileIdSchema,
+  provider: ModelAuthProviderIdSchema,
+});
+export const UsersUnlinkAuthProfileResultSchema = closedObject({
+  links: Type.Array(UserProfileAuthLinkSchema),
+});
+
+export const UsersAuthConnectStartParamsSchema = closedObject({
+  profileId: UserProfileIdSchema,
+  provider: Type.Literal("openai"),
+});
+export const UsersAuthConnectStartResultSchema = closedObject({
+  connectId: NonEmptyString,
+  url: NonEmptyString,
+  expiresAtMs: Type.Integer({ minimum: 0 }),
+  autoCallback: Type.Optional(Type.Boolean()),
+});
+export const UsersAuthConnectCompleteParamsSchema = closedObject({
+  profileId: UserProfileIdSchema,
+  connectId: NonEmptyString,
+  redirectInput: Type.String({ minLength: 1, maxLength: 8192 }),
+});
+export const UsersAuthConnectTokenParamsSchema = closedObject({
+  profileId: UserProfileIdSchema,
+  provider: Type.Literal("anthropic"),
+  token: Type.String({ minLength: 1, maxLength: 8192 }),
+});
+export const UsersAuthConnectResultSchema = closedObject({
+  authProfileId: ModelAuthProfileIdSchema,
+  links: Type.Array(UserProfileAuthLinkSchema),
+});
+
 export const UsersPrefsGetParamsSchema = closedObject({
   keys: Type.Optional(
     Type.Array(UserPreferenceKeySchema, {
@@ -128,6 +182,18 @@ export type UsersSetRoleParams = Static<typeof UsersSetRoleParamsSchema>;
 export type UsersSetRoleResult = Static<typeof UsersSetRoleResultSchema>;
 export type UsersSetAvatarParams = Static<typeof UsersSetAvatarParamsSchema>;
 export type UsersSetAvatarResult = Static<typeof UsersSetAvatarResultSchema>;
+export type UserProfileAuthLink = Static<typeof UserProfileAuthLinkSchema>;
+export type UsersAuthConnectStartParams = Static<typeof UsersAuthConnectStartParamsSchema>;
+export type UsersAuthConnectStartResult = Static<typeof UsersAuthConnectStartResultSchema>;
+export type UsersAuthConnectCompleteParams = Static<typeof UsersAuthConnectCompleteParamsSchema>;
+export type UsersAuthConnectTokenParams = Static<typeof UsersAuthConnectTokenParamsSchema>;
+export type UsersAuthConnectResult = Static<typeof UsersAuthConnectResultSchema>;
+export type UsersListAuthLinksParams = Static<typeof UsersListAuthLinksParamsSchema>;
+export type UsersListAuthLinksResult = Static<typeof UsersListAuthLinksResultSchema>;
+export type UsersLinkAuthProfileParams = Static<typeof UsersLinkAuthProfileParamsSchema>;
+export type UsersLinkAuthProfileResult = Static<typeof UsersLinkAuthProfileResultSchema>;
+export type UsersUnlinkAuthProfileParams = Static<typeof UsersUnlinkAuthProfileParamsSchema>;
+export type UsersUnlinkAuthProfileResult = Static<typeof UsersUnlinkAuthProfileResultSchema>;
 export type UsersPrefsGetParams = Static<typeof UsersPrefsGetParamsSchema>;
 export type UsersPrefsGetResult = Static<typeof UsersPrefsGetResultSchema>;
 export type UsersPrefsSetParams = Static<typeof UsersPrefsSetParamsSchema>;

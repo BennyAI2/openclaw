@@ -3827,6 +3827,40 @@ export const en: TranslationMap = {
         tooLarge: "The processed avatar is larger than 512 KB.",
       },
     },
+    modelAccounts: {
+      title: "Model accounts",
+      description:
+        "Link a model auth profile to bill sessions you start to your own account. Steered turns in your sessions ride the same account.",
+      empty: "No account linked. Sessions you start use the gateway's default model account.",
+      linkedDescription: "Sessions you start bill this account.",
+      linkedStatus: "Linked",
+      providerChatgpt: "ChatGPT",
+      providerClaude: "Claude",
+      waitingHint: "Waiting for the sign-in to finish…",
+      inputLabel: "Link an auth profile",
+      inputDescription:
+        'A profile id from the gateway auth store, e.g. "openai:alice" after "openclaw models auth login".',
+      inputPlaceholder: "openai:alice",
+      linkAction: "Link",
+      unlinkAction: "Unlink",
+      loadFailed: "Could not load linked model accounts.",
+      connectChatgpt: "Connect ChatGPT",
+      connectChatgptDescription:
+        "Sign in with your own ChatGPT account; sessions you start bill your plan.",
+      connectAction: "Connect",
+      openSignIn: "Open OpenAI sign-in",
+      redirectDescription:
+        "After approving, copy the full localhost URL from the tab that fails to load and paste it here.",
+      redirectAutoDescription:
+        "Finish signing in — this page updates by itself. If the sign-in tab shows an error instead, paste its URL here.",
+      redirectPlaceholder: "http://localhost:1455/auth/callback?code=…",
+      confirmAction: "Finish",
+      cancelAction: "Cancel",
+      connectClaude: "Connect Claude",
+      connectClaudeDescription:
+        'Run "claude setup-token" on your own machine and paste the token it prints.',
+      claudeTokenPlaceholder: "sk-ant-oat01-…",
+    },
   },
   tasksPage: {
     active: "Active",
