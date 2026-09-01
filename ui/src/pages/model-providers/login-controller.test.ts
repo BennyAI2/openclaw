@@ -95,4 +95,63 @@ describe("ModelProviderLoginController", () => {
     await vi.waitFor(() => expect(starts).toBe(2));
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });
+
+  it("keeps sign-in busy until a commit-locked login releases admission", async () => {
+    let running = true;
+    let starts = 0;
+    const request = vi.fn(async (method: string): Promise<unknown> => {
+      if (method === "models.authLogin.start") {
+        starts += 1;
+        if (starts > 1 && running) {
+          throw new Error("wizard already running");
+        }
+        return { sessionId: `login-${starts}`, done: false, status: "running" };
+      }
+      if (method === "wizard.next") {
+        return {
+          done: false,
+          status: "running",
+          step: { id: "device-code", type: "note", executor: "client" },
+        };
+      }
+      if (method === "wizard.cancel") {
+        return { status: running ? "running" : "done" };
+      }
+      throw new Error(`unexpected request ${method}`);
+    });
+    const host = {
+      addController: vi.fn(),
+      requestUpdate: vi.fn(),
+    } as unknown as ReactiveControllerHost;
+    const controller = new ModelProviderLoginController(host, {
+      getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+      getAgentId: () => "main",
+      canStart: () => true,
+      refresh: vi.fn(async () => undefined),
+      setMessage: vi.fn(),
+    });
+
+    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    await vi.waitFor(() => expect(starts).toBe(1));
+    controller.reset();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "wizard.cancel",
+        { sessionId: expect.any(String) },
+        { timeoutMs: 30_000 },
+      ),
+    );
+
+    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    await vi.waitFor(() =>
+      expect(request.mock.calls.filter(([method]) => method === "wizard.cancel")).toHaveLength(2),
+    );
+    expect(starts).toBe(1);
+    expect(controller.busy).toBe(true);
+
+    running = false;
+    await vi.waitFor(() => expect(controller.busy).toBe(false));
+    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    await vi.waitFor(() => expect(starts).toBe(2));
+  });
 });
