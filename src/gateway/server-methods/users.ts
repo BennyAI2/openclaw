@@ -97,13 +97,18 @@ function resolveLinkableAuthProfileProvider(
 
 export const usersHandlers: GatewayRequestHandlers = {
   ...usersAuthConnectHandlers,
-  "users.listAuthLinks": ({ params, respond }) => {
+  "users.listAuthLinks": ({ client, params, respond }) => {
     if (
       !assertValidParams(params, validateUsersListAuthLinksParams, "users.listAuthLinks", respond)
     ) {
       return;
     }
     try {
+      // The provider/auth-profile association is owner-private: reads share the
+      // self-or-admin boundary of the link mutations they mirror.
+      if (!requireProfileMutationAccess(client, params.profileId, respond)) {
+        return;
+      }
       respond(true, { links: listUserProfileAuthLinks(params.profileId) });
     } catch (error) {
       respond(false, undefined, profileError(error));

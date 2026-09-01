@@ -710,14 +710,47 @@ describe("users gateway methods", () => {
     expect(resolveUserProfileId).toHaveBeenCalledWith("merged-profile-1");
   });
 
-  it("lists a profile's model auth links", async () => {
+  it("lists the caller's own model auth links", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockReturnValue(profile.id);
     const links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 2 }];
     listUserProfileAuthLinks.mockReturnValue(links);
 
     expect(
-      await runUsersHandler("users.listAuthLinks", { profileId: "profile-1" }),
+      await runUsersHandler("users.listAuthLinks", { profileId: "profile-1" }, selfClient),
     ).toHaveBeenCalledWith(true, { links });
     expect(listUserProfileAuthLinks).toHaveBeenCalledWith("profile-1");
+  });
+
+  it("lists any profile's model auth links with operator.admin", async () => {
+    resolveUserProfileId.mockReturnValue("profile-2");
+    const links = [{ provider: "openai", authProfileId: "openai:bob", updatedAt: 2 }];
+    listUserProfileAuthLinks.mockReturnValue(links);
+
+    expect(
+      await runUsersHandler("users.listAuthLinks", { profileId: "profile-2" }, adminClient),
+    ).toHaveBeenCalledWith(true, { links });
+  });
+
+  it("denies reading another profile's model auth links", async () => {
+    ensureProfileForEmail.mockReturnValue(profile);
+    resolveUserProfileId.mockImplementation((profileId: string) =>
+      profileId === "profile-2" ? "profile-2" : profile.id,
+    );
+
+    const respond = await runUsersHandler(
+      "users.listAuthLinks",
+      { profileId: "profile-2" },
+      selfClient,
+    );
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "FORBIDDEN" }),
+    );
+    // The association itself is owner-private: the store is never consulted.
+    expect(listUserProfileAuthLinks).not.toHaveBeenCalled();
   });
 
   it("links an auth profile with the provider derived from the stored credential", async () => {
