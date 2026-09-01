@@ -17,6 +17,7 @@ import type {
   NodeWorkerLaunchInput,
   NodeWorkerSupervisorReceipt,
 } from "../../worker/node-supervisor-protocol.js";
+import { NODE_WORKER_WORKSPACE_RESULT_GRACE_MS } from "../../worker/node-workspace-deadlines.js";
 import {
   parseNodeWorkerWorkspaceExecResult,
   type NodeWorkerWorkspaceExecInput,
@@ -55,7 +56,6 @@ import {
 import { boundedWorkerError } from "./worker-error.js";
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_RESULT_GRACE_MS = 5_000;
 const RETRY_DELAY_MS = 100;
 const tunnelLog = createSubsystemLogger("gateway/worker-tunnel");
 const RETRYABLE_TRANSPORT_CODES = new Set([
@@ -210,7 +210,8 @@ export function createNodeWorkerTunnelManager(options: NodeWorkerTunnelManagerOp
     // Keep the subprocess deadline authoritative while allowing its terminal result to cross the
     // node transport. Equal deadlines turn an ordinary process timeout into a transport failure.
     const transportTimeoutMs =
-      addTimerTimeoutGraceMs(commandTimeoutMs, COMMAND_RESULT_GRACE_MS) ?? commandTimeoutMs;
+      addTimerTimeoutGraceMs(commandTimeoutMs, NODE_WORKER_WORKSPACE_RESULT_GRACE_MS) ??
+      commandTimeoutMs;
     const deadline = Date.now() + transportTimeoutMs;
     const signals = [entry.abortController.signal, AbortSignal.timeout(transportTimeoutMs)];
     if (command.signal) {

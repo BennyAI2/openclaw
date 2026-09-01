@@ -16,6 +16,10 @@ import {
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveRuntimeServiceBuildId } from "../version.js";
 import {
+  NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
+  NODE_WORKER_WORKSPACE_RESULT_GRACE_MS,
+} from "../worker/node-workspace-deadlines.js";
+import {
   parseNodeWorkerPreparedWorkspaceResult,
   type NodeWorkerPreparedWorkspaceInput,
 } from "../worker/node-workspace-prepared-protocol.js";
@@ -392,6 +396,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
   const invokePreparedWorkspace = async (request: {
     deviceId: string;
     input: NodeWorkerPreparedWorkspaceInput;
+    expiresAtMs?: number;
     signal?: AbortSignal;
     assertCurrent: () => void;
   }) => {
@@ -408,12 +413,24 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
     if (!node || !transport.isCurrent(node, false)) {
       throw new Error("Prepared workspace node protocol is unavailable");
     }
+    // Registration hashes the project with the existing workspace command budget.
+    // An unused reserve's lifetime still bounds that work; binding only updates its owner.
+    const timeoutMs =
+      input.action === "register"
+        ? Math.max(
+            1,
+            Math.min(
+              NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS + NODE_WORKER_WORKSPACE_RESULT_GRACE_MS,
+              request.expiresAtMs === undefined ? Infinity : request.expiresAtMs - Date.now(),
+            ),
+          )
+        : 30_000;
     const result = await transport.invoke({
       node,
       command: NODE_WORKER_WORKSPACE_PREPARE_COMMAND,
       params: input,
       signal,
-      timeoutMs: 30_000,
+      timeoutMs,
       idempotencyKey: `${input.environmentId}:${input.preparationKey}:${input.action}`,
       isDispatchAuthorized: () => {
         assertCurrent();
@@ -421,12 +438,16 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
       },
     });
     assertCurrent();
+    if (!result.ok) {
+      throw new Error(
+        `Prepared workspace ${input.action} failed${result.error?.message ? `: ${result.error.message}` : ""}`,
+      );
+    }
     const payload = result.payloadJSON
       ? (JSON.parse(result.payloadJSON) as unknown)
       : result.payload;
     const registered = parseNodeWorkerPreparedWorkspaceResult(payload);
     if (
-      !result.ok ||
       !registered ||
       registered.gatewayNamespace !== input.gatewayNamespace ||
       registered.environmentId !== input.environmentId ||
@@ -496,6 +517,9 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
         deviceId,
         assertCurrent,
         signal,
+        ...(record.preparation?.consumedAtMs === null
+          ? { expiresAtMs: record.preparation.expiresAtMs }
+          : {}),
         input: {
           action: "register",
           gatewayNamespace: nodeWorkerGatewayNamespace,

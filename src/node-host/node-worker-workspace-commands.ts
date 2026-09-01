@@ -8,8 +8,8 @@ import {
 import { REMOTE_WORKSPACE_MANIFEST_JS } from "../gateway/worker-environments/workspace-sync-scripts.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { runCommandWithTimeout } from "../process/exec.js";
+import { NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS } from "../worker/node-workspace-deadlines.js";
 
-export const TRANSFER_TIMEOUT_MS = 10 * 60_000;
 const commandLog = createSubsystemLogger("node-host/worker-workspace");
 
 /** Environment for node-owned workspace commands: pinned HOME, no credential prompts. */
@@ -41,7 +41,7 @@ export async function runWorkspaceCommand(params: {
     cwd: params.workspaceDir,
     baseEnv: workspaceCommandEnv(params.homeDir),
     ...(params.input === undefined ? {} : { input: params.input }),
-    timeoutMs: TRANSFER_TIMEOUT_MS,
+    timeoutMs: NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
     signal: params.signal,
     maxOutputBytes,
     maxCombinedOutputBytes: maxOutputBytes + 128 * 1024,

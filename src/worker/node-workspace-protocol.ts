@@ -1,6 +1,7 @@
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { SpawnResult } from "../process/exec.js";
+import { NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS } from "./node-workspace-deadlines.js";
 import type { NodeWorkerWorkspaceTransferInput } from "./node-workspace-transfer-protocol.js";
 import { hasExactOwnKeys } from "./protocol-record.js";
 
@@ -14,7 +15,6 @@ const ARGV_MAX_ITEMS = 128;
 // Workspace scripts are shipped through this private command and remain bounded by
 // REQUEST_MAX_BYTES; the canonical manifest script is larger than an ordinary argv item.
 const ARG_MAX_BYTES = 128 * 1024;
-const TIMEOUT_MAX_MS = 10 * 60 * 1000;
 
 export type NodeWorkerWorkspaceSeedInput =
   | { action: "apply"; key: string }
@@ -128,7 +128,7 @@ export function parseNodeWorkerWorkspaceExecInput(
     (typeof value.timeoutMs !== "number" ||
       !Number.isSafeInteger(value.timeoutMs) ||
       value.timeoutMs < 1 ||
-      value.timeoutMs > TIMEOUT_MAX_MS)
+      value.timeoutMs > NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS)
   ) {
     throw new Error("INVALID_REQUEST: workspace command timeout is invalid");
   }
