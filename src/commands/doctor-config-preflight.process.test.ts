@@ -397,6 +397,7 @@ describe("gateway startup-migration refusal", () => {
       OPENCLAW_CONFIG_PATH: configPath,
       OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
       OPENCLAW_NO_RESPAWN: "1",
+      OPENCLAW_GATEWAY_STARTUP_TRACE: "1",
       OPENCLAW_SKIP_CHANNELS: "1",
       OPENCLAW_STATE_DIR: stateDir,
       OPENCLAW_TEST_FAST: "1",
@@ -466,6 +467,7 @@ describe("gateway startup-migration refusal", () => {
           forceWindowsTree: true,
         }),
       ).toBe(true);
+      console.log(openclawTestInstanceTesting.formatLogs(stdout, stderr));
     }
 
     const loaded = await loadCronJobsStoreWithConfigJobsReadOnly(storePath, env);

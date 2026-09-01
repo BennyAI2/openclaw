@@ -231,11 +231,19 @@ async function waitForGatewayReady(
   timeoutMs: number,
   fetchImpl: typeof fetch = fetch,
 ) {
+  const observations: Array<Record<string, unknown>> = [];
+  const observe = (value: Record<string, unknown>) => {
+    observations.push({ elapsedMs: Date.now() - startedAt, ...value });
+    if (observations.length > 32) {
+      observations.shift();
+    }
+  };
+  const probeDetails = () => `readiness probes: ${JSON.stringify(observations)}`;
   const exitedBeforeReadinessError = () =>
     new Error(
       `gateway exited before readiness (code=${String(proc.exitCode)} signal=${String(
         proc.signalCode,
-      )})\n${formatLogs(chunksOut, chunksErr)}`,
+      )})\n${probeDetails()}\n${formatLogs(chunksOut, chunksErr)}`,
     );
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -272,16 +280,41 @@ async function waitForGatewayReady(
           const response = await fetchImpl(`http://127.0.0.1:${port}/readyz`, {
             signal: probeAbort.signal,
           });
+          observe({ phase: "headers", status: response.status });
           const readiness: unknown = await response.json();
+          observe({
+            phase: "body",
+            status: response.status,
+            ready:
+              isRecord(readiness) && typeof readiness.ready === "boolean"
+                ? readiness.ready
+                : undefined,
+            failing:
+              isRecord(readiness) && Array.isArray(readiness.failing)
+                ? readiness.failing
+                    .filter((item) => typeof item === "string")
+                    .slice(0, 8)
+                    .map((item) => item.slice(0, 80))
+                : undefined,
+          });
           return response.ok && isRecord(readiness) && readiness.ready === true;
         })(),
         exitPromise,
         timeoutPromise,
       ]);
       if (ready) {
+        appendLogChunk(chunksErr, `${probeDetails()}\n`);
         return;
       }
-    } catch {
+    } catch (error) {
+      observe({
+        error: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message.slice(0, 160) : undefined,
+        causeCode:
+          error instanceof Error && isRecord(error.cause) && typeof error.cause.code === "string"
+            ? error.cause.code.slice(0, 80)
+            : undefined,
+      });
       if (hasChildExited(proc)) {
         throw exitedBeforeReadinessError();
       }
@@ -299,7 +332,7 @@ async function waitForGatewayReady(
     }
   }
   throw new Error(
-    `timeout waiting for gateway readiness on port ${port}\n${formatLogs(chunksOut, chunksErr)}`,
+    `timeout waiting for gateway readiness on port ${port}\n${probeDetails()}\n${formatLogs(chunksOut, chunksErr)}`,
   );
 }
 
