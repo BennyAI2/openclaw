@@ -14,6 +14,7 @@ const UPGRADE_SURVIVOR_SCENARIOS = Object.freeze([
   "cron-scheduled-authority",
   "sqlite-volume",
   "recovery-cleanup",
+  "schema1-multi-agent-rollback",
   "auth-profile-v2026-7-2-beta-5",
 ]);
 
@@ -23,7 +24,8 @@ const aggregateScenarios = UPGRADE_SURVIVOR_SCENARIOS.filter(
   (scenario) =>
     scenario !== "prerelease-plugin-registry" &&
     scenario !== "auth-profile-v2026-7-2-beta-5" &&
-    scenario !== "recovery-cleanup",
+    scenario !== "recovery-cleanup" &&
+    scenario !== "schema1-multi-agent-rollback",
 );
 const scenarioAliases = new Map([
   ["reported-issues", aggregateScenarios.filter((scenario) => scenario !== "sqlite-volume")],
@@ -134,11 +136,16 @@ function supportsUpgradeSurvivorAcpToolsBridge(baselineSpec) {
   return comparePublishedReleaseVersion(version, { year: 2026, month: 4, patch: 22 }) >= 0;
 }
 
+function supportsSchema1MultiAgentRollback(baselineSpec) {
+  return baselineSpec === undefined || baselineSpec === "openclaw@2026.7.1-2";
+}
+
 export function supportsUpgradeSurvivorScenarioAtBaseline(scenario, baselineSpec) {
   return (
     (scenario !== "plugin-deps-cleanup" ||
       supportsUpgradeSurvivorPluginDependencyCleanup(baselineSpec)) &&
     (scenario !== "acpx-openclaw-tools-bridge" ||
-      supportsUpgradeSurvivorAcpToolsBridge(baselineSpec))
+      supportsUpgradeSurvivorAcpToolsBridge(baselineSpec)) &&
+    (scenario !== "schema1-multi-agent-rollback" || supportsSchema1MultiAgentRollback(baselineSpec))
   );
 }

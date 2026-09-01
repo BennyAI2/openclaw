@@ -1066,6 +1066,7 @@ process.stdout.write(sessionDir + "\\n");
     expect(scenarios).toContain("acpx-openclaw-tools-bridge");
     expect(scenarios).toContain("prerelease-plugin-registry");
     expect(scenarios).toContain("sqlite-volume");
+    expect(scenarios).toContain("schema1-multi-agent-rollback");
     expect(new Set(scenarios).size).toBe(scenarios.length);
   });
 

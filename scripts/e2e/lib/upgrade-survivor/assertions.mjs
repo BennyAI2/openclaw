@@ -27,6 +27,7 @@ const SCENARIOS = new Set([
   "cron-scheduled-authority",
   "sqlite-volume",
   "recovery-cleanup",
+  "schema1-multi-agent-rollback",
   "auth-profile-v2026-7-2-beta-5",
 ]);
 

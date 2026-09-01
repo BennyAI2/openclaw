@@ -1040,6 +1040,27 @@ describe("scripts/lib/docker-e2e-plan", () => {
     },
   );
 
+  it("plans schema-1 rollback only for its explicit released fixture", () => {
+    const explicitPlan = planFor({
+      selectedLaneNames: ["published-upgrade-survivor"],
+      upgradeSurvivorBaselines: "2026.7.1-2 2026.8.1",
+      upgradeSurvivorScenarios: "schema1-multi-agent-rollback",
+    });
+
+    expect(explicitPlan.lanes.map((lane) => lane.name)).toEqual([
+      "published-upgrade-survivor-2026.7.1-2-schema1-multi-agent-rollback",
+    ]);
+    for (const aggregateScenario of ["reported-issues", "far-reaching"]) {
+      expect(
+        planFor({
+          selectedLaneNames: ["published-upgrade-survivor"],
+          upgradeSurvivorBaselines: "2026.7.1-2",
+          upgradeSurvivorScenarios: aggregateScenario,
+        }).lanes.map((lane) => lane.name),
+      ).not.toContain("published-upgrade-survivor-2026.7.1-2-schema1-multi-agent-rollback");
+    }
+  });
+
   it("expands reported upgrade issue scenarios", () => {
     const plan = planFor({
       selectedLaneNames: ["published-upgrade-survivor"],

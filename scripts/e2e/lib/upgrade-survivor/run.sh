@@ -1093,6 +1093,72 @@ run_doctor() {
   fi
 }
 
+run_schema1_multi_agent_rollback() {
+  if [ "$baseline_spec" != "openclaw@2026.7.1-2" ]; then
+    echo "schema1-multi-agent-rollback requires openclaw@2026.7.1-2; got: $baseline_spec" >&2
+    return 1
+  fi
+  local helper="scripts/e2e/lib/upgrade-survivor/schema1-multi-agent-rollback.mjs"
+  local candidate_log="$ARTIFACT_ROOT/schema1-candidate-activation.log"
+  local rollback_log="$ARTIFACT_ROOT/schema1-rollback-gateway.log"
+  local rollback_install_log="$ARTIFACT_ROOT/schema1-rollback-install.log"
+  local restore_json="$ARTIFACT_ROOT/schema1-restore.json"
+  local restore_err="$ARTIFACT_ROOT/schema1-restore.err"
+  local restore_root="$RUNTIME_ROOT/schema1-restored"
+  local snapshot_dir="$ARTIFACT_ROOT/schema1-snapshots"
+  local activation_status=0
+
+  phase seed-released-schema1-stores node "$helper" seed "$(package_root)"
+  phase assert-released-schema1-stores node "$helper" assert-schema1 baseline
+  phase snapshot-released-schema1-stores node "$helper" snapshot "$snapshot_dir"
+  phase update-candidate update_candidate
+  phase assert-candidate-migration-backup node "$helper" assert-update-backup "$UPDATE_JSON"
+  openclaw_e2e_maybe_timeout 60s openclaw gateway --port 18789 --bind loopback --allow-unconfigured \
+    >"$candidate_log" 2>&1 || activation_status=$?
+  if [ "$activation_status" -eq 0 ] || [ "$activation_status" -eq 124 ]; then
+    echo "candidate first activation did not refuse after migration" >&2
+    openclaw_e2e_print_log "$candidate_log" >&2
+    return 1
+  fi
+  phase assert-candidate-readiness-refusal node "$helper" assert-refusal "$candidate_log"
+
+  local backup_path
+  backup_path="$(node "$helper" backup-path "$UPDATE_JSON")"
+  if ! openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" openclaw backup restore "$backup_path" \
+    --target "$restore_root" --json >"$restore_json" 2>"$restore_err"; then
+    openclaw_e2e_print_log "$restore_err" >&2
+    return 1
+  fi
+  local restored_state_dir
+  restored_state_dir="$(node "$helper" assert-restored "$restore_json" "$snapshot_dir")"
+
+  if ! openclaw_e2e_maybe_timeout "${OPENCLAW_E2E_NPM_INSTALL_TIMEOUT:-600s}" \
+    npm install -g --prefix "$npm_config_prefix" "$baseline_spec" --no-fund --no-audit \
+    >"$rollback_install_log" 2>&1; then
+    openclaw_e2e_print_log "$rollback_install_log" >&2
+    return 1
+  fi
+  hash -r
+  installed_version="$(read_installed_version)"
+  if [ "$installed_version" != "$baseline_version" ]; then
+    echo "rollback install version mismatch: expected $baseline_version, got $installed_version" >&2
+    return 1
+  fi
+
+  export OPENCLAW_STATE_DIR="$restored_state_dir"
+  export OPENCLAW_CONFIG_PATH="$restored_state_dir/openclaw.json"
+  openclaw gateway --port 18789 --bind loopback --allow-unconfigured >"$rollback_log" 2>&1 &
+  gateway_pid="$!"
+  openclaw_e2e_wait_gateway_ready "$gateway_pid" "$rollback_log" 90 18789
+  phase assert-rollback-schema1-readable node "$helper" assert-schema1 rollback
+  local STATUS_JSON="$ARTIFACT_ROOT/schema1-rollback-status.json"
+  local STATUS_ERR="$ARTIFACT_ROOT/schema1-rollback-status.err"
+  phase assert-rollback-gateway-status check_gateway_status
+  stop_gateway
+
+  echo "Schema-1 multi-agent rollback E2E passed baseline=$baseline_version candidate=$candidate_version."
+}
+
 repair_fixture_plugin_consent() {
   if [ "$update_repair_required" = "1" ]; then
     # Migration assertions run first: explicit fixture consent must not conceal a
@@ -1299,6 +1365,12 @@ phase initialize-state initialize_state
 phase apply-baseline-config-recipe apply_baseline_config_recipe
 phase validate-baseline-config validate_baseline_config
 phase resolve-candidate resolve_candidate_version
+if [ "$SCENARIO" = "schema1-multi-agent-rollback" ]; then
+  run_schema1_multi_agent_rollback
+  run_completed="1"
+  echo "Upgrade survivor Docker E2E passed baseline=${baseline_spec} scenario=${SCENARIO} candidate=${candidate_version}."
+  exit 0
+fi
 phase configure-clawhub-fixture configure_clawhub_fixture
 phase prepare-update-restart-probe prepare_update_restart_probe
 # Start the published baseline before adding migration specimens: its startup
