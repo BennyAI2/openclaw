@@ -58,6 +58,10 @@ import {
   hasCurrentWorkspaceResultClaim,
   hasWorkerWorkspacePendingResult,
 } from "./placement-workspace-result.js";
+import {
+  consumePreparedEnvironment,
+  type PreparedEnvironmentSelection,
+} from "./prepared-environment-store.js";
 import { boundedWorkerError } from "./worker-error.js";
 import { projectWorkspaceResultConflict } from "./workspace-conflicts.js";
 
@@ -222,6 +226,24 @@ export function createWorkerSessionPlacementStore(
         claim.sessionId,
         projectWorkspaceResultConflict(paths, stagedResultRef, conflict.totalCount),
       );
+    },
+
+    bindPreparedEnvironment(
+      input: PreparedEnvironmentSelection,
+    ): WorkerSessionPlacementRecord | undefined {
+      return write((db) => {
+        const nowMs = now();
+        const current = consumePreparedEnvironment(db, input, nowMs);
+        return current
+          ? updateTransition(
+              db,
+              current,
+              "provisioning",
+              { environmentId: input.environmentId },
+              nowMs,
+            )
+          : undefined;
+      });
     },
 
     startDispatch(input: WorkerSessionPlacementDispatchIdentity): WorkerSessionPlacementRecord {
