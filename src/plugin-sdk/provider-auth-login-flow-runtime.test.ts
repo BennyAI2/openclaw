@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  codexChannelLoginRuntime,
   decideProviderLoginSessionAdoption,
   providerChannelLoginRuntime,
   type ProviderChannelLoginChoice,
@@ -8,6 +9,7 @@ import {
 
 const choice: ProviderChannelLoginChoice = {
   choiceId: "xai-oauth",
+  pluginId: "xai",
   providerId: "xai",
   methodId: "oauth",
   label: "xAI OAuth",
@@ -41,6 +43,67 @@ describe("provider channel login runtime", () => {
     ).rejects.toThrow("Open Control UI");
     expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
       "Open Control UI → Models and choose Sign in.",
+    );
+  });
+
+  it("passes the selected manifest owner to provider execution", async () => {
+    const runLoginFlow = vi.fn(async () => ({
+      providerId: "xai",
+      methodId: "oauth",
+      profiles: [],
+    }));
+
+    await providerChannelLoginRuntime.runLoginFlow({
+      choice,
+      agentId: "main",
+      config: {},
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      sendMessage: vi.fn(async () => {}),
+      unsupportedPromptMessage: "Open Control UI → Models and choose Sign in.",
+      runLoginFlow,
+    });
+
+    expect(runLoginFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "xai",
+        method: "oauth",
+        ownerPluginId: "xai",
+      }),
+    );
+  });
+
+  it("retains the released Codex channel-login facade", async () => {
+    expect([
+      codexChannelLoginRuntime.resolveProvider(undefined),
+      codexChannelLoginRuntime.resolveProvider(""),
+      codexChannelLoginRuntime.resolveProvider("codex"),
+      codexChannelLoginRuntime.resolveProvider("OPENAI"),
+      codexChannelLoginRuntime.resolveProvider("xai"),
+    ]).toEqual(["openai", "openai", "openai", "openai", null]);
+    expect(codexChannelLoginRuntime.resolveProviderScopedProfileId("OpenAI:owner", "openai")).toBe(
+      "OpenAI:owner",
+    );
+    expect(
+      codexChannelLoginRuntime.resolveProviderScopedProfileId("xai:owner", "openai"),
+    ).toBeUndefined();
+
+    const runLoginFlow = vi.fn(async () => ({
+      providerId: "openai",
+      methodId: "device-code",
+      profiles: [],
+    }));
+    await codexChannelLoginRuntime.runDeviceLoginFlow({
+      provider: "openai",
+      agentId: "main",
+      config: {},
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      sendMessage: vi.fn(async () => {}),
+      unsupportedPromptMessage: "Use the Control UI.",
+      runLoginFlow,
+    });
+
+    expect(runLoginFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "openai", method: "device-code" }),
     );
   });
 

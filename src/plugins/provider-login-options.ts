@@ -19,6 +19,7 @@ export type ProviderLoginOption = {
 
 export type ProviderChannelLoginChoice = {
   choiceId: string;
+  pluginId: string;
   providerId: string;
   methodId: string;
   label: string;
@@ -131,6 +132,7 @@ function projectProviderChannelLoginChoices(
       const provider = normalizeLoginInput(choice.providerId);
       return {
         choiceId: choice.choiceId,
+        pluginId: choice.pluginId,
         providerId: choice.providerId,
         methodId: choice.methodId,
         label: choice.choiceLabel,

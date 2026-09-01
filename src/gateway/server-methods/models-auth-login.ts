@@ -53,6 +53,7 @@ export const handlers: GatewayRequestHandlers = {
         const result = await runModelsAuthLoginFlowCore({
           provider: choice.providerId,
           method: choice.methodId,
+          ownerPluginId: choice.pluginId,
           ...(params.agentId ? { agent: params.agentId } : {}),
           config,
           runtime: {

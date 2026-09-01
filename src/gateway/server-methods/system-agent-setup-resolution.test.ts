@@ -587,7 +587,12 @@ describe("models.authLogin.start", () => {
 
     expect(done).toEqual({ done: true, status: "done" });
     const loginOptions = modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mock.calls[0]?.[0];
-    expect(loginOptions).toMatchObject({ provider: "xai", method: "oauth", agent: "research" });
+    expect(loginOptions).toMatchObject({
+      provider: "xai",
+      method: "oauth",
+      ownerPluginId: "xai",
+      agent: "research",
+    });
     expect(loginOptions).not.toHaveProperty("setDefault");
     expect(modelsAuthLoginMocks.refreshModelAuthStateAfterMutation).toHaveBeenCalledWith(
       context,
