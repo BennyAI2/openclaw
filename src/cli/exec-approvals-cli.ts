@@ -22,7 +22,7 @@ import {
   getTerminalTableWidth,
   renderTerminalSafeTable,
 } from "../../packages/terminal-core/src/table.js";
-import { isRich, theme } from "../../packages/terminal-core/src/theme.js";
+import { theme } from "../../packages/terminal-core/src/theme.js";
 import { resolveConfiguredAgentId } from "../agents/agent-scope-config.js";
 import { readBestEffortConfig, type OpenClawConfig } from "../config/config.js";
 import { ADMIN_SCOPE, APPROVALS_SCOPE, type OperatorScope } from "../gateway/method-scopes.js";
@@ -891,16 +891,13 @@ function buildEffectivePolicyReport(params: {
 }
 
 function renderEffectivePolicy(params: { report: EffectivePolicyReport }) {
-  const rich = isRich();
-  const heading = (text: string) => (rich ? theme.heading(text) : text);
-  const muted = (text: string) => (rich ? theme.muted(text) : text);
   if (params.report.scopes.length === 0 && !params.report.note) {
     return;
   }
   defaultRuntime.log("");
-  defaultRuntime.log(heading("Effective Policy"));
+  defaultRuntime.log(theme.heading("Effective Policy"));
   if (params.report.scopes.length === 0) {
-    defaultRuntime.log(muted(params.report.note ?? "No effective policy details available."));
+    defaultRuntime.log(theme.muted(params.report.note ?? "No effective policy details available."));
     return;
   }
   const rows = params.report.scopes.map((summary) => ({
@@ -924,7 +921,7 @@ function renderEffectivePolicy(params: { report: EffectivePolicyReport }) {
     }).trimEnd(),
   );
   defaultRuntime.log("");
-  defaultRuntime.log(muted(`Precedence: ${params.report.note}`));
+  defaultRuntime.log(theme.muted(`Precedence: ${params.report.note}`));
 }
 
 function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: string) {
@@ -932,9 +929,6 @@ function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: s
     renderNativeApprovalsSnapshot(snapshot, targetLabel);
     return;
   }
-  const rich = isRich();
-  const heading = (text: string) => (rich ? theme.heading(text) : text);
-  const muted = (text: string) => (rich ? theme.muted(text) : text);
   const tableWidth = getTerminalTableWidth();
 
   const file = snapshot.file ?? { version: 1 };
@@ -963,7 +957,9 @@ function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: s
         Target: targetLabel,
         Agent: agentId,
         Pattern: pattern,
-        LastUsed: lastUsedAt ? formatTimeAgo(Math.max(0, now - lastUsedAt)) : muted("unknown"),
+        LastUsed: lastUsedAt
+          ? formatTimeAgo(Math.max(0, now - lastUsedAt))
+          : theme.muted("unknown"),
       });
     }
   }
@@ -983,7 +979,7 @@ function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: s
     { Field: "Allowlist", Value: String(allowlistRows.length) },
   ];
 
-  defaultRuntime.log(heading("Approvals"));
+  defaultRuntime.log(theme.heading("Approvals"));
   defaultRuntime.log(
     renderTerminalSafeTable({
       width: tableWidth,
@@ -997,12 +993,12 @@ function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: s
 
   if (allowlistRows.length === 0) {
     defaultRuntime.log("");
-    defaultRuntime.log(muted("No allowlist entries."));
+    defaultRuntime.log(theme.muted("No allowlist entries."));
     return;
   }
 
   defaultRuntime.log("");
-  defaultRuntime.log(heading("Allowlist"));
+  defaultRuntime.log(theme.heading("Allowlist"));
   defaultRuntime.log(
     renderTerminalSafeTable({
       width: tableWidth,
@@ -1018,9 +1014,6 @@ function renderApprovalsSnapshot(snapshot: ExecApprovalsSnapshot, targetLabel: s
 }
 
 function renderNativeApprovalsSnapshot(snapshot: NativeExecApprovalsSnapshot, targetLabel: string) {
-  const rich = isRich();
-  const heading = (text: string) => (rich ? theme.heading(text) : text);
-  const muted = (text: string) => (rich ? theme.muted(text) : text);
   const rules = snapshot.enabled ? snapshot.rules : [];
   const summaryRows = [
     { Field: "Target", Value: targetLabel },
@@ -1033,7 +1026,7 @@ function renderNativeApprovalsSnapshot(snapshot: NativeExecApprovalsSnapshot, ta
     },
     { Field: "Rules", Value: String(rules.length) },
   ];
-  defaultRuntime.log(heading("Approvals"));
+  defaultRuntime.log(theme.heading("Approvals"));
   defaultRuntime.log(
     renderTerminalSafeTable({
       width: getTerminalTableWidth(),
@@ -1046,11 +1039,11 @@ function renderNativeApprovalsSnapshot(snapshot: NativeExecApprovalsSnapshot, ta
   );
   if (rules.length === 0) {
     defaultRuntime.log("");
-    defaultRuntime.log(muted("No host-native rules."));
+    defaultRuntime.log(theme.muted("No host-native rules."));
     return;
   }
   defaultRuntime.log("");
-  defaultRuntime.log(heading("Rules"));
+  defaultRuntime.log(theme.heading("Rules"));
   defaultRuntime.log(
     renderTerminalSafeTable({
       width: getTerminalTableWidth(),
@@ -1321,9 +1314,8 @@ export function registerExecApprovalsCli(program: Command) {
           return;
         }
 
-        const muted = (text: string) => (isRich() ? theme.muted(text) : text);
         if (source === "local") {
-          defaultRuntime.log(muted("Showing local approvals."));
+          defaultRuntime.log(theme.muted("Showing local approvals."));
           defaultRuntime.log("");
         }
         const targetLabel = source === "local" ? "local" : nodeId ? `node:${nodeId}` : "gateway";

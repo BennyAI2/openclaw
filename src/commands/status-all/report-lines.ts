@@ -3,7 +3,7 @@
 
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { getTerminalTableWidth, renderTable } from "../../../packages/terminal-core/src/table.js";
-import { isRich, theme } from "../../../packages/terminal-core/src/theme.js";
+import { theme } from "../../../packages/terminal-core/src/theme.js";
 import type { ProgressReporter } from "../../cli/progress.js";
 import type { BestEffortConfigSnapshot } from "../../config/io.js";
 import { formatStatusConfigDiagnosticEntries } from "../status.format.js";
@@ -64,27 +64,20 @@ export async function buildStatusAllReportLines(params: {
     "lines" | "progress" | "muted" | "ok" | "warn" | "fail" | "connectionDetailsForReport"
   >;
 }) {
-  const rich = isRich();
-  const heading = (text: string) => (rich ? theme.heading(text) : text);
-  const ok = (text: string) => (rich ? theme.success(text) : text);
-  const warn = (text: string) => (rich ? theme.warn(text) : text);
-  const fail = (text: string) => (rich ? theme.error(text) : text);
-  const muted = (text: string) => (rich ? theme.muted(text) : text);
-
   const tableWidth = getTerminalTableWidth();
 
   const lines: string[] = [];
   if (params.configDiagnostics) {
     lines.push(
-      warn("Config diagnostics:"),
+      theme.warn("Config diagnostics:"),
       ...formatStatusConfigDiagnosticEntries(params.configDiagnostics),
       "",
     );
   }
-  lines.push(heading("OpenClaw status --all"));
+  lines.push(theme.heading("OpenClaw status --all"));
   appendStatusReportSections({
     lines,
-    heading,
+    heading: theme.heading,
     width: tableWidth,
     renderTable,
     sections: [
@@ -104,17 +97,17 @@ export async function buildStatusAllReportLines(params: {
         rows: buildStatusChannelsTableRows({
           rows: params.channels.rows,
           channelIssues: params.channelIssues,
-          ok,
-          warn,
-          muted,
+          ok: theme.success,
+          warn: theme.warn,
+          muted: theme.muted,
           accentDim: theme.accentDim,
           formatIssueMessage: (message) => truncateUtf16Safe(message, 90),
         }),
       },
       ...buildStatusChannelDetailSections({
         details: params.channels.details,
-        ok,
-        warn,
+        ok: theme.success,
+        warn: theme.warn,
       }),
       {
         kind: "table",
@@ -122,25 +115,25 @@ export async function buildStatusAllReportLines(params: {
         columns: [...statusAgentsTableColumns],
         rows: buildStatusAgentTableRows({
           agentStatus: params.agentStatus,
-          ok,
-          warn,
+          ok: theme.success,
+          warn: theme.warn,
         }),
       },
     ],
   });
   appendStatusSectionHeading({
     lines,
-    heading,
+    heading: theme.heading,
     title: "Diagnosis (read-only)",
   });
 
   await appendStatusAllDiagnosis({
     lines,
     progress: params.progress,
-    muted,
-    ok,
-    warn,
-    fail,
+    muted: theme.muted,
+    ok: theme.success,
+    warn: theme.warn,
+    fail: theme.error,
     connectionDetailsForReport: params.connectionDetailsForReport,
     ...params.diagnosis,
   });

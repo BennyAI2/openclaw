@@ -5,7 +5,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import type { Command } from "commander";
 import { formatDocsLink } from "../../packages/terminal-core/src/links.js";
-import { isRich, theme } from "../../packages/terminal-core/src/theme.js";
+import { theme } from "../../packages/terminal-core/src/theme.js";
 import { getRuntimeConfig } from "../config/config.js";
 import type { GatewayAuthMode } from "../config/types.gateway.js";
 import { defaultRuntime } from "../runtime.js";
@@ -62,14 +62,13 @@ function buildAuditGatewayAuthOverride(params: {
 }
 
 function formatSummary(summary: { critical: number; warn: number; info: number }): string {
-  const rich = isRich();
   const c = summary.critical;
   const w = summary.warn;
   const i = summary.info;
   const parts: string[] = [];
-  parts.push(rich ? theme.error(`${c} critical`) : `${c} critical`);
-  parts.push(rich ? theme.warn(`${w} warn`) : `${w} warn`);
-  parts.push(rich ? theme.muted(`${i} info`) : `${i} info`);
+  parts.push(theme.error(`${c} critical`));
+  parts.push(theme.warn(`${w} warn`));
+  parts.push(theme.muted(`${i} info`));
   return parts.join(" · ");
 }
 
@@ -158,65 +157,65 @@ export function registerSecurityCli(program: Command) {
         return;
       }
 
-      const rich = isRich();
-      const heading = (text: string) => (rich ? theme.heading(text) : text);
-      const muted = (text: string) => (rich ? theme.muted(text) : text);
-
       const lines: string[] = [];
-      lines.push(heading("OpenClaw security audit"));
-      lines.push(muted(`Summary: ${formatSummary(report.summary)}`));
+      lines.push(theme.heading("OpenClaw security audit"));
+      lines.push(theme.muted(`Summary: ${formatSummary(report.summary)}`));
       if ((report.suppressedFindings?.length ?? 0) > 0) {
-        lines.push(muted(`Suppressed: ${report.suppressedFindings?.length ?? 0} configured`));
+        lines.push(theme.muted(`Suppressed: ${report.suppressedFindings?.length ?? 0} configured`));
       }
-      lines.push(muted(`Run deeper: ${formatCliCommand("openclaw security audit --deep")}`));
+      lines.push(theme.muted(`Run deeper: ${formatCliCommand("openclaw security audit --deep")}`));
       for (const diagnostic of secretDiagnostics) {
-        lines.push(muted(`[secrets] ${diagnostic}`));
+        lines.push(theme.muted(`[secrets] ${diagnostic}`));
       }
 
       if (opts.fix) {
-        lines.push(muted(`Fix: ${formatCliCommand("openclaw security audit --fix")}`));
+        lines.push(theme.muted(`Fix: ${formatCliCommand("openclaw security audit --fix")}`));
         if (!fixResult) {
-          lines.push(muted("Fixes: failed to apply (unexpected error)"));
+          lines.push(theme.muted("Fixes: failed to apply (unexpected error)"));
         } else if (
           fixResult.errors.length === 0 &&
           fixResult.changes.length === 0 &&
           fixResult.actions.every((a) => !a.ok)
         ) {
-          lines.push(muted("Fixes: no changes applied"));
+          lines.push(theme.muted("Fixes: no changes applied"));
         } else {
           lines.push("");
-          lines.push(heading("FIX"));
+          lines.push(theme.heading("FIX"));
           for (const change of fixResult.changes) {
-            lines.push(muted(`  ${shortenHomeInString(change)}`));
+            lines.push(theme.muted(`  ${shortenHomeInString(change)}`));
           }
           for (const action of fixResult.actions) {
             if (action.kind === "chmod") {
               const mode = action.mode.toString(8).padStart(3, "0");
               if (action.ok) {
-                lines.push(muted(`  chmod ${mode} ${shortenHomePath(action.path)}`));
+                lines.push(theme.muted(`  chmod ${mode} ${shortenHomePath(action.path)}`));
               } else if (action.skipped) {
                 lines.push(
-                  muted(`  skip chmod ${mode} ${shortenHomePath(action.path)} (${action.skipped})`),
+                  theme.muted(
+                    `  skip chmod ${mode} ${shortenHomePath(action.path)} (${action.skipped})`,
+                  ),
                 );
               } else if (action.error) {
                 lines.push(
-                  muted(`  chmod ${mode} ${shortenHomePath(action.path)} failed: ${action.error}`),
+                  theme.muted(
+                    `  chmod ${mode} ${shortenHomePath(action.path)} failed: ${action.error}`,
+                  ),
                 );
               }
               continue;
             }
             const command = shortenHomeInString(action.command);
             if (action.ok) {
-              lines.push(muted(`  ${command}`));
+              lines.push(theme.muted(`  ${command}`));
             } else if (action.skipped) {
-              lines.push(muted(`  skip ${command} (${action.skipped})`));
+              lines.push(theme.muted(`  skip ${command} (${action.skipped})`));
             } else if (action.error) {
-              lines.push(muted(`  ${command} failed: ${action.error}`));
+              lines.push(theme.muted(`  ${command} failed: ${action.error}`));
             }
           }
           if (fixResult.errors.length > 0) {
             for (const err of fixResult.errors) {
-              lines.push(muted(`  error: ${shortenHomeInString(err)}`));
+              lines.push(theme.muted(`  error: ${shortenHomeInString(err)}`));
             }
           }
         }
@@ -232,23 +231,17 @@ export function registerSecurityCli(program: Command) {
         }
         const label =
           sev === "critical"
-            ? rich
-              ? theme.error("CRITICAL")
-              : "CRITICAL"
+            ? theme.error("CRITICAL")
             : sev === "warn"
-              ? rich
-                ? theme.warn("WARN")
-                : "WARN"
-              : rich
-                ? theme.muted("INFO")
-                : "INFO";
+              ? theme.warn("WARN")
+              : theme.muted("INFO");
         lines.push("");
-        lines.push(heading(label));
+        lines.push(theme.heading(label));
         for (const f of list) {
           lines.push(`${theme.muted(f.checkId)} ${f.title}`);
           lines.push(`  ${f.detail}`);
           if (f.remediation?.trim()) {
-            lines.push(`  ${muted(`Fix: ${f.remediation.trim()}`)}`);
+            lines.push(`  ${theme.muted(`Fix: ${f.remediation.trim()}`)}`);
           }
         }
       };

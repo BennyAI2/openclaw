@@ -1,7 +1,7 @@
 /** Human-readable formatter for `openclaw message` action results. */
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { getTerminalTableWidth, renderTable } from "../../packages/terminal-core/src/table.js";
-import { isRich, theme } from "../../packages/terminal-core/src/theme.js";
+import { theme } from "../../packages/terminal-core/src/theme.js";
 import { getLoadedChannelPlugin } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.public.js";
 import type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
@@ -212,18 +212,12 @@ export function formatMessageCliText(
   result: MessageActionResult,
   opts?: { displayLimit?: number },
 ): string[] {
-  const rich = isRich();
-  const ok = (text: string) => (rich ? theme.success(text) : text);
-  const fail = (text: string) => (rich ? theme.error(text) : text);
-  const muted = (text: string) => (rich ? theme.muted(text) : text);
-  const heading = (text: string) => (rich ? theme.heading(text) : text);
-
   const width = getTerminalTableWidth();
   const displayLimit = opts?.displayLimit;
   const formatOpts: FormatOpts = { width, displayLimit };
 
   if (result.dryRun) {
-    return [muted(`[dry-run] would run ${result.action} via ${result.channel}`)];
+    return [theme.muted(`[dry-run] would run ${result.action} via ${result.channel}`)];
   }
 
   const outcome = resolveMessageActionOutcome(result);
@@ -238,7 +232,7 @@ export function formatMessageCliText(
     const okCount = results.filter((entry) => entry.ok).length;
     const total = results.length;
     const successful = outcome.ok;
-    const headingLine = (successful ? ok : fail)(
+    const headingLine = (successful ? theme.success : theme.error)(
       `${successful ? "✅ Broadcast complete" : "❌ Broadcast failed"} (${okCount}/${total} succeeded, ${total - okCount} failed)`,
     );
     return [
@@ -258,7 +252,7 @@ export function formatMessageCliText(
 
   if (!outcome.ok) {
     const messageId = result.kind === "send" ? result.sendResult?.result?.messageId : undefined;
-    return [fail(`❌ ${outcome.error}${messageId ? ` Message ID: ${messageId}` : ""}`)];
+    return [theme.error(`❌ ${outcome.error}${messageId ? ` Message ID: ${messageId}` : ""}`)];
   }
 
   if (result.kind === "send") {
@@ -266,11 +260,11 @@ export function formatMessageCliText(
       const send = result.sendResult;
       if (send.via === "direct") {
         const directResult = send.result as OutboundDeliveryResult | undefined;
-        return [ok(formatOutboundDeliverySummary(send.channel, directResult))];
+        return [theme.success(formatOutboundDeliverySummary(send.channel, directResult))];
       }
       const gatewayResult = send.result as { messageId?: string } | undefined;
       return [
-        ok(
+        theme.success(
           formatGatewaySummary({
             channel: send.channel,
             messageId: gatewayResult?.messageId ?? null,
@@ -281,7 +275,7 @@ export function formatMessageCliText(
 
     const label = resolveChannelLabel(result.channel);
     const msgId = resolveMessageActionMessageId(result.payload);
-    return [ok(`✅ Sent via ${label}.${msgId ? ` Message ID: ${msgId}` : ""}`)];
+    return [theme.success(`✅ Sent via ${label}.${msgId ? ` Message ID: ${msgId}` : ""}`)];
   }
 
   if (result.kind === "poll") {
@@ -294,19 +288,19 @@ export function formatMessageCliText(
           ? ({ ...poll.result, channel: poll.channel } satisfies OutboundDeliveryResult)
           : undefined;
         const lines = [
-          ok(
+          theme.success(
             formatOutboundDeliverySummary(poll.channel, directResult, {
               action: "Poll sent",
             }),
           ),
         ];
         if (pollId) {
-          lines.push(ok(`Poll id: ${pollId}`));
+          lines.push(theme.success(`Poll id: ${pollId}`));
         }
         return lines;
       }
       const lines = [
-        ok(
+        theme.success(
           formatGatewaySummary({
             action: "Poll sent",
             channel: poll.channel,
@@ -315,14 +309,14 @@ export function formatMessageCliText(
         ),
       ];
       if (pollId) {
-        lines.push(ok(`Poll id: ${pollId}`));
+        lines.push(theme.success(`Poll id: ${pollId}`));
       }
       return lines;
     }
 
     const label = resolveChannelLabel(result.channel);
     const msgId = resolveMessageActionMessageId(result.payload);
-    return [ok(`✅ Poll sent via ${label}.${msgId ? ` Message ID: ${msgId}` : ""}`)];
+    return [theme.success(`✅ Poll sent via ${label}.${msgId ? ` Message ID: ${msgId}` : ""}`)];
   }
 
   // Channel actions share the generic plugin-action payload shape, so format
@@ -334,25 +328,25 @@ export function formatMessageCliText(
     const added = (payload as { added?: unknown }).added;
     const removed = (payload as { removed?: unknown }).removed;
     if (typeof added === "string" && added.trim()) {
-      lines.push(ok(`✅ Reaction added: ${added.trim()}`));
+      lines.push(theme.success(`✅ Reaction added: ${added.trim()}`));
       return lines;
     }
     if (typeof removed === "string" && removed.trim()) {
-      lines.push(ok(`✅ Reaction removed: ${removed.trim()}`));
+      lines.push(theme.success(`✅ Reaction removed: ${removed.trim()}`));
       return lines;
     }
     if (Array.isArray(removed)) {
       const list = normalizeStringEntries(removed).join(", ");
-      lines.push(ok(`✅ Reactions removed${list ? `: ${list}` : ""}`));
+      lines.push(theme.success(`✅ Reactions removed${list ? `: ${list}` : ""}`));
       return lines;
     }
-    lines.push(ok("✅ Reaction updated."));
+    lines.push(theme.success("✅ Reaction updated."));
     return lines;
   }
 
   const reactionsTable = renderReactions(payload, formatOpts);
   if (reactionsTable !== null && result.action === "reactions") {
-    lines.push(heading("Reactions"));
+    lines.push(theme.heading("Reactions"));
     lines.push(reactionsTable);
     return lines;
   }
@@ -365,9 +359,9 @@ export function formatMessageCliText(
         : undefined;
     if (Array.isArray(messages)) {
       const table = renderMessageList(messages, formatOpts, read ? "No messages." : "No pins.");
-      lines.push(heading(read ? "Messages" : "Pinned messages"));
+      lines.push(theme.heading(read ? "Messages" : "Pinned messages"));
       lines.push(table);
-      const hint = renderPaginationHint(payload, muted);
+      const hint = renderPaginationHint(payload, theme.muted);
       if (hint) {
         lines.push(hint);
       }
@@ -379,10 +373,11 @@ export function formatMessageCliText(
     const results = (payload as { results?: unknown }).results;
     const list = extractDiscordSearchResultsMessages(results);
     if (list) {
-      lines.push(heading("Search results"));
+      lines.push(theme.heading("Search results"));
       lines.push(renderMessageList(list, formatOpts, "No results."));
       // Discord's approximate result count cannot prove another page exists.
-      const hint = renderPaginationHint(payload, muted) ?? renderPaginationHint(results, muted);
+      const hint =
+        renderPaginationHint(payload, theme.muted) ?? renderPaginationHint(results, theme.muted);
       if (hint) {
         lines.push(hint);
       }
@@ -391,11 +386,11 @@ export function formatMessageCliText(
   }
 
   // Generic success + compact details table.
-  lines.push(ok(`✅ ${result.action} via ${resolveChannelLabel(result.channel)}.`));
+  lines.push(theme.success(`✅ ${result.action} via ${resolveChannelLabel(result.channel)}.`));
   const summary = renderObjectSummary(payload, formatOpts);
   lines.push("");
   lines.push(summary);
   lines.push("");
-  lines.push(muted("Tip: use --json for full output."));
+  lines.push(theme.muted("Tip: use --json for full output."));
   return lines;
 }
