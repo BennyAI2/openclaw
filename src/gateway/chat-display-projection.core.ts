@@ -7,12 +7,12 @@ import {
   readNestedToolActivity,
   nestedToolActivityContent,
 } from "../sessions/nested-tool-activity.js";
+import { isAssistantTextContentType } from "../shared/chat-message-content.js";
 import {
   DEFAULT_CHAT_HISTORY_TEXT_MAX_CHARS,
   extractAssistantTextForSilentCheck,
   hasAssistantDisplayableNonTextContent,
   hasAssistantNonTextContent,
-  isAssistantTextContentType,
 } from "./chat-display-projection.helpers.js";
 import {
   filterVisibleProjectedHistoryMessages,

@@ -7,6 +7,7 @@ import { stripCompactionReplayCheckpointInPlace } from "@openclaw/ai/transports"
 import type { AssistantMessage } from "../llm/types.js";
 import { extractTextFromChatContent } from "../shared/chat-content.js";
 import {
+  isAssistantTextContentType,
   normalizeAssistantPhase,
   parseAssistantTextSignature,
   type AssistantPhase,
@@ -30,10 +31,6 @@ function sanitizeAssistantText(text: string, phase?: AssistantPhase): string {
   return phase === "final_answer"
     ? sanitizeAssistantFinalAnswerText(text)
     : sanitizeAssistantVisibleText(text);
-}
-
-function isAssistantTextContentBlockType(value: unknown): boolean {
-  return value === "text" || value === "input_text" || value === "output_text";
 }
 
 export function sanitizeAssistantVisibleStreamText(text: string): string {
@@ -74,7 +71,7 @@ function extractEmbeddedAssistantTextForPhase(
       continue;
     }
     const record = block as { type?: unknown; text?: unknown; textSignature?: unknown };
-    if (!isAssistantTextContentBlockType(record.type)) {
+    if (!isAssistantTextContentType(record.type)) {
       continue;
     }
     const phase = parseAssistantTextSignature(record)?.phase;
@@ -97,7 +94,7 @@ function extractEmbeddedAssistantTextForPhase(
       continue;
     }
     const record = block as { type?: unknown; text?: unknown; textSignature?: unknown };
-    if (!isAssistantTextContentBlockType(record.type) || typeof record.text !== "string") {
+    if (!isAssistantTextContentType(record.type) || typeof record.text !== "string") {
       continue;
     }
     const signature = parseAssistantTextSignature(record);
