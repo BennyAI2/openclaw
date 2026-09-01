@@ -111,31 +111,39 @@ describe("buildModelProviderCards", () => {
     expect(firstCard(cards).apiKeySupported).toBe(false);
   });
 
-  it("creates an unconfigured provider card for interactive login", () => {
+  it("keeps capability-only providers in Connect and decorates configured cards", () => {
+    const capability = {
+      provider: "xai",
+      apiKeySupported: true,
+      accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" as const }],
+    };
+    expect(
+      buildModelProviderCards({
+        ...EMPTY_INPUT,
+        authStatus: authStatus([], [capability]),
+      }),
+    ).toEqual([]);
+
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,
       authStatus: authStatus(
-        [],
         [
           {
             provider: "xai",
-            apiKeySupported: true,
-            accessOptions: [
-              {
-                id: "xai-oauth",
-                label: "xAI OAuth",
-                mode: "login",
-              },
-            ],
+            displayName: "xAI",
+            status: "ok",
+            profiles: [{ profileId: "xai:default", type: "oauth", status: "ok" }],
           },
         ],
+        [capability],
       ),
     });
 
     expect(cards).toHaveLength(1);
     expect(firstCard(cards)).toMatchObject({
       id: "xai",
-      accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" }],
+      apiKeySupported: true,
+      accessOptions: capability.accessOptions,
     });
   });
 
@@ -143,19 +151,28 @@ describe("buildModelProviderCards", () => {
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,
       models: [catalogEntry({ provider: "anthropic", available: true })],
-      authStatus: authStatus([
-        {
-          provider: "claude-cli",
-          displayName: "Claude",
-          status: "ok",
-          profiles: [{ profileId: "p1", type: "oauth", status: "ok" }],
-          usage: {
-            providerId: "anthropic",
-            windows: [{ label: "5h", usedPercent: 40 }],
-            plan: "Max",
+      authStatus: authStatus(
+        [
+          {
+            provider: "claude-cli",
+            displayName: "Claude",
+            status: "ok",
+            profiles: [{ profileId: "p1", type: "oauth", status: "ok" }],
+            usage: {
+              providerId: "anthropic",
+              windows: [{ label: "5h", usedPercent: 40 }],
+              plan: "Max",
+            },
           },
-        },
-      ]),
+        ],
+        [
+          {
+            provider: "anthropic",
+            apiKeySupported: true,
+            accessOptions: [{ id: "apiKey", label: "Anthropic API key", mode: "login" }],
+          },
+        ],
+      ),
     });
     expect(cards).toHaveLength(1);
     expect(firstCard(cards)).toMatchObject({
@@ -163,6 +180,7 @@ describe("buildModelProviderCards", () => {
       credentialProviderIds: ["claude-cli"],
       displayName: "Claude",
       auth: { kind: "ok", profileCount: 1 },
+      accessOptions: [{ id: "apiKey", label: "Anthropic API key", mode: "login" }],
     });
     expect(firstCard(cards).usage).toMatchObject({
       provider: "anthropic",
@@ -402,7 +420,6 @@ describe("buildModelProviderCards", () => {
       "openai",
       "xai",
       "cohere",
-      "github-copilot",
       "mistral",
     ]);
   });

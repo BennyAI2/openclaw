@@ -224,10 +224,13 @@ function addLogoutTarget(
  * local spend. Model presence alone is enough: a configured API-key provider
  * with a broken credential reports available=false and no auth row, and the
  * page must surface that state rather than hide the provider.
+ * Manifest capabilities decorate qualified cards; Connect owns providers that
+ * have no configured or observed state yet.
  */
 export function buildModelProviderCards(input: ModelProviderCardsInput): ModelProviderCard[] {
   const drafts: CardDraft[] = [];
   const apiKeyCapabilities = new Map<string, boolean>();
+  const accessOptionsByProvider = new Map<string, ModelProviderAccessOption[]>();
   for (const capability of input.authStatus?.providerCapabilities ?? []) {
     const id = canonicalProviderId(capability.provider);
     if (!id) {
@@ -235,12 +238,13 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
     }
     apiKeyCapabilities.set(id, apiKeyCapabilities.get(id) === true || capability.apiKeySupported);
     if (capability.accessOptions?.length) {
-      const card = ensureDraft(drafts, id, providerDisplayLabel(id)).card;
+      const accessOptions = accessOptionsByProvider.get(id) ?? [];
       for (const option of capability.accessOptions) {
-        if (!card.accessOptions.some((candidate) => candidate.id === option.id)) {
-          card.accessOptions.push(option);
+        if (!accessOptions.some((candidate) => candidate.id === option.id)) {
+          accessOptions.push(option);
         }
       }
+      accessOptionsByProvider.set(id, accessOptions);
     }
   }
 
@@ -406,14 +410,15 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
         Boolean(draft.card.usage) ||
         draft.card.modelCount > 0 ||
         Boolean(draft.card.catalogStatus) ||
-        draft.card.accessOptions.length > 0 ||
         (draft.card.localCost?.totalTokens ?? 0) > 0,
     )
     .map((draft) => {
       const apiKeySupported = apiKeyCapabilities.get(draft.card.id);
+      const accessOptions = accessOptionsByProvider.get(draft.card.id);
       return Object.assign(
         {},
         draft.card,
+        accessOptions ? { accessOptions } : {},
         apiKeySupported === undefined ? {} : { apiKeySupported },
       );
     })

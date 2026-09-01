@@ -502,7 +502,9 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
           utilityModel: "openai/gpt-5.5-mini",
         },
       },
-      models: { providers: { openai: providerConfig(redactedConfigValue) } },
+      models: {
+        providers: { google: {}, openai: providerConfig(redactedConfigValue) },
+      },
     };
     const gateway = await installMockGateway(page, {
       featureMethods: ["chat.metadata", "chat.startup", "config.patch", "models.probe"],
