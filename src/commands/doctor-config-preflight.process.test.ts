@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vitest";
-import { testing as openclawTestInstanceTesting } from "../../test/helpers/openclaw-test-instance.js";
+import { createOpenClawTestInstance } from "../../test/helpers/openclaw-test-instance.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveGatewayLockDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -16,7 +16,6 @@ import {
   ensureOpenClawAgentDatabaseSchema,
   OPENCLAW_AGENT_SCHEMA_VERSION,
 } from "../state/openclaw-agent-db.js";
-import { getFreePort } from "../test-utils/ports.js";
 import {
   createSourceRuntime,
   runIsolatedModuleScript,
@@ -384,33 +383,25 @@ describe("doctor invalid config process exit", () => {
 // Synchronous CLI probes must not consume neighboring cases' timeout budgets.
 describe("gateway startup-migration refusal", () => {
   it("quarantines every invalid legacy automation before Gateway readiness", async () => {
-    const root = await fs.promises.realpath(tempDirs.make("openclaw-cron-upgrade-ready-"));
-    const stateDir = path.join(root, "state");
-    const configPath = path.join(root, "openclaw.json");
-    const storePath = path.join(stateDir, "cron", "jobs.json");
-    const port = await getFreePort();
-    const runtimeRoot = createSourceRuntime(root);
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      HOME: root,
-      USERPROFILE: root,
-      OPENCLAW_CONFIG_PATH: configPath,
-      OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
-      OPENCLAW_NO_RESPAWN: "1",
-      OPENCLAW_SKIP_CHANNELS: "1",
-      OPENCLAW_STATE_DIR: stateDir,
-      OPENCLAW_TEST_FAST: "1",
-      NO_COLOR: "1",
-    };
-    delete env.NODE_ENV;
-    delete env.OPENCLAW_HOME;
-    delete env.VITEST;
-
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({ gateway: { mode: "local", auth: { mode: "none" } } }),
-    );
+    // The scheduler builds this runtime before workers; source compilation must
+    // not consume the Gateway's readiness deadline.
+    const gateway = await createOpenClawTestInstance({
+      name: "cron-upgrade-ready",
+      startTimeoutMs: 30_000,
+      config: {
+        gateway: { mode: "local", auth: { mode: "none" } },
+        plugins: { enabled: false },
+      },
+      env: {
+        NODE_ENV: undefined,
+        VITEST: undefined,
+        OPENCLAW_TEST_MINIMAL_GATEWAY: undefined,
+        OPENCLAW_SKIP_CRON: undefined,
+        OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+        OPENCLAW_NO_RESPAWN: "1",
+      },
+    });
+    const storePath = path.join(gateway.stateDir, "cron", "jobs.json");
     const job = {
       name: "Legacy automation",
       enabled: true,
@@ -422,66 +413,37 @@ describe("gateway startup-migration refusal", () => {
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
     };
-    fs.writeFileSync(
-      storePath,
-      JSON.stringify({
+    try {
+      await gateway.state.writeJson("cron/jobs.json", {
         version: 1,
         jobs: [
           { ...job, id: "valid-job" },
           { ...job, id: "invalid-state-job", state: { nextRunAtMs: -1 } },
           { ...job, id: "invalid-trigger-job", trigger: { script: [] } },
         ],
-      }),
-    );
-    const stdout = openclawTestInstanceTesting.createBoundedStringLog();
-    const stderr = openclawTestInstanceTesting.createBoundedStringLog();
-    const gateway = spawn(
-      process.execPath,
-      [
-        "--preserve-symlinks",
-        "--preserve-symlinks-main",
-        "--import",
-        "tsx",
-        path.join(runtimeRoot, "src", "entry.ts"),
-        "gateway",
-        "run",
-        "--allow-unconfigured",
-        "--port",
-        String(port),
-      ],
-      { cwd: runtimeRoot, env, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    gateway.stdout.setEncoding("utf8");
-    gateway.stderr.setEncoding("utf8");
-    gateway.stdout.on("data", (chunk) => openclawTestInstanceTesting.appendLogChunk(stdout, chunk));
-    gateway.stderr.on("data", (chunk) => openclawTestInstanceTesting.appendLogChunk(stderr, chunk));
-
-    try {
-      await openclawTestInstanceTesting.waitForGatewayReady(gateway, stdout, stderr, port, 30_000);
-      const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+      });
+      await gateway.startGateway();
+      const response = await fetch(`http://127.0.0.1:${gateway.port}/readyz`);
       await expect(response.json()).resolves.toMatchObject({ ready: true, failing: [] });
-    } finally {
-      expect(
-        await openclawTestInstanceTesting.stopGatewayProcess(gateway, Date.now() + 5_000, 1_500, {
-          forceWindowsTree: true,
-        }),
-      ).toBe(true);
-    }
+      await gateway.stopGateway();
 
-    const loaded = await loadCronJobsStoreWithConfigJobsReadOnly(storePath, env);
-    expect(loaded.store.jobs.map((entry) => entry.id)).toContain("valid-job");
-    expect(
-      loadCronQuarantinedJobs(storePath, env).map((entry) => ({
-        sourceIndex: entry.sourceIndex,
-        reason: entry.reason,
-        id: entry.job?.id,
-      })),
-    ).toEqual([
-      { sourceIndex: 1, reason: "invalid-state", id: "invalid-state-job" },
-      { sourceIndex: 2, reason: "invalid-trigger", id: "invalid-trigger-job" },
-    ]);
-    expect(fs.existsSync(storePath)).toBe(false);
-    expect(fs.existsSync(`${storePath}.migrated`)).toBe(true);
+      const loaded = await loadCronJobsStoreWithConfigJobsReadOnly(storePath, gateway.env);
+      expect(loaded.store.jobs.map((entry) => entry.id)).toContain("valid-job");
+      expect(
+        loadCronQuarantinedJobs(storePath, gateway.env).map((entry) => ({
+          sourceIndex: entry.sourceIndex,
+          reason: entry.reason,
+          id: entry.job?.id,
+        })),
+      ).toEqual([
+        { sourceIndex: 1, reason: "invalid-state", id: "invalid-state-job" },
+        { sourceIndex: 2, reason: "invalid-trigger", id: "invalid-trigger-job" },
+      ]);
+      expect(fs.existsSync(storePath)).toBe(false);
+      expect(fs.existsSync(`${storePath}.migrated`)).toBe(true);
+    } finally {
+      await gateway.cleanup();
+    }
   }, 45_000);
 
   it("repairs the stable upgrade config and additive state schema before readiness", async () => {

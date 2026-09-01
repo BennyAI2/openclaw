@@ -389,8 +389,8 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       runnerBackend: "hybrid",
     };
     const fallback = createNodeTestShardBundles(options);
-    // The whole CLI group pays 77s of tests plus its 100s runtime build.
-    // It must stay alone; all other non-dist fallback jobs remain within 150s.
+    // CLI and Doctor readiness each pay for a 100s runtime build before tests.
+    // They stay alone; all other non-dist fallback jobs remain within 150s.
     expect(
       fallback
         .filter((shard) => !shard.requiresDist)
@@ -400,7 +400,14 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           pretestBuildMode: shard.pretestBuildMode,
           predictedSeconds: shard.predictedSeconds,
         })),
-    ).toEqual([{ groups: ["agentic-cli"], pretestBuildMode: "runtime", predictedSeconds: 177 }]);
+    ).toEqual([
+      { groups: ["agentic-cli"], pretestBuildMode: "runtime", predictedSeconds: 177 },
+      {
+        groups: ["agentic-commands-doctor-config-state"],
+        pretestBuildMode: "runtime",
+        predictedSeconds: 158,
+      },
+    ]);
     const agentChatStripes = fallback
       .flatMap((shard) => shard.groups)
       .filter((group) => group.shard_name.startsWith("agentic-control-plane-agent-chat-hosted-"));
@@ -1036,6 +1043,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
   it("preserves runtime preparation and core-only ownership in full and compact plans", () => {
     const qaConfig = "test/vitest/vitest.extension-qa.config.ts";
     const runtimeTargets = [
+      "src/commands/doctor-config-preflight.process.test.ts",
       "test/e2e/qa-lab/runtime/gateway-support-export-runtime.test.ts",
       "src/gateway/gateway-active-memory.test.ts",
       "src/gateway/gateway-concurrent-streams.test.ts",
@@ -1588,6 +1596,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         checkName: `checks-node-${shard.shardName}`,
         configs: ["test/vitest/vitest.commands.config.ts"],
         includePatterns: shard.includePatterns,
+        ...(shard.shardName === "agentic-commands-doctor-config-state"
+          ? { pretestBuildMode: "runtime" }
+          : {}),
         requiresDist: false,
         runner: DEFAULT_NODE_TEST_RUNNER,
         shardName: shard.shardName,
