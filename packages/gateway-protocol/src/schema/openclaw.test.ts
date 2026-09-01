@@ -163,14 +163,12 @@ describe("OpenClaw setup detection protocol", () => {
     ).toBe(true);
     expect(
       validateModelAuthLoginStartParams({
-        sessionId: "login-1",
         agentId: "research",
         authChoice: "xai-oauth",
       }),
     ).toBe(true);
     expect(
       validateModelAuthLoginStartParams({
-        sessionId: "login-1",
         authChoice: "xai-oauth",
         workspace: "/tmp/not-accepted",
       }),

@@ -9,11 +9,12 @@ type WizardRunner = ConstructorParameters<typeof WizardSession>[0];
 export async function startGatewayWizardSession(params: {
   context: GatewayRequestContext;
   respond: RespondFn;
-  sessionId: string;
+  sessionId?: string;
+  ownerConnId?: string;
   timeoutMs: number;
   run: WizardRunner;
-}): Promise<WizardSession | null> {
-  if (params.context.wizardSessions.has(params.sessionId)) {
+}): Promise<{ session: WizardSession; sessionId: string } | null> {
+  if (params.sessionId && params.context.wizardSessions.has(params.sessionId)) {
     params.respond(
       false,
       undefined,
@@ -28,7 +29,20 @@ export async function startGatewayWizardSession(params: {
     respondSetupAdmissionBusy(params.respond);
     return null;
   }
-  params.context.wizardSessions.set(params.sessionId, session);
-  params.respond(true, { sessionId: params.sessionId, done: false, status: "running" }, undefined);
-  return session;
+  const sessionId = params.context.trackWizardSession(
+    session,
+    params.ownerConnId,
+    params.sessionId,
+  );
+  if (!sessionId) {
+    session.cancel();
+    params.respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, "wizard session already exists"),
+    );
+    return null;
+  }
+  params.respond(true, { sessionId, done: false, status: "running" }, undefined);
+  return { session, sessionId };
 }

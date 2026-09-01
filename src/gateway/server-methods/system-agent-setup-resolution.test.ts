@@ -13,6 +13,7 @@ import { resetCommandQueueStateForTest } from "../../process/command-queue.test-
 import { createDeferredCore } from "../../shared/deferred.js";
 import { createPluginCapabilityConsentPrompter } from "../../wizard/plugin-capability-consent.js";
 import { WizardSession } from "../../wizard/session.js";
+import { createWizardSessionTracker } from "../server-wizard-sessions.js";
 import { handlers as modelsAuthLoginHandlers } from "./models-auth-login.js";
 import { whenAdmittedWizardSessionSettled } from "./setup-admission.js";
 import { systemAgentHandlers } from "./system-agent.js";
@@ -61,16 +62,21 @@ const config: OpenClawConfig = {
 const validateWizardResult = Compile(WizardNextResultSchema);
 
 function makeContext() {
-  const wizardSessions = new Map<string, WizardSession>();
+  const tracker = createWizardSessionTracker();
   return {
-    wizardSessions,
+    wizardSessions: tracker.wizardSessions,
     context: {
-      wizardSessions,
-      findRunningWizard: () => undefined,
-      purgeWizardSession: (id: string) => wizardSessions.delete(id),
+      ...tracker,
       getRuntimeConfig: () => config,
     } as unknown as GatewayRequestContext,
   };
+}
+
+function trackedWizardSession(
+  wizardSessions: ReturnType<typeof createWizardSessionTracker>["wizardSessions"],
+  sessionId: string,
+): WizardSession | undefined {
+  return wizardSessions.get(sessionId)?.session;
 }
 
 function makeRespond() {
@@ -81,6 +87,17 @@ function makeRespond() {
       calls.push({ ok, payload, error });
     },
   };
+}
+
+function startedWizardSessionId(calls: ReturnType<typeof makeRespond>["calls"]): string {
+  const payload = calls[0]?.payload;
+  if (!payload || typeof payload !== "object" || !("sessionId" in payload)) {
+    throw new Error("Expected wizard start response");
+  }
+  return expectDefined(
+    typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    "wizard session id",
+  );
 }
 
 function systemAgentHandler(method: keyof typeof systemAgentHandlers) {
@@ -140,7 +157,7 @@ describe("openclaw.setup provider resolution", () => {
   ] as const)("does not replace a retained wizard session through %s", async (method, params) => {
     const { wizardSessions, context } = makeContext();
     const retained = new WizardSession(async () => {});
-    wizardSessions.set(params.sessionId, retained);
+    context.trackWizardSession(retained, undefined, params.sessionId);
     await retained.whenSettled();
     const { calls, respond } = makeRespond();
 
@@ -153,7 +170,7 @@ describe("openclaw.setup provider resolution", () => {
         error: expect.objectContaining({ message: "wizard session already exists" }),
       },
     ]);
-    expect(wizardSessions.get(params.sessionId)).toBe(retained);
+    expect(trackedWizardSession(wizardSessions, params.sessionId)).toBe(retained);
     expect(setupInferenceMocks.activateSetupInference).not.toHaveBeenCalled();
     expect(providerAuthChoiceMocks.applyAuthChoiceLoadedPluginProvider).not.toHaveBeenCalled();
   });
@@ -197,7 +214,10 @@ describe("openclaw.setup provider resolution", () => {
         ok: true,
         payload: { sessionId, done: false, status: "running" },
       });
-      const session = expectDefined(wizardSessions.get(sessionId), "activation wizard session");
+      const session = expectDefined(
+        trackedWizardSession(wizardSessions, sessionId),
+        "activation wizard session",
+      );
       const note = await callWizardNext(context, { sessionId });
       expect(note.step).toMatchObject({ type: "note", title: "Plugin capabilities" });
       expect(JSON.stringify(note)).not.toContain(review.reviewToken);
@@ -317,7 +337,7 @@ describe("openclaw.setup provider resolution", () => {
     } as never);
 
     const session = expectDefined(
-      wizardSessions.get("prepare-resolution-error"),
+      trackedWizardSession(wizardSessions, "prepare-resolution-error"),
       "prepare wizard session",
     );
     await expect(session.next()).resolves.toMatchObject({
@@ -356,7 +376,10 @@ describe("openclaw.setup provider resolution", () => {
         payload: { sessionId: "auth-session-1", done: false, status: "running" },
       });
       expect(calls[0]?.payload).not.toHaveProperty("modelActivation");
-      const session = expectDefined(wizardSessions.get("auth-session-1"), "auth wizard session");
+      const session = expectDefined(
+        trackedWizardSession(wizardSessions, "auth-session-1"),
+        "auth wizard session",
+      );
       const first = await callWizardNext(context, { sessionId: "auth-session-1" });
       expect(setupInferenceMocks.activateSetupInference).toHaveBeenCalledWith(
         expect.objectContaining({ kind: "provider-auth", authChoice: "github-copilot" }),
@@ -402,7 +425,10 @@ describe("openclaw.setup provider resolution", () => {
         respond: () => undefined,
         context,
       } as never);
-      const session = expectDefined(wizardSessions.get(sessionId), "auth wizard session");
+      const session = expectDefined(
+        trackedWizardSession(wizardSessions, sessionId),
+        "auth wizard session",
+      );
       const first = await callWizardNext(context, { sessionId });
       if (outcome === "cancelled") {
         const { calls, respond } = makeRespond();
@@ -465,7 +491,7 @@ describe("openclaw.setup provider resolution", () => {
       payload: { sessionId: "prepare-session-1", done: false, status: "running" },
     });
     const session = expectDefined(
-      wizardSessions.get("prepare-session-1"),
+      trackedWizardSession(wizardSessions, "prepare-session-1"),
       "prepare wizard session",
     );
     const note = await callWizardNext(context, { sessionId: "prepare-session-1" });
@@ -519,30 +545,6 @@ describe("models.authLogin.start", () => {
     resetCommandQueueStateForTest();
   });
 
-  it("does not replace a retained provider login session", async () => {
-    const { wizardSessions, context } = makeContext();
-    const retained = new WizardSession(async () => {});
-    wizardSessions.set("retained-login", retained);
-    await retained.whenSettled();
-    const { calls, respond } = makeRespond();
-
-    await expectDefined(
-      modelsAuthLoginHandlers["models.authLogin.start"],
-      "models.authLogin.start handler",
-    )({
-      params: { sessionId: "retained-login", authChoice: "xai-oauth" },
-      respond,
-      context,
-    } as never);
-
-    expect(calls[0]).toMatchObject({
-      ok: false,
-      error: { code: "INVALID_REQUEST", message: "wizard session already exists" },
-    });
-    expect(wizardSessions.get("retained-login")).toBe(retained);
-    expect(modelsAuthLoginMocks.runModelsAuthLoginFlowCore).not.toHaveBeenCalled();
-  });
-
   it("runs credential-only provider auth through the shared wizard", async () => {
     modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
       await options.prompter.deviceCode?.({
@@ -566,23 +568,24 @@ describe("models.authLogin.start", () => {
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "provider-login", agentId: "research", authChoice: "xai-oauth" },
+      params: { agentId: "research", authChoice: "xai-oauth" },
       respond,
       context,
     } as never);
 
-    expect(calls[0]).toMatchObject({
-      ok: true,
-      payload: { sessionId: "provider-login", done: false, status: "running" },
-    });
-    const session = expectDefined(wizardSessions.get("provider-login"), "provider login session");
-    const deviceCode = await callWizardNext(context, { sessionId: "provider-login" });
+    expect(calls[0]).toMatchObject({ ok: true, payload: { done: false, status: "running" } });
+    const sessionId = startedWizardSessionId(calls);
+    const session = expectDefined(
+      trackedWizardSession(wizardSessions, sessionId),
+      "provider login session",
+    );
+    const deviceCode = await callWizardNext(context, { sessionId });
     expect(deviceCode).toMatchObject({
       done: false,
       step: { type: "note", title: "xAI OAuth", deviceCode: { code: "XAI-CODE" } },
     });
     const done = await callWizardNext(context, {
-      sessionId: "provider-login",
+      sessionId,
       answer: { stepId: expectDefined(deviceCode.step, "device code step").id, value: null },
     });
 
@@ -628,21 +631,25 @@ describe("models.authLogin.start", () => {
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "disconnect-login", authChoice: "xai-oauth" },
+      params: { authChoice: "xai-oauth" },
       respond,
       context,
       signal: requestOwner.signal,
     } as never);
     await vi.waitFor(() => expect(calls[0]?.ok).toBe(true));
-    const session = expectDefined(wizardSessions.get("disconnect-login"), "provider login session");
-    await callWizardNext(context, { sessionId: "disconnect-login" });
+    const sessionId = startedWizardSessionId(calls);
+    const session = expectDefined(
+      trackedWizardSession(wizardSessions, sessionId),
+      "provider login session",
+    );
+    await callWizardNext(context, { sessionId });
 
     requestOwner.abort();
 
     await vi.waitFor(() => expect(session.getStatus()).toBe("cancelled"));
     await running;
     expect(persisted).toBe(false);
-    expect(wizardSessions.has("disconnect-login")).toBe(false);
+    expect(wizardSessions.has(sessionId)).toBe(false);
   });
 
   it("finishes provider login when its request owner disconnects after persistence starts", async () => {
@@ -670,19 +677,20 @@ describe("models.authLogin.start", () => {
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "locked-disconnect-login", authChoice: "xai-oauth" },
+      params: { authChoice: "xai-oauth" },
       respond,
       context,
       signal: requestOwner.signal,
     } as never);
     await vi.waitFor(() => expect(calls[0]?.ok).toBe(true));
+    const sessionId = startedWizardSessionId(calls);
     const session = expectDefined(
-      wizardSessions.get("locked-disconnect-login"),
+      trackedWizardSession(wizardSessions, sessionId),
       "provider login session",
     );
-    const prompt = await callWizardNext(context, { sessionId: "locked-disconnect-login" });
+    const prompt = await callWizardNext(context, { sessionId });
     void callWizardNext(context, {
-      sessionId: "locked-disconnect-login",
+      sessionId,
       answer: { stepId: expectDefined(prompt.step, "device code step").id, value: null },
     });
     await persistenceStarted.promise;
@@ -694,7 +702,7 @@ describe("models.authLogin.start", () => {
     await running;
     expect(persisted).toBe(true);
     expect(session.getStatus()).toBe("done");
-    expect(wizardSessions.has("locked-disconnect-login")).toBe(false);
+    expect(wizardSessions.has(sessionId)).toBe(false);
   });
 
   it("runs guided secret auth through a masked wizard step", async () => {
@@ -719,25 +727,26 @@ describe("models.authLogin.start", () => {
       };
     });
     const { context } = makeContext();
-    const { respond } = makeRespond();
+    const { calls, respond } = makeRespond();
 
     await expectDefined(
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "secret-login", authChoice: "groq-api-key" },
+      params: { authChoice: "groq-api-key" },
       respond,
       context,
     } as never);
 
-    const prompt = await callWizardNext(context, { sessionId: "secret-login" });
+    const sessionId = startedWizardSessionId(calls);
+    const prompt = await callWizardNext(context, { sessionId });
     expect(prompt).toMatchObject({
       done: false,
       step: { type: "text", sensitive: true, message: "Enter Groq API key" },
     });
     expect(prompt.step).not.toHaveProperty("initialValue");
     const done = await callWizardNext(context, {
-      sessionId: "secret-login",
+      sessionId,
       answer: { stepId: expectDefined(prompt.step, "secret prompt").id, value: "test-key" },
     });
     expect(done).toEqual({ done: true, status: "done" });
@@ -751,18 +760,20 @@ describe("models.authLogin.start", () => {
       profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
     });
     const { context } = makeContext();
-    const { respond } = makeRespond();
+    const { calls, respond } = makeRespond();
 
     await expectDefined(
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "model-access-failed", authChoice: "xai-oauth" },
+      params: { authChoice: "xai-oauth" },
       respond,
       context,
     } as never);
 
-    await expect(callWizardNext(context, { sessionId: "model-access-failed" })).resolves.toEqual({
+    await expect(
+      callWizardNext(context, { sessionId: startedWizardSessionId(calls) }),
+    ).resolves.toEqual({
       done: true,
       status: "error",
       error:
@@ -779,7 +790,7 @@ describe("models.authLogin.start", () => {
       modelsAuthLoginHandlers["models.authLogin.start"],
       "models.authLogin.start handler",
     )({
-      params: { sessionId: "stale-login", authChoice: "removed-provider" },
+      params: { authChoice: "removed-provider" },
       respond,
       context,
     } as never);

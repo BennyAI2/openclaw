@@ -389,7 +389,10 @@ export const SystemAgentSetupAuthStartParamsSchema = closedObject({
 export const SystemAgentSetupAuthStartResultSchema = WizardStartResultSchema;
 
 /** Starts credential-only provider login without selecting or testing a model. */
-export const ModelAuthLoginStartParamsSchema = closedObject(ProviderAuthWizardStartFields);
+export const ModelAuthLoginStartParamsSchema = closedObject({
+  agentId: ProviderAuthWizardStartFields.agentId,
+  authChoice: ProviderAuthWizardStartFields.authChoice,
+});
 export const ModelAuthLoginStartResultSchema = WizardStartResultSchema;
 
 // Wire types derive directly from local schema consts so public d.ts graphs never

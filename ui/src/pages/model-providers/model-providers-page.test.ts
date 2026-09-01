@@ -725,9 +725,9 @@ describe("ModelProvidersPage agent scope", () => {
     const page = appendPage(context);
     await waitForFast(() => expect(page.data?.config).toEqual({}));
     const originalRequest = request.getMockImplementation()!;
-    request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "models.authLogin.start") {
-        return { sessionId: params?.sessionId, done: true, status: "done" };
+        return { sessionId: "provider-login", done: true, status: "done" };
       }
       return originalRequest(method);
     });
@@ -801,7 +801,7 @@ describe("ModelProvidersPage agent scope", () => {
         };
         revision += 1;
         return {
-          sessionId: (params as { sessionId?: string }).sessionId,
+          sessionId: "coordinated-provider-login",
           done: true,
           status: "done",
         };

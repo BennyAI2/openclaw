@@ -136,6 +136,7 @@ describeControlUiE2e("Control UI provider login", () => {
       expect(start.params).toEqual(
         expect.objectContaining({ agentId: "main", authChoice: "xai-oauth" }),
       );
+      expect(start.params).not.toHaveProperty("sessionId");
       await page.getByText("XAI-ABCD").waitFor();
       await expect
         .poll(() => page.getByRole("link", { name: "Open sign-in page" }).getAttribute("href"))

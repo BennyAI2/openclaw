@@ -11,7 +11,11 @@ import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-prof
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
-import { disconnectGatewayClient, startGatewayWithClient } from "./test-helpers.e2e.js";
+import {
+  connectGatewayClient,
+  disconnectGatewayClient,
+  startGatewayWithClient,
+} from "./test-helpers.e2e.js";
 
 const COLLISION_PROVIDER = "collision-provider";
 const SELECTED_OWNER = "selected-login-owner";
@@ -158,6 +162,7 @@ describe("models.authLogin.start owner binding", () => {
       };
       (globalThis as Record<PropertyKey, unknown>)[PROBE_KEY] = probe;
       let gateway: Awaited<ReturnType<typeof startGatewayWithClient>> | undefined;
+      let otherClient: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
 
       try {
         await Promise.all([
@@ -207,7 +212,6 @@ describe("models.authLogin.start owner binding", () => {
           clientDisplayName: "provider-login-owner-proof",
         });
         const started = await gateway.client.request<WizardStartResult>("models.authLogin.start", {
-          sessionId: "owner-collision-login",
           agentId: "main",
           authChoice: "collision-oauth",
         });
@@ -224,6 +228,25 @@ describe("models.authLogin.start owner binding", () => {
           workspaceAuthRuns: 0,
           workspaceModuleLoads: 0,
         });
+        otherClient = await connectGatewayClient({
+          url: `ws://127.0.0.1:${gateway.port}`,
+          token,
+          clientDisplayName: "provider-login-other-operator",
+          scopes: ["operator.admin"],
+        });
+        for (const method of ["wizard.status", "wizard.next", "wizard.cancel"] as const) {
+          await expect(
+            otherClient.request(method, { sessionId: started.sessionId }),
+          ).rejects.toMatchObject({
+            code: "INVALID_REQUEST",
+            details: { code: "WIZARD_NOT_FOUND" },
+          });
+        }
+        expect(
+          Object.keys(
+            loadAuthProfileStoreWithoutExternalProfiles(resolveAgentDir(cfg, "main")).profiles,
+          ).filter((profileId) => profileId.startsWith(`${COLLISION_PROVIDER}:`)),
+        ).toEqual([]);
         const liveConfig = await gateway.client.request<{ hash: string }>("config.get", {});
         await gateway.client.request("config.patch", {
           raw: JSON.stringify({ messages: { responsePrefix: "concurrent-edit" } }),
@@ -248,6 +271,9 @@ describe("models.authLogin.start owner binding", () => {
         expect(configAfterLogin.agents?.defaults?.workspace).toBe(workspaceDir);
         expect(configAfterLogin.messages?.responsePrefix).toBe("concurrent-edit");
       } finally {
+        if (otherClient) {
+          await disconnectGatewayClient(otherClient);
+        }
         if (gateway) {
           await disconnectGatewayClient(gateway.client);
           await gateway.server.close({ reason: "provider login owner proof complete" });

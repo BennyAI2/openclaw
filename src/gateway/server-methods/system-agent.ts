@@ -197,7 +197,7 @@ export const systemAgentHandlers: GatewayRequestHandlers = {
     });
   },
   /** Start one provider-owned OAuth/device-code login over the shared wizard transport. */
-  "openclaw.setup.auth.start": async ({ params, respond, context }) => {
+  "openclaw.setup.auth.start": async ({ params, respond, context, client }) => {
     if (
       !assertValidParams(
         params,
@@ -215,10 +215,11 @@ export const systemAgentHandlers: GatewayRequestHandlers = {
       timeoutMs: PROVIDER_AUTH_SESSION_TIMEOUT_MS,
       context,
       respond,
+      ownerConnId: client?.connId,
     });
   },
   /** Activate a detected or manual route with server-owned capability review. */
-  "openclaw.setup.activate.start": async ({ params, respond, context }) => {
+  "openclaw.setup.activate.start": async ({ params, respond, context, client }) => {
     if (
       !assertValidParams(
         params,
@@ -236,10 +237,11 @@ export const systemAgentHandlers: GatewayRequestHandlers = {
       timeoutMs: ACTIVATION_SESSION_TIMEOUT_MS,
       context,
       respond,
+      ownerConnId: client?.connId,
     });
   },
   /** Run one provider-owned prepare flow over the shared wizard transport. */
-  "openclaw.setup.prepare.start": async ({ params, respond, context }) => {
+  "openclaw.setup.prepare.start": async ({ params, respond, context, client }) => {
     if (
       !assertValidParams(
         params,
@@ -254,6 +256,7 @@ export const systemAgentHandlers: GatewayRequestHandlers = {
       context,
       respond,
       sessionId: params.sessionId,
+      ownerConnId: client?.connId,
       timeoutMs: PROVIDER_PREPARE_SESSION_TIMEOUT_MS,
       run: async (prompter, signal, runnerSession) => {
         await runSystemAgentGatewayTask(async () => {

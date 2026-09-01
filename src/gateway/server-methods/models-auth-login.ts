@@ -16,7 +16,7 @@ const PROVIDER_LOGIN_SESSION_TIMEOUT_MS = 25 * 60 * 1000;
 
 /** Gateway handler for credential-only provider login through the shared wizard transport. */
 export const handlers: GatewayRequestHandlers = {
-  "models.authLogin.start": async ({ params, respond, context, signal: requestSignal }) => {
+  "models.authLogin.start": async ({ params, respond, context, client, signal: requestSignal }) => {
     if (
       !assertValidParams(
         params,
@@ -47,7 +47,7 @@ export const handlers: GatewayRequestHandlers = {
     const loginSession = await startGatewayWizardSession({
       context,
       respond,
-      sessionId: params.sessionId,
+      ownerConnId: client?.connId,
       timeoutMs: PROVIDER_LOGIN_SESSION_TIMEOUT_MS,
       run: async (prompter, signal, session) => {
         const result = await runModelsAuthLoginFlowCore({
@@ -87,7 +87,7 @@ export const handlers: GatewayRequestHandlers = {
     if (!loginSession || !requestSignal) {
       return;
     }
-    const cancel = () => loginSession.cancel();
+    const cancel = () => loginSession.session.cancel();
     requestSignal.addEventListener("abort", cancel, { once: true });
     try {
       if (requestSignal.aborted) {
@@ -95,11 +95,11 @@ export const handlers: GatewayRequestHandlers = {
       }
       // Keep the transport abort owner alive after the start response. The wizard itself owns
       // the durable-effect fence: cancellation stops pre-commit work and locked work settles.
-      await loginSession.whenSettled();
+      await loginSession.session.whenSettled();
     } finally {
       requestSignal.removeEventListener("abort", cancel);
       if (requestSignal.aborted) {
-        context.purgeWizardSession(params.sessionId);
+        context.purgeWizardSession(loginSession.sessionId);
       }
     }
   },

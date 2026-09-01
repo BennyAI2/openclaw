@@ -109,12 +109,16 @@ export class ModelSetupWizardRunner {
         .request<WizardStartResult>(
           startMethod,
           {
-            sessionId: session.sessionId,
+            ...(startMethod === "models.authLogin.start" ? {} : { sessionId: session.sessionId }),
             ...params,
             ...(agentId ? { agentId } : {}),
           },
           { timeoutMs: null },
         )
+        .then((result) => {
+          session.sessionId = result.sessionId;
+          return result;
+        })
         .catch((error: unknown): WizardStartResult => {
           if (!isSetupAdmissionBusyError(error)) {
             throw error;

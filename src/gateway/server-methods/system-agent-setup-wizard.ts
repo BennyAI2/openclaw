@@ -12,11 +12,13 @@ export async function startSetupActivationWizard(params: {
   timeoutMs: number;
   context: GatewayRequestContext;
   respond: RespondFn;
+  ownerConnId?: string;
 }) {
   await startGatewayWizardSession({
     context: params.context,
     respond: params.respond,
     sessionId: params.sessionId,
+    ownerConnId: params.ownerConnId,
     timeoutMs: params.timeoutMs,
     run: async (prompter, signal, runnerSession) => {
       const result = await activateGatewaySetupInference({

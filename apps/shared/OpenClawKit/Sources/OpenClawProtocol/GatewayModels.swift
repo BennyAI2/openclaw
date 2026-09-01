@@ -12981,22 +12981,18 @@ public struct SystemAgentSetupAuthStartResult: Codable, Sendable {
 }
 
 public struct ModelAuthLoginStartParams: Codable, Sendable {
-    public let sessionid: String
     public let agentid: String?
     public let authchoice: String
 
     public init(
-        sessionid: String,
         agentid: String? = nil,
         authchoice: String)
     {
-        self.sessionid = sessionid
         self.agentid = agentid
         self.authchoice = authchoice
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sessionid = "sessionId"
         case agentid = "agentId"
         case authchoice = "authChoice"
     }

@@ -33,10 +33,10 @@ describe("ModelProviderLoginController", () => {
           }
           starts += 1;
           if (starts === 1) {
-            runningSessionId = params?.sessionId ?? null;
+            runningSessionId = `login-${starts}`;
             return { sessionId: runningSessionId, done: false, status: "running" };
           }
-          return { sessionId: params?.sessionId, done: true, status: "done" };
+          return { sessionId: `login-${starts}`, done: true, status: "done" };
         }
         if (method === "wizard.next") {
           return {
@@ -213,7 +213,7 @@ describe("ModelProviderLoginController", () => {
   it("coordinates provider login start and answer with config mutations", async () => {
     const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
       if (method === "models.authLogin.start") {
-        return { sessionId: params?.sessionId, done: false, status: "running" };
+        return { sessionId: "coordinated-login", done: false, status: "running" };
       }
       if (method === "wizard.next" && !params?.answer) {
         return {
