@@ -9,6 +9,7 @@ import {
 } from "../../infra/fs-safe.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
 import { createStagedInputPathMatcher } from "../../media/staged-inputs.js";
+import { runTasksWithConcurrency } from "../../utils/run-with-concurrency.js";
 import { activeWorkspaceHashContext, workspaceStatIdentity } from "./workspace-hash-memo.js";
 import {
   MAX_WORKSPACE_INVENTORY_ENTRIES,
@@ -50,21 +51,27 @@ export function isPortableRootContainedSymlink(
 
 export async function readWorkspaceFileSnapshotWithLimit(
   expectedPath: string,
-  maxBytes: number,
+  maxBytes: number | ((openedSize: number) => number),
   root?: string,
+  signal?: AbortSignal,
 ): Promise<WorkspaceFileSnapshot> {
+  signal?.throwIfAborted();
   const handle = await fs.open(
     expectedPath,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
+    signal?.throwIfAborted();
     const { memo: hashMemo, metrics, owner = "gateway" } = activeWorkspaceHashContext() ?? {};
     const before = await handle.stat({ bigint: true });
     const realPath = await resolveOpenedFileRealPathForHandle(handle, expectedPath);
     if (!before.isFile() || (root && !isPathInside(root, realPath))) {
       throw new Error("Gateway workspace file changed while it was being read");
     }
-    if (before.size > BigInt(maxBytes)) {
+    // Reserve concurrent inventory bytes from the opened file before hashing;
+    // an earlier path stat cannot own the budget across a replacement race.
+    const byteLimit = typeof maxBytes === "number" ? maxBytes : maxBytes(Number(before.size));
+    if (before.size > BigInt(byteLimit)) {
       return { type: "unsupported" };
     }
     const identity = workspaceStatIdentity(owner, before);
@@ -80,12 +87,13 @@ export async function readWorkspaceFileSnapshotWithLimit(
       const buffer = Buffer.allocUnsafe(64 * 1024);
       size = 0;
       for (;;) {
+        signal?.throwIfAborted();
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, size);
         if (bytesRead === 0) {
           break;
         }
         size += bytesRead;
-        if (size > maxBytes) {
+        if (size > byteLimit) {
           return { type: "unsupported" };
         }
         hash.update(buffer.subarray(0, bytesRead));
@@ -97,6 +105,7 @@ export async function readWorkspaceFileSnapshotWithLimit(
       }
     }
     const after = await handle.stat({ bigint: true });
+    signal?.throwIfAborted();
     if (after.size !== BigInt(size) || workspaceStatIdentity(owner, after) !== identity) {
       throw new Error("Gateway workspace file changed while it was being read");
     }
@@ -117,7 +126,9 @@ export async function readActualWorkspaceManifestImpl(params: {
   baseCommit: string | null;
   preserveDirectories?: ReadonlySet<string>;
   includePaths?: ReadonlySet<string>;
+  signal?: AbortSignal;
 }): Promise<{ manifest: WorkerWorkspaceManifest; manifestRef: string }> {
+  params.signal?.throwIfAborted();
   const root = await fs.realpath(params.root);
   const isStagedInput = createStagedInputPathMatcher(await fsRoot(root));
   const rawEntries: Array<
@@ -127,11 +138,14 @@ export async function readActualWorkspaceManifestImpl(params: {
   let manifestPathBytes = 0;
   let traversedEntries = 0;
   let traversedPathBytes = 0;
-  const addEntry = (entry: (typeof rawEntries)[number], bytes = 0): void => {
+  const addBytes = (bytes: number): void => {
     totalBytes += bytes;
     if (totalBytes > MAX_WORKSPACE_INVENTORY_TOTAL_BYTES) {
       throw new Error("Gateway workspace manifest exceeds its eligible byte limit");
     }
+  };
+  const addEntry = (entry: (typeof rawEntries)[number], bytes = 0): void => {
+    addBytes(bytes);
     manifestPathBytes += Buffer.byteLength(entry.path);
     if (manifestPathBytes > MAX_WORKSPACE_INVENTORY_PATH_BYTES) {
       throw new Error("Gateway workspace manifest paths exceed their byte limit");
@@ -142,6 +156,7 @@ export async function readActualWorkspaceManifestImpl(params: {
     }
   };
   const checkTraversal = (relative: string): void => {
+    params.signal?.throwIfAborted();
     traversedEntries += 1;
     traversedPathBytes += Buffer.byteLength(relative);
     if (traversedEntries > MAX_WORKSPACE_INVENTORY_ENTRIES) {
@@ -151,26 +166,34 @@ export async function readActualWorkspaceManifestImpl(params: {
       throw new Error("Gateway workspace manifest paths exceed their byte limit");
     }
   };
-  const addFile = async (relative: string): Promise<void> => {
-    const snapshot = await readWorkspaceFileSnapshotWithLimit(
-      localPath(root, relative),
-      MAX_WORKSPACE_INVENTORY_TOTAL_BYTES - totalBytes,
-      root,
-    );
-    if (snapshot.type === "file") {
-      addEntry(
-        {
+  const fileReads: Array<() => Promise<void>> = [];
+  const fileController = new AbortController();
+  const fileSignal = params.signal
+    ? AbortSignal.any([params.signal, fileController.signal])
+    : fileController.signal;
+  const addFile = (relative: string): void => {
+    fileReads.push(async () => {
+      const snapshot = await readWorkspaceFileSnapshotWithLimit(
+        localPath(root, relative),
+        (size) => {
+          addBytes(size);
+          return size;
+        },
+        root,
+        fileSignal,
+      );
+      if (snapshot.type === "file") {
+        addEntry({
           path: relative,
           type: "file",
           mode: snapshot.mode,
           size: snapshot.size,
           sha256: snapshot.sha256,
-        },
-        snapshot.size,
-      );
-      return;
-    }
-    throw new Error("Gateway workspace manifest exceeds its eligible byte limit");
+        });
+        return;
+      }
+      throw new Error("Gateway workspace manifest exceeds its eligible byte limit");
+    });
   };
   const addIncludedPath = async (
     relative: string,
@@ -227,7 +250,7 @@ export async function readActualWorkspaceManifestImpl(params: {
       return "absent";
     }
     if (stats.isFile()) {
-      await addFile(relative);
+      addFile(relative);
       return "included";
     }
     return "absent";
@@ -278,7 +301,7 @@ export async function readActualWorkspaceManifestImpl(params: {
         );
       } else if (stats.isFile()) {
         hasNonDerivedEntry = true;
-        await addFile(relative);
+        addFile(relative);
       } else {
         hasNonDerivedEntry = true;
         // Special local nodes cannot be represented in a cloud manifest. They
@@ -313,6 +336,18 @@ export async function readActualWorkspaceManifestImpl(params: {
   } else {
     await walk("");
   }
+  // Keep the validation fence intact: stop admission on failure, cancel reads,
+  // and drain every opened handle before returning or publishing a manifest.
+  const reads = await runTasksWithConcurrency({
+    tasks: fileReads,
+    limit: 4,
+    errorMode: "stop",
+    onTaskError: (error) => fileController.abort(error),
+  });
+  if (reads.hasError) {
+    throw reads.firstError;
+  }
+  params.signal?.throwIfAborted();
   const directories = rawEntries
     .filter((entry) => entry.type === "directory")
     .toSorted((left, right) => left.path.localeCompare(right.path));

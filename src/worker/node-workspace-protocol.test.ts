@@ -86,3 +86,30 @@ describe("node workspace seed protocol", () => {
     ).toThrow("INVALID_REQUEST:");
   });
 });
+
+describe("node workspace manifest capture protocol", () => {
+  const capture = {
+    baseManifestRef: `sha256:${key}`,
+    referenceManifestRef: `sha256:${"b".repeat(64)}`,
+  };
+  const captureRequest = { ...request, argv: ["openclaw-internal-workspace-manifest"], capture };
+  it("carries only bound manifest references", () => {
+    expect(parseNodeWorkerWorkspaceExecInput(JSON.stringify(captureRequest))).toEqual(
+      captureRequest,
+    );
+  });
+  it.each([
+    { capture: { ...capture, baseManifestRef: "../outside" } },
+    { capture: { ...capture, referenceManifestRef: "sha256:" } },
+    { capture: { ...capture, memo: [] } },
+    { argv: ["node"] },
+    { input: "[]" },
+    { seed: { action: "apply", key } },
+    { transfer: { direction: "upload", token: "token", baseManifestRef: capture.baseManifestRef } },
+    { resetWorkspace: false },
+  ])("rejects malformed or mixed capture %#", (invalid) => {
+    expect(() =>
+      parseNodeWorkerWorkspaceExecInput(JSON.stringify({ ...captureRequest, ...invalid })),
+    ).toThrow("workspace manifest capture is invalid");
+  });
+});

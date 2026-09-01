@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { takeWorkspaceHashMemo } from "../gateway/worker-environments/workspace-hash-memo.js";
+import { parseWorkerWorkspaceManifest } from "../gateway/worker-environments/workspace-manifest.js";
 import { hasErrnoCode } from "../infra/errno.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { runCommandWithTimeout } from "../process/exec.js";
@@ -20,6 +21,7 @@ import {
   runNodeWorkerWorkspaceTransfer,
   type NodeWorkerTransferGateway,
 } from "./node-worker-transfer-client.js";
+import { captureManifest } from "./node-worker-workspace-commands.js";
 import { runNodeWorkerWorkspaceSeed } from "./node-worker-workspace-seeds.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -124,7 +126,7 @@ export async function execNodeWorkerWorkspace(params: {
   if (params.prepared && (input.resetWorkspace !== undefined || input.seed)) {
     throw new Error("INVALID_REQUEST: a consumed prepared workspace cannot be reset or reseeded");
   }
-  if (input.transfer || input.resetWorkspace || input.seed) {
+  if (input.transfer || input.resetWorkspace || input.seed || input.capture) {
     try {
       const stats = fs.lstatSync(workspacePath);
       const resolved = fs.realpathSync.native(workspacePath);
@@ -136,6 +138,36 @@ export async function execNodeWorkerWorkspace(params: {
         throw error;
       }
     }
+  }
+  if (input.capture) {
+    const base = parseWorkerWorkspaceManifest(
+      await fsp.readFile(
+        path.join(
+          homeDir,
+          ".openclaw-worker",
+          "manifests",
+          `${input.capture.baseManifestRef.slice(7)}.json`,
+        ),
+        "utf8",
+      ),
+      input.capture.baseManifestRef,
+    );
+    const captured = await captureManifest({
+      workspaceDir: workspacePath,
+      manifestHome: homeDir,
+      baseCommit: base.baseCommit,
+      ...input.capture,
+      hashMemo: takeWorkspaceHashMemo(params.workspaceHashMemos, generationKey),
+      signal,
+    });
+    return projectNodeWorkerWorkspaceExecResult(workspacePath, {
+      stdout: JSON.stringify(captured),
+      stderr: "",
+      code: 0,
+      signal: null,
+      killed: false,
+      termination: "exit",
+    });
   }
   if (input.seed) {
     if (input.seed.action === "apply") {

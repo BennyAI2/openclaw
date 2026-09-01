@@ -33,6 +33,7 @@ export type NodeWorkerWorkspaceExecInput = {
   resetWorkspace?: boolean;
   transfer?: NodeWorkerWorkspaceTransferInput;
   seed?: NodeWorkerWorkspaceSeedInput;
+  capture?: { baseManifestRef: string; referenceManifestRef: string };
 };
 
 export type NodeWorkerWorkspaceExecResult = SpawnResult & { workspaceDir: string };
@@ -70,7 +71,16 @@ export function parseNodeWorkerWorkspaceExecInput(
     !hasExactOwnKeys(
       value,
       ["gatewayNamespace", "environmentId", "sessionId", "generation", "argv"],
-      ["input", "timeoutMs", "resetWorkspace", "transfer", "seed", "sessionKey", "preparationKey"],
+      [
+        "input",
+        "timeoutMs",
+        "resetWorkspace",
+        "transfer",
+        "seed",
+        "capture",
+        "sessionKey",
+        "preparationKey",
+      ],
     )
   ) {
     throw new Error("INVALID_REQUEST: invalid node worker workspace request");
@@ -135,6 +145,29 @@ export function parseNodeWorkerWorkspaceExecInput(
   if (value.resetWorkspace !== undefined && typeof value.resetWorkspace !== "boolean") {
     throw new Error("INVALID_REQUEST: resetWorkspace must be a boolean");
   }
+  const validRef = (candidate: unknown): candidate is string =>
+    typeof candidate === "string" && /^sha256:[a-f0-9]{64}$/u.test(candidate);
+  let capture: NodeWorkerWorkspaceExecInput["capture"];
+  if (value.capture !== undefined) {
+    if (
+      !isRecord(value.capture) ||
+      !hasExactOwnKeys(value.capture, ["baseManifestRef", "referenceManifestRef"]) ||
+      !validRef(value.capture.baseManifestRef) ||
+      !validRef(value.capture.referenceManifestRef) ||
+      value.transfer !== undefined ||
+      value.seed !== undefined ||
+      value.resetWorkspace !== undefined ||
+      value.input !== undefined ||
+      value.argv.length !== 1 ||
+      value.argv[0] !== "openclaw-internal-workspace-manifest"
+    ) {
+      throw new Error("INVALID_REQUEST: workspace manifest capture is invalid");
+    }
+    capture = {
+      baseManifestRef: value.capture.baseManifestRef,
+      referenceManifestRef: value.capture.referenceManifestRef,
+    };
+  }
   let seed: NodeWorkerWorkspaceSeedInput | undefined;
   if (value.seed !== undefined) {
     if (value.transfer !== undefined || value.resetWorkspace !== undefined) {
@@ -173,8 +206,6 @@ export function parseNodeWorkerWorkspaceExecInput(
     const token = value.transfer.token;
     const manifestRef = value.transfer.manifestRef;
     const baseManifestRef = value.transfer.baseManifestRef;
-    const validRef = (candidate: unknown): candidate is string =>
-      typeof candidate === "string" && /^sha256:[a-f0-9]{64}$/u.test(candidate);
     if (
       typeof token !== "string" ||
       token.length === 0 ||
@@ -225,6 +256,7 @@ export function parseNodeWorkerWorkspaceExecInput(
     ...(value.resetWorkspace === undefined ? {} : { resetWorkspace: value.resetWorkspace }),
     ...(transfer ? { transfer } : {}),
     ...(seed ? { seed } : {}),
+    ...(capture ? { capture } : {}),
   };
 }
 

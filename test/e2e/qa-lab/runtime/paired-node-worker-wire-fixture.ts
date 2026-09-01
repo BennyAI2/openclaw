@@ -22,6 +22,7 @@ import {
   NODE_WORKER_BUNDLE_RETENTION_VERSION,
   NODE_WORKER_BUNDLE_STATUS_VERSION,
   NODE_WORKER_ENVIRONMENT_SESSION_VERSION,
+  NODE_WORKER_WORKSPACE_MANIFEST_VERSION,
   NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
 } from "../../../../src/infra/node-runner-inventory.js";
 import { handleInvoke, type NodeInvokeRequestPayload } from "../../../../src/node-host/invoke.js";
@@ -334,6 +335,7 @@ export async function createPairedNodeWorkerHost(
     protocolFeatures: [NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE],
     workerHost: {
       enabled: true as const,
+      workspaceManifest: NODE_WORKER_WORKSPACE_MANIFEST_VERSION,
       ...(environmentSession
         ? { environmentSession: NODE_WORKER_ENVIRONMENT_SESSION_VERSION }
         : {}),

@@ -262,7 +262,7 @@ async function downloadWorkspace(params: {
   });
   const staging = stagingWorkspace.dir;
   try {
-    if (process.platform === "win32") {
+    if (overlay || process.platform === "win32") {
       const published = await runWorkspaceCommand({
         workspaceDir: staging,
         homeDir: params.manifestHome,
@@ -391,14 +391,16 @@ async function downloadWorkspace(params: {
     // the complete tree and current handle identities before the atomic replacement.
     const observed = overlay
       ? await overlay.apply(staging)
-      : await captureManifest({
-          workspaceDir: staging,
-          manifestHome: params.manifestHome,
-          baseCommit: manifest.baseCommit,
-          referenceManifestRef: params.transfer.manifestRef,
-          hashMemo: stagingHashMemo,
-          signal: params.signal,
-        });
+      : (
+          await captureManifest({
+            workspaceDir: staging,
+            manifestHome: params.manifestHome,
+            baseCommit: manifest.baseCommit,
+            referenceManifestRef: params.transfer.manifestRef,
+            hashMemo: stagingHashMemo,
+            signal: params.signal,
+          })
+        ).manifestRef;
     if (observed !== params.transfer.manifestRef) {
       throw new Error(
         `workspace transfer materialized a different manifest (${observed}/${params.transfer.manifestRef})`,
@@ -478,11 +480,12 @@ async function uploadWorkspace(params: {
     "utf8",
   );
   const base = parseWorkerWorkspaceManifest(baseRaw, params.transfer.baseManifestRef);
-  const currentRef = await captureManifest({
+  const { manifestRef: currentRef } = await captureManifest({
     workspaceDir: params.workspaceDir,
     manifestHome: params.manifestHome,
     baseCommit: base.baseCommit,
     referenceManifestRef: params.transfer.baseManifestRef,
+    baseManifestRef: params.transfer.baseManifestRef,
     ...(params.hashMemo === undefined ? {} : { hashMemo: params.hashMemo }),
     signal: params.signal,
   });

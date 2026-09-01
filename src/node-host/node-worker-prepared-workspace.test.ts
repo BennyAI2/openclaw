@@ -3,12 +3,13 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import {
   serializeWorkerWorkspaceManifest,
   type WorkerWorkspaceManifest,
 } from "../gateway/worker-environments/workspace-manifest.js";
+import * as workspaceReconcile from "../gateway/worker-environments/workspace-reconcile-core.js";
 import { runExec } from "../process/exec.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import type { NodeWorkerPreparedWorkspaceBinding } from "../worker/node-workspace-prepared-protocol.js";
@@ -22,10 +23,12 @@ import {
 } from "./node-worker-supervisor.test-support.js";
 import { listen } from "./node-worker-transfer-client.test-support.js";
 import { captureManifest } from "./node-worker-workspace-commands.js";
+import * as workspaceCommands from "./node-worker-workspace-commands.js";
 import { NodeWorkerWorkspaceRuntime } from "./node-worker-workspace.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 afterEach(() => closeOpenClawStateDatabaseForTest());
+afterEach(() => vi.restoreAllMocks());
 const preparationKey = "a".repeat(64);
 const binding: NodeWorkerPreparedWorkspaceBinding = {
   action: "bind",
@@ -74,7 +77,7 @@ async function fixture() {
     path.join(workspaceDir, ".venv", "absolute-path"),
     `${workspaceDir}\n${homeDir}`,
   );
-  const sourceManifestRef = await captureManifest({
+  const { manifestRef: sourceManifestRef } = await captureManifest({
     workspaceDir,
     manifestHome: homeDir,
     baseCommit,
@@ -286,77 +289,179 @@ describe("prepared node workspace ownership", () => {
     });
   });
 
-  it("downloads only an eligible overlay and preserves ignored prepared outputs at the same paths", async () => {
-    const f = await fixture();
-    await f.runtime.prepare(f.registration);
-    await f.runtime.prepare(binding);
-    const original: WorkerWorkspaceManifest = JSON.parse(
-      await fsp.readFile(
-        path.join(
-          f.homeDir,
-          ".openclaw-worker",
-          "manifests",
-          `${f.registration.sourceManifestRef.slice(7)}.json`,
-        ),
-        "utf8",
-      ),
-    );
-    const body = Buffer.from("session overlay\n");
-    const digest = createHash("sha256").update(body).digest("hex");
-    const raw = serializeWorkerWorkspaceManifest({
-      ...original,
-      entries: original.entries.map((entry) =>
-        entry.path === "source.txt"
-          ? { path: entry.path, type: "file", mode: 0o644, size: body.length, sha256: digest }
-          : entry,
-      ),
-    });
-    const manifestRef = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
-    const requests: string[] = [];
-    const server = createServer((req, res) => {
-      requests.push(req.url ?? "");
-      if (req.url?.endsWith("/manifest")) {
-        res.writeHead(200).end(raw);
-      } else if (req.url?.endsWith(`/blobs/${digest}`)) {
-        res.writeHead(200).end(body);
-      } else {
-        res.writeHead(404).end();
+  it.each([
+    "unchanged",
+    "no delta",
+    "tracked edit",
+    "new eligible file",
+    "recreated ignored file",
+    "publication failure",
+    "apply failure",
+  ] as const)(
+    "verifies the final prepared overlay without rereading unchanged content: %s",
+    async (lateChange) => {
+      const f = await fixture();
+      await f.runtime.prepare(f.registration);
+      await f.runtime.prepare(binding);
+      if (lateChange === "recreated ignored file") {
+        await fsp.writeFile(path.join(f.workspaceDir, "late.txt"), "eligible original\n");
       }
-    });
-    const url = await listen(server);
-    try {
-      const transferred = await f.runtime.exec(
-        {
-          ...f.command,
-          argv: ["openclaw-internal-workspace-transfer"],
-          transfer: { direction: "download", token: "test-transfer", manifestRef },
-        },
-        undefined,
-        { url },
+      const writesLate =
+        lateChange === "tracked edit" ||
+        lateChange === "new eligible file" ||
+        lateChange === "recreated ignored file";
+      const original: WorkerWorkspaceManifest = JSON.parse(
+        await fsp.readFile(
+          path.join(
+            f.homeDir,
+            ".openclaw-worker",
+            "manifests",
+            `${f.registration.sourceManifestRef.slice(7)}.json`,
+          ),
+          "utf8",
+        ),
       );
-      expect(transferred).toMatchObject({
-        workspaceDir: f.workspaceDir,
-        code: 0,
-        stdout: `${manifestRef}\n`,
+      const body = Buffer.from(
+        lateChange === "no delta" ? "prepared source\n" : "session overlay\n",
+      );
+      const contents = new Map([["source.txt", body]]);
+      if (lateChange === "recreated ignored file") {
+        contents.set(".gitignore", Buffer.from(".venv/\nlate.txt\n"));
+      }
+      const blobs = new Map<string, Buffer>();
+      const raw = serializeWorkerWorkspaceManifest({
+        ...original,
+        entries: original.entries.map((entry) => {
+          const bytes = contents.get(entry.path);
+          if (!bytes) {
+            return entry;
+          }
+          const sha256 = createHash("sha256").update(bytes).digest("hex");
+          blobs.set(sha256, bytes);
+          return {
+            path: entry.path,
+            type: "file" as const,
+            mode: 0o644,
+            size: bytes.length,
+            sha256,
+          };
+        }),
       });
-      expect(await fsp.readFile(path.join(f.workspaceDir, "source.txt"), "utf8")).toBe(
-        body.toString(),
-      );
-      expect(await fsp.readFile(path.join(f.workspaceDir, ".venv", "absolute-path"), "utf8")).toBe(
-        `${f.workspaceDir}\n${f.homeDir}`,
-      );
-      expect(requests).toHaveLength(2);
-      expect(
-        new NodeWorkerPreparedWorkspaceStore({ env: f.env }).find(binding.environmentId),
-      ).toMatchObject({ state: "bound", session_id: binding.sessionId });
-      const acquired = f.runtime.acquirePreparedWorkspace(f.request);
-      expect(acquired?.workspaceDir).toBe(f.workspaceDir);
-      acquired?.release();
-    } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
+      const manifestRef = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+      const requests: string[] = [];
+      const server = createServer((req, res) => {
+        requests.push(req.url ?? "");
+        if (req.url?.endsWith("/manifest")) {
+          res.writeHead(200).end(raw);
+        } else {
+          const blob = blobs.get(req.url?.split("/").at(-1) ?? "");
+          res.writeHead(blob ? 200 : 404).end(blob);
+        }
       });
-    }
-  });
+      const url = await listen(server);
+      const open = vi.spyOn(fsp, "open");
+      let captures = 0;
+      const capture = workspaceCommands.captureManifest;
+      vi.spyOn(workspaceCommands, "captureManifest").mockImplementation(async (params) => {
+        captures += 1;
+        if (captures === 2 && writesLate) {
+          if (lateChange === "recreated ignored file") {
+            await expect(fsp.stat(path.join(f.workspaceDir, "late.txt"))).rejects.toMatchObject({
+              code: "ENOENT",
+            });
+          }
+          await fsp.writeFile(
+            path.join(f.workspaceDir, lateChange === "tracked edit" ? "source.txt" : "late.txt"),
+            "late writer\n",
+          );
+        }
+        return await capture(params);
+      });
+      if (lateChange === "publication failure") {
+        const run = workspaceCommands.runWorkspaceCommand;
+        vi.spyOn(workspaceCommands, "runWorkspaceCommand").mockImplementation(async (params) => {
+          if (params.argv.includes("publish")) {
+            throw new Error("injected manifest publication failure");
+          }
+          return await run(params);
+        });
+      }
+      if (lateChange === "apply failure") {
+        const applyDirectories = workspaceReconcile.applyWorkspaceDirectoryChanges;
+        vi.spyOn(workspaceReconcile, "applyWorkspaceDirectoryChanges").mockImplementation(
+          async (params) => {
+            await applyDirectories(params);
+            throw new Error("injected failure after patch application");
+          },
+        );
+      }
+      try {
+        const transfer = f.runtime.exec(
+          {
+            ...f.command,
+            argv: ["openclaw-internal-workspace-transfer"],
+            transfer: { direction: "download", token: "test-transfer", manifestRef },
+          },
+          undefined,
+          { url },
+        );
+        if (lateChange === "apply failure" || lateChange === "publication failure") {
+          await expect(transfer).rejects.toThrow("workspace-transfer-failed");
+          expect(await fsp.readFile(path.join(f.workspaceDir, "source.txt"), "utf8")).toBe(
+            "prepared source\n",
+          );
+          expect(
+            new NodeWorkerPreparedWorkspaceStore({ env: f.env }).find(binding.environmentId),
+          ).toMatchObject({ state: "bound", session_id: binding.sessionId });
+          const restarted = new NodeWorkerWorkspaceRuntime(f.options);
+          expect((await restarted.exec(f.command)).code).toBe(0);
+          expect((await fsp.readdir(f.ownerRoot)).toSorted()).toEqual(["home", "workspace"]);
+          if (lateChange === "publication failure") {
+            expect(captures).toBe(1);
+          }
+          return;
+        }
+        if (writesLate) {
+          await expect(transfer).rejects.toThrow("workspace-transfer-failed");
+          expect(await fsp.readFile(path.join(f.workspaceDir, "source.txt"), "utf8")).toBe(
+            lateChange === "tracked edit" ? "late writer\n" : body.toString(),
+          );
+          expect(
+            new NodeWorkerPreparedWorkspaceStore({ env: f.env }).find(binding.environmentId),
+          ).toMatchObject({ state: "retiring", session_id: binding.sessionId });
+          const restarted = new NodeWorkerWorkspaceRuntime(f.options);
+          await expect(restarted.exec(f.command)).rejects.toThrow("does not own");
+          return;
+        }
+        const transferred = await transfer;
+        expect(transferred).toMatchObject({
+          workspaceDir: f.workspaceDir,
+          code: 0,
+          stdout: `${manifestRef}\n`,
+        });
+        expect(await fsp.readFile(path.join(f.workspaceDir, "source.txt"), "utf8")).toBe(
+          body.toString(),
+        );
+        expect(
+          await fsp.readFile(path.join(f.workspaceDir, ".venv", "absolute-path"), "utf8"),
+        ).toBe(`${f.workspaceDir}\n${f.homeDir}`);
+        expect(requests).toHaveLength(lateChange === "no delta" ? 1 : 2);
+        expect(
+          new NodeWorkerPreparedWorkspaceStore({ env: f.env }).find(binding.environmentId),
+        ).toMatchObject({ state: "bound", session_id: binding.sessionId });
+        const acquired = f.runtime.acquirePreparedWorkspace(f.request);
+        expect(acquired?.workspaceDir).toBe(f.workspaceDir);
+        acquired?.release();
+        expect(
+          open.mock.calls.filter(([file]) => file === path.join(f.workspaceDir, ".gitignore")),
+        ).toHaveLength(0);
+        expect(captures).toBe(2);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      }
+    },
+  );
 });

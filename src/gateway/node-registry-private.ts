@@ -10,6 +10,7 @@ import {
   NODE_WORKER_BUNDLE_RETENTION_VERSION,
   NODE_WORKER_BUNDLE_STATUS_VERSION,
   NODE_WORKER_ENVIRONMENT_SESSION_VERSION,
+  NODE_WORKER_WORKSPACE_MANIFEST_VERSION,
   type NodeRunnerInventoryIssue,
   type NodeRunnerInventoryDeclaration,
   type NodeWorkerCapacitySnapshot,
@@ -102,6 +103,7 @@ export type NodeWorkerSupervisorTransport = {
     signal?: AbortSignal;
     idempotencyKey?: string;
     isDispatchAuthorized: () => boolean;
+    requireWorkspaceManifest?: boolean;
     onDispatchReady?: (invokeId: string) => void;
   }): Promise<NodeInvokeResult>;
 };
@@ -164,6 +166,7 @@ function isWorkerSupervisorProofCurrent(
   requireLaunchEligibility: boolean,
   requiredCommands: readonly string[] = [],
   requireEnvironmentSession = false,
+  requireWorkspaceManifest = false,
 ): boolean {
   const node = state.context.getNode(proof.nodeId);
   if (!node || node.client.invalidated === true || node.connId !== proof.connId) {
@@ -179,6 +182,8 @@ function isWorkerSupervisorProofCurrent(
     (!requireLaunchEligibility || current.workerHost.capacity.available > 0) &&
     (!requireEnvironmentSession ||
       current.workerHost.environmentSession === NODE_WORKER_ENVIRONMENT_SESSION_VERSION) &&
+    (!requireWorkspaceManifest ||
+      current.workerHost.workspaceManifest === NODE_WORKER_WORKSPACE_MANIFEST_VERSION) &&
     requiredCommands.every((command) => current.commands.includes(command))
   );
 }
@@ -522,6 +527,8 @@ export function registerNodeRegistryPrivateRuntime(
           [],
           params.command === NODE_WORKER_SUPERVISOR_LAUNCH_COMMAND ||
             params.command === NODE_WORKER_ENVIRONMENT_STOP_COMMAND,
+          params.command === NODE_WORKER_SUPERVISOR_LAUNCH_COMMAND ||
+            params.requireWorkspaceManifest === true,
         );
       if (!isProofCurrent()) {
         return {

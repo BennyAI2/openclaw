@@ -34,13 +34,15 @@ export async function prepareNodeWorkerWorkspace(
     );
     if (
       !source.baseCommit ||
-      (await captureManifest({
-        workspaceDir: input.workspaceDir,
-        manifestHome: input.homeDir,
-        baseCommit: source.baseCommit,
-        referenceManifestRef: input.sourceManifestRef,
-        signal,
-      })) !== input.sourceManifestRef
+      (
+        await captureManifest({
+          workspaceDir: input.workspaceDir,
+          manifestHome: input.homeDir,
+          baseCommit: source.baseCommit,
+          referenceManifestRef: input.sourceManifestRef,
+          signal,
+        })
+      ).manifestRef !== input.sourceManifestRef
     ) {
       throw new Error("INVALID_REQUEST: prepared workspace source does not match its manifest");
     }

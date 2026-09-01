@@ -1,4 +1,5 @@
 import fsp from "node:fs/promises";
+import { NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS } from "../../worker/node-workspace-deadlines.js";
 import type { NodeWorkerWorkspaceExecResult } from "../../worker/node-workspace-protocol.js";
 import {
   createNodeWorkerWorkspaceFallback,
@@ -6,10 +7,13 @@ import {
 } from "./node-worker-workspace-fallback.js";
 import type { NodeWorkspaceTransferService } from "./node-workspace-transfer-service.js";
 import type { WorkerWorkspaceCommand, WorkerWorkspaceTunnelHandle } from "./tunnel-contract.js";
+import { boundedWorkerError } from "./worker-error.js";
 import { runInstrumentedWorkspaceReconcile } from "./workspace-finalize.js";
 import { workerProjectSeedKey } from "./workspace-git-base.js";
 import {
   measureLocalWorkspaceReconciliation,
+  parseRemoteWorkspaceManifestCapture,
+  recordRemoteWorkspaceHashMetrics,
   pruneWorkspaceHashMemo,
   withWorkspaceHashMemo,
   type WorkspaceHashMemo,
@@ -55,15 +59,21 @@ export function createNodeWorkerWorkspaceActions(params: {
   runWorkspaceCommand: (
     command: WorkerWorkspaceCommand & { resetWorkspace?: boolean; sessionKey?: string },
   ) => Promise<NodeWorkerWorkspaceExecResult>;
+  runResumeWorkspaceCommand: (
+    command: WorkerWorkspaceCommand & { sessionKey?: string },
+  ) => Promise<NodeWorkerWorkspaceExecResult>;
 }): NodeWorkerWorkspaceActions {
   const { restoredWorkspace } = params;
   let workspaceReady = restoredWorkspace !== undefined;
   let sessionKey = restoredWorkspace?.sessionKey;
-  const exec = async (command: WorkerWorkspaceCommand & { resetWorkspace?: boolean }) => {
+  const exec = async (
+    command: WorkerWorkspaceCommand & { resetWorkspace?: boolean },
+    run = params.runWorkspaceCommand,
+  ) => {
     if (!workspaceReady) {
       throw new Error("node worker workspace is unavailable before sync");
     }
-    return await params.runWorkspaceCommand({
+    return await run({
       ...command,
       ...(sessionKey === undefined ? {} : { sessionKey }),
     });
@@ -73,6 +83,7 @@ export function createNodeWorkerWorkspaceActions(params: {
     ownerSignal: params.ownerSignal,
     sharedHost: true,
     runWorkspaceCommand: exec,
+    runResumeWorkspaceCommand: (command) => exec(command, params.runResumeWorkspaceCommand),
   });
   const validateRestoredWorkspace = async (): Promise<void> => {
     if (!restoredWorkspace) {
@@ -127,7 +138,7 @@ export function createNodeWorkerWorkspaceActions(params: {
           token: uploadToken,
           baseManifestRef: request.baseManifestRef,
         },
-        timeoutMs: 10 * 60_000,
+        timeoutMs: NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
         transportRetry: "never",
       });
     } finally {
@@ -144,11 +155,36 @@ export function createNodeWorkerWorkspaceActions(params: {
       const changed = uploaded.currentManifestRef !== request.baseManifestRef;
       let expectedRemoteRef = uploaded.currentManifestRef;
       const verifyStable = async () => {
-        const observed = await workspace.captureManifest(
-          request.remoteWorkspaceDir,
-          uploaded.base.baseCommit,
-          expectedRemoteRef,
-        );
+        metrics.remoteManifestCalls += 1;
+        const startedAt = performance.now();
+        const result = await exec({
+          argv: ["openclaw-internal-workspace-manifest"],
+          capture: {
+            baseManifestRef: request.baseManifestRef,
+            referenceManifestRef: expectedRemoteRef,
+          },
+          transportRetry: "idempotent",
+          timeoutMs: NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
+        }).finally(() => {
+          metrics.remoteManifestWallDurationMs += performance.now() - startedAt;
+        });
+        if (result.termination !== "exit" || result.code !== 0) {
+          const detail = boundedWorkerError(
+            result.stderr.trim() ||
+              `${result.termination} (exit code ${result.code}, signal ${result.signal})`,
+          );
+          throw new Error(`Node workspace manifest capture failed: ${detail}`);
+        }
+        let captured;
+        try {
+          captured = parseRemoteWorkspaceManifestCapture(result.stdout);
+        } catch (error) {
+          throw new Error("Node workspace manifest capture failed: invalid capture result", {
+            cause: error,
+          });
+        }
+        recordRemoteWorkspaceHashMetrics(metrics, captured.metrics);
+        const observed = captured.manifestRef;
         if (observed !== expectedRemoteRef) {
           throw new Error("Cloud workspace changed during final reconciliation");
         }
@@ -172,7 +208,7 @@ export function createNodeWorkerWorkspaceActions(params: {
           const published = await exec({
             argv: ["openclaw-internal-workspace-transfer"],
             transfer: { direction: "download", token, manifestRef: accepted.manifestRef },
-            timeoutMs: 10 * 60_000,
+            timeoutMs: NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
             transportRetry: "never",
           });
           if (
@@ -212,7 +248,7 @@ export function createNodeWorkerWorkspaceActions(params: {
               base: uploaded.base,
               current: uploaded.current,
               journal: request.journal,
-              publishAcceptedManifest,
+              acceptance: { kind: "reconcile", publish: publishAcceptedManifest },
             }),
         );
       }
@@ -332,7 +368,7 @@ export function createNodeWorkerWorkspaceActions(params: {
                   }
                 : {}),
             },
-            timeoutMs: 10 * 60_000,
+            timeoutMs: NODE_WORKER_WORKSPACE_COMMAND_TIMEOUT_MS,
             transportRetry: "never",
           });
           if (

@@ -42,15 +42,18 @@ export async function prepareNodeWorkerWorkspaceOverlay(params: {
   if (!source.baseCommit || params.manifest.baseCommit !== source.baseCommit) {
     throw new Error("Prepared workspace transfer does not match its immutable Git base");
   }
-  const capture = async (referenceManifestRef: string) =>
-    await captureManifest({
-      workspaceDir: row.workspace_dir,
-      manifestHome: row.home_dir,
-      baseCommit: source.baseCommit,
-      referenceManifestRef,
-      hashMemo: params.hashMemo,
-      signal: params.signal,
-    });
+  const capture = async (referenceManifestRef: string, baseManifestRef?: string) =>
+    (
+      await captureManifest({
+        workspaceDir: row.workspace_dir,
+        manifestHome: row.home_dir,
+        baseCommit: source.baseCommit,
+        referenceManifestRef,
+        baseManifestRef,
+        hashMemo: params.hashMemo,
+        signal: params.signal,
+      })
+    ).manifestRef;
   const baseManifestRef = await capture(row.source_manifest_ref);
   const base = await readManifest(baseManifestRef);
   return {
@@ -62,7 +65,7 @@ export async function prepareNodeWorkerWorkspaceOverlay(params: {
       const mutation = store.beginMutation(row);
       let rolledBack = false;
       try {
-        const applied = await withWorkerWorkspaceHashMemo(
+        await withWorkerWorkspaceHashMemo(
           params.hashMemo ?? new Map(),
           async () =>
             await applyStagedWorkerWorkspace({
@@ -80,17 +83,16 @@ export async function prepareNodeWorkerWorkspaceOverlay(params: {
                   rolledBack = true;
                 },
               },
-              publishAcceptedManifest: async (actual) => {
-                if (actual.manifestRef !== params.manifestRef) {
-                  throw new Error("Prepared workspace changed while applying its session overlay");
-                }
+              acceptance: {
+                kind: "exact-target",
+                verify: async () => {
+                  if ((await capture(params.manifestRef, baseManifestRef)) !== params.manifestRef) {
+                    throw new Error("Prepared workspace overlay verification failed");
+                  }
+                },
               },
             }),
         );
-        await applied.verifyLocalStable();
-        if ((await capture(params.manifestRef)) !== params.manifestRef) {
-          throw new Error("Prepared workspace overlay verification failed");
-        }
         params.signal?.throwIfAborted();
         mutation.complete();
         return params.manifestRef;

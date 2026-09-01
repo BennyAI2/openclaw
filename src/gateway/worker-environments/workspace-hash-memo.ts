@@ -55,6 +55,15 @@ const remoteWorkspaceManifestEnvelopeSchema = z
 
 export type RemoteWorkspaceManifestEnvelope = z.infer<typeof remoteWorkspaceManifestEnvelopeSchema>;
 
+const remoteWorkspaceManifestCaptureSchema = remoteWorkspaceManifestEnvelopeSchema.omit({
+  memo: true,
+});
+
+/** Node-owned caches stay on the node; only bounded capture facts cross its RPC. */
+export function parseRemoteWorkspaceManifestCapture(stdout: string) {
+  return remoteWorkspaceManifestCaptureSchema.parse(JSON.parse(stdout));
+}
+
 /** Parses and validates a memo-v1 capture response from the remote manifest script. */
 export function parseRemoteWorkspaceManifestEnvelope(
   stdout: string,

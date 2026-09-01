@@ -83,7 +83,12 @@ export function transport(): NodeWorkerSupervisorTransport {
         clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
         clientMode: GATEWAY_CLIENT_MODES.NODE,
         protocolFeature: NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
-        workerHost: { enabled: true, capacity: { total: 2, available: 2 }, environmentSession: 1 },
+        workerHost: {
+          enabled: true,
+          capacity: { total: 2, available: 2 },
+          environmentSession: 1,
+          workspaceManifest: 1,
+        },
         commands: ["system.run"],
       },
     ],
@@ -123,5 +128,19 @@ export function workspaceCommandPayload(workspaceDir: string, result: Partial<Sp
     killed: false,
     termination: "exit",
     ...result,
+  });
+}
+
+export function workspaceManifestCapturePayload(manifestRef: string): string {
+  return JSON.stringify({
+    version: 1,
+    manifestRef,
+    metrics: {
+      contentHashCount: 0,
+      contentHashDurationMs: 0,
+      memoHitCount: 0,
+      memoTruncatedCount: 0,
+      totalDurationMs: 0,
+    },
   });
 }

@@ -646,7 +646,7 @@ export function createWorkerWorkspaceActions(
               base,
               current,
               journal: request.journal,
-              publishAcceptedManifest,
+              acceptance: { kind: "reconcile", publish: publishAcceptedManifest },
             }),
         );
       }

@@ -19,6 +19,7 @@ import {
   startRequest,
   transport,
   workspaceCommandPayload,
+  workspaceManifestCapturePayload,
   workspaceTransfer,
 } from "./node-worker-tunnel.test-support.js";
 import type { NodeWorkspaceTransferService } from "./node-workspace-transfer-service.js";
@@ -498,7 +499,7 @@ describe("node worker tunnel manager", () => {
                 {
                   ...proof,
                   workerHost: {
-                    enabled: true,
+                    ...proof.workerHost,
                     capacity: { total: 2, available: launchEligible ? 2 : 0 },
                   },
                 },
@@ -712,7 +713,7 @@ describe("node worker tunnel manager", () => {
   it.each([
     {
       name: "divergence",
-      result: { stdout: `sha256:${"f".repeat(64)}\n` },
+      result: { stdout: workspaceManifestCapturePayload(`sha256:${"f".repeat(64)}`) },
       error: "changed during final reconciliation",
     },
     {
@@ -731,7 +732,7 @@ describe("node worker tunnel manager", () => {
     {
       name: "invalid reference",
       result: { stdout: "invalid\n" },
-      error: "Node workspace manifest capture failed: invalid manifest reference",
+      error: "Node workspace manifest capture failed: invalid capture result",
     },
   ] as const)("reports $name during final manifest verification", async ({ result, error }) => {
     const record = environment();
@@ -742,11 +743,13 @@ describe("node worker tunnel manager", () => {
     const baseManifestRef = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
     const nodeTransport = transport();
     nodeTransport.invoke = vi.fn(async ({ params }) => {
-      const input = params as { transfer?: { direction?: string } };
+      const input = params as NodeWorkerWorkspaceExecInput;
       return {
         ok: true,
         payloadJSON: workspaceCommandPayload(remoteWorkspaceDir, {
-          stdout: `${baseManifestRef}\n`,
+          stdout: input.capture
+            ? workspaceManifestCapturePayload(baseManifestRef)
+            : `${baseManifestRef}\n`,
           ...(!input.transfer ? result : {}),
         }),
       };
@@ -806,9 +809,13 @@ describe("node worker tunnel manager", () => {
     const raw = serializeWorkerWorkspaceManifest(actual.manifest);
     const manifestRef = actual.manifestRef;
     const nodeTransport = transport();
-    nodeTransport.invoke = vi.fn(async () => ({
+    nodeTransport.invoke = vi.fn(async ({ params }) => ({
       ok: true,
-      payloadJSON: workspaceCommandPayload(remoteWorkspaceDir, { stdout: `${manifestRef}\n` }),
+      payloadJSON: workspaceCommandPayload(remoteWorkspaceDir, {
+        stdout: (params as NodeWorkerWorkspaceExecInput).capture
+          ? workspaceManifestCapturePayload(manifestRef)
+          : `${manifestRef}\n`,
+      }),
     }));
     const transfer = {
       prepareSync: vi.fn(async () => ({
@@ -874,14 +881,16 @@ describe("node worker tunnel manager", () => {
     const transferDirections: string[] = [];
     const nodeTransport = transport();
     const invoke = vi.fn(async ({ params }) => {
-      const input = params as { transfer?: { direction?: string } };
+      const input = params as NodeWorkerWorkspaceExecInput;
       if (input.transfer?.direction) {
         transferDirections.push(input.transfer.direction);
       }
       return {
         ok: true,
         payloadJSON: workspaceCommandPayload(remoteWorkspaceDir, {
-          stdout: `${baseManifestRef}\n`,
+          stdout: input.capture
+            ? workspaceManifestCapturePayload(baseManifestRef)
+            : `${baseManifestRef}\n`,
         }),
       };
     });
@@ -932,7 +941,7 @@ describe("node worker tunnel manager", () => {
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
         params: expect.objectContaining({
-          argv: expect.arrayContaining(["all", baseManifestRef.slice("sha256:".length)]),
+          capture: { baseManifestRef, referenceManifestRef: baseManifestRef },
         }),
       }),
     );

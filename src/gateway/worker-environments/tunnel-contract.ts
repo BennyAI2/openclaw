@@ -58,6 +58,7 @@ export type WorkerWorkspaceCommand = {
   signal?: AbortSignal;
   transfer?: NodeWorkerWorkspaceTransferInput;
   seed?: NodeWorkerWorkspaceSeedInput;
+  capture?: { baseManifestRef: string; referenceManifestRef: string };
 };
 
 export type WorkerWorkspaceSyncRequest = {

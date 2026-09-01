@@ -2,6 +2,7 @@ import { GATEWAY_CLIENT_IDS } from "../../packages/gateway-protocol/src/client-i
 import {
   NODE_RUNNER_UPDATE_REQUIRED_ISSUE,
   NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
+  NODE_WORKER_WORKSPACE_MANIFEST_VERSION,
   type NodeRunnerInventoryIssue,
   type NodeWorkerHostDeclaration,
 } from "../infra/node-runner-inventory.js";
@@ -123,7 +124,8 @@ export function sameNodeWorkerHostDeclaration(
         left.bundleRetention === right.bundleRetention &&
         left.bundleStatus === right.bundleStatus &&
         left.portalStream === right.portalStream &&
-        left.environmentSession === right.environmentSession))
+        left.environmentSession === right.environmentSession &&
+        left.workspaceManifest === right.workspaceManifest))
   );
 }
 
@@ -180,7 +182,9 @@ export function resolveNodeRunnerInventoryIssue(
     node.clientMode === "node" &&
     declaration.clientMode === "node" &&
     declaration.protocolFeatures.length === 1 &&
-    declaration.protocolFeatures[0] !== NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE
+    (declaration.protocolFeatures[0] !== NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE ||
+      (declaration.workerHost?.enabled === true &&
+        declaration.workerHost.workspaceManifest !== NODE_WORKER_WORKSPACE_MANIFEST_VERSION))
     ? NODE_RUNNER_UPDATE_REQUIRED_ISSUE
     : undefined;
 }

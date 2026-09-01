@@ -891,6 +891,7 @@ describe("gateway/node-registry", () => {
             enabled: true,
             capacity: { total: 2, available: 0 },
             environmentSession: 1,
+            workspaceManifest: 1,
           },
         },
       });
@@ -975,6 +976,120 @@ describe("gateway/node-registry", () => {
       expect(frames).toEqual([]);
     },
   );
+
+  it("fences workspace capability loss during pairing lookup while preserving exact environment stop", async () => {
+    const pairing = { identity: "identity-a", generation: "generation-a" };
+    const entered = createDeferred();
+    const release = createDeferred<typeof pairing>();
+    let held = false;
+    const { nodeRegistry, nodeWorkerSupervisorTransport } = createPrivateNodeRegistryRuntime({
+      resolveCurrentPairingState: async () => {
+        if (!held) {
+          return pairing;
+        }
+        entered.resolve();
+        return await release.promise;
+      },
+    });
+    const frames: string[] = [];
+    registerNodeSession(
+      nodeRegistry,
+      makeClient("conn-1", "node-1", frames, {
+        clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
+        commands: ["system.run"],
+      }),
+      { pairingIdentity: pairing.identity, pairingGeneration: pairing.generation },
+    );
+    const update = (workspaceManifest?: 1) =>
+      updateNodeRunnerInventory({
+        registry: nodeRegistry,
+        nodeId: "node-1",
+        connId: "conn-1",
+        declaration: {
+          protocolFeatures: [NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE],
+          workerHost: {
+            enabled: true,
+            capacity: { total: 2, available: 2 },
+            environmentSession: 1,
+            ...(workspaceManifest ? { workspaceManifest } : {}),
+          },
+        },
+      });
+    update(1);
+    const [proof] = await nodeWorkerSupervisorTransport.listCurrentNodes();
+    if (!proof) {
+      throw new Error("expected node proof");
+    }
+    held = true;
+    const invocation = nodeWorkerSupervisorTransport.invoke({
+      node: proof,
+      command: NODE_WORKER_WORKSPACE_EXEC_COMMAND,
+      requireWorkspaceManifest: true,
+      isDispatchAuthorized: () => true,
+    });
+    await entered.promise;
+    update();
+    held = false;
+    release.resolve(pairing);
+    await expect(invocation).resolves.toMatchObject({
+      ok: false,
+      error: { code: "APPROVAL_AUTHORITY_CLOSED" },
+    });
+    expect(frames).toEqual([]);
+    const stopping = nodeWorkerSupervisorTransport.invoke({
+      node: proof,
+      command: NODE_WORKER_ENVIRONMENT_STOP_COMMAND,
+      isDispatchAuthorized: () => true,
+    });
+    await vi.waitFor(() => expect(frames).toHaveLength(1));
+    const frame = JSON.parse(frames[0]!);
+    nodeRegistry.handleInvokeResult({
+      id: frame.payload.id,
+      nodeId: "node-1",
+      connId: "conn-1",
+      ok: true,
+      payloadJSON: "null",
+    });
+    await expect(stopping).resolves.toMatchObject({ ok: true });
+  });
+
+  it("reports a node manifest upgrade without removing its cleanup transport", async () => {
+    const { nodeRegistry, nodeWorkerSupervisorTransport } = createPrivateNodeRegistryRuntime();
+    registerNodeSession(
+      nodeRegistry,
+      makeClient("conn-1", "node-1", [], {
+        clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
+        commands: ["system.run"],
+      }),
+      { pairingIdentity: "identity-a", pairingGeneration: "generation-a" },
+    );
+    const update = (workspaceManifest?: 1) =>
+      updateNodeRunnerInventory({
+        registry: nodeRegistry,
+        nodeId: "node-1",
+        connId: "conn-1",
+        declaration: {
+          protocolFeatures: [NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE],
+          workerHost: {
+            enabled: true,
+            capacity: { total: 2, available: 2 },
+            ...(workspaceManifest ? { workspaceManifest } : {}),
+          },
+        },
+      });
+    update();
+    expect(nodeWorkerSupervisorTransport.getIssue?.("node-1")).toMatchObject({
+      code: "update-required",
+      action: "update-and-reconnect",
+    });
+    expect(await nodeWorkerSupervisorTransport.listCurrentNodes()).toHaveLength(1);
+    update(1);
+    expect(nodeWorkerSupervisorTransport.getIssue?.("node-1")).toBeUndefined();
+    update();
+    expect(nodeWorkerSupervisorTransport.getIssue?.("node-1")).toMatchObject({
+      code: "update-required",
+    });
+  });
 
   it("promotes bundle prewarm without changing runner authority", async () => {
     const { nodeRegistry, nodeWorkerSupervisorTransport } = createPrivateNodeRegistryRuntime();
