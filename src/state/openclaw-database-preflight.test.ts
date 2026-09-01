@@ -480,6 +480,96 @@ describe("OpenClaw database schema preflight", () => {
     expect(fs.existsSync(path.join(stateDir, "agents", "main", "agent"))).toBe(false);
   });
 
+  it("reports every owned database whose schema must advance for the target build", () => {
+    const stateDir = tempDirs.make("openclaw-database-preflight-migration-");
+    const env = { OPENCLAW_STATE_DIR: stateDir };
+    const statePath = openOpenClawStateDatabase({ env }).path;
+    const agentPath = openOpenClawAgentDatabase({ agentId: "worker-1", env }).path;
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+
+    const { DatabaseSync } = requireNodeSqlite();
+    const state = new DatabaseSync(statePath);
+    try {
+      state.exec(`PRAGMA user_version = ${OPENCLAW_STATE_SCHEMA_VERSION - 1};`);
+      state
+        .prepare("UPDATE schema_meta SET schema_version = ? WHERE meta_key = 'primary'")
+        .run(OPENCLAW_STATE_SCHEMA_VERSION - 1);
+    } finally {
+      state.close();
+    }
+    const agent = new DatabaseSync(agentPath);
+    try {
+      agent.exec(`PRAGMA user_version = ${OPENCLAW_AGENT_SCHEMA_VERSION - 1};`);
+      agent
+        .prepare("UPDATE schema_meta SET schema_version = ? WHERE meta_key = 'primary'")
+        .run(OPENCLAW_AGENT_SCHEMA_VERSION - 1);
+    } finally {
+      agent.close();
+    }
+
+    expect(
+      preflightOpenClawDatabaseSchemas({
+        env,
+        supportedVersions: {
+          state: OPENCLAW_STATE_SCHEMA_VERSION,
+          agent: OPENCLAW_AGENT_SCHEMA_VERSION,
+        },
+      }),
+    ).toEqual({
+      incompatible: [],
+      indeterminate: [],
+      migrationRequired: [
+        {
+          kind: "state",
+          path: statePath,
+          foundVersion: OPENCLAW_STATE_SCHEMA_VERSION - 1,
+          supportedVersion: OPENCLAW_STATE_SCHEMA_VERSION,
+        },
+        {
+          kind: "agent",
+          path: agentPath,
+          agentId: "worker-1",
+          foundVersion: OPENCLAW_AGENT_SCHEMA_VERSION - 1,
+          supportedVersion: OPENCLAW_AGENT_SCHEMA_VERSION,
+        },
+      ],
+    });
+  });
+
+  it("does not promote an unowned candidate path into the migration backup set", () => {
+    const sourceEnv = {
+      OPENCLAW_STATE_DIR: tempDirs.make("openclaw-database-preflight-candidate-source-"),
+    };
+    const agentPath = openOpenClawAgentDatabase({ agentId: "candidate", env: sourceEnv }).path;
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+
+    const { DatabaseSync } = requireNodeSqlite();
+    const agent = new DatabaseSync(agentPath);
+    try {
+      agent.exec(`PRAGMA user_version = ${OPENCLAW_AGENT_SCHEMA_VERSION - 1};`);
+      agent
+        .prepare("UPDATE schema_meta SET schema_version = ? WHERE meta_key = 'primary'")
+        .run(OPENCLAW_AGENT_SCHEMA_VERSION - 1);
+    } finally {
+      agent.close();
+    }
+
+    expect(
+      preflightOpenClawDatabaseSchemas({
+        env: {
+          OPENCLAW_STATE_DIR: tempDirs.make("openclaw-database-preflight-candidate-target-"),
+        },
+        supportedVersions: {
+          state: OPENCLAW_STATE_SCHEMA_VERSION,
+          agent: OPENCLAW_AGENT_SCHEMA_VERSION,
+        },
+        configuredAgentDatabaseCandidatePaths: [agentPath],
+      }),
+    ).toEqual({ incompatible: [], indeterminate: [] });
+  });
+
   it("collects newer state and registered agent schemas with writer builds", () => {
     const stateDir = tempDirs.make("openclaw-database-preflight-");
     const env = { OPENCLAW_STATE_DIR: stateDir };

@@ -67,9 +67,18 @@ export type IndeterminateOpenClawDatabase = {
   reason: string;
 };
 
+export type MigratableOpenClawDatabase = {
+  kind: "agent" | "state";
+  path: string;
+  agentId?: string;
+  foundVersion: number;
+  supportedVersion: number;
+};
+
 export type OpenClawDatabaseSchemaPreflight = {
   incompatible: IncompatibleOpenClawDatabase[];
   indeterminate: IndeterminateOpenClawDatabase[];
+  migrationRequired?: MigratableOpenClawDatabase[];
 };
 
 type OpenClawStateSchemaPreflightResult = {
@@ -355,6 +364,13 @@ export function preflightOpenClawDatabaseSchemas(options: {
           supportedVersion: options.supportedVersions.state,
           ...(writerAppVersion ? { writerAppVersion } : {}),
         });
+      } else if (stateVersion < options.supportedVersions.state) {
+        (result.migrationRequired ??= []).push({
+          kind: "state",
+          path: statePath,
+          foundVersion: stateVersion,
+          supportedVersion: options.supportedVersions.state,
+        });
       }
       if (
         options.verifyCurrentSchemaShape === true &&
@@ -446,7 +462,27 @@ export function preflightOpenClawDatabaseSchemas(options: {
       });
       agentDatabase.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
       const agentVersion = readSqliteUserVersion(agentDatabase);
-      if (agentVersion <= options.supportedVersions.agent) {
+      if (agentVersion < options.supportedVersions.agent) {
+        // Candidate-only paths have no verified owner and are deliberately
+        // excluded from the backup set until discovery claims them.
+        if (row.agentId !== undefined) {
+          (result.migrationRequired ??= []).push({
+            kind: "agent",
+            path: agentPath,
+            agentId: row.agentId,
+            foundVersion: agentVersion,
+            supportedVersion: options.supportedVersions.agent,
+          });
+        }
+        if (options.verifyCurrentSchemaShape === true && row.agentId !== undefined) {
+          assertOpenClawAgentDatabaseForMaintenance(agentDatabase, {
+            agentId: row.agentId,
+            pathname: agentPath,
+          });
+        }
+        continue;
+      }
+      if (agentVersion === options.supportedVersions.agent) {
         if (options.verifyCurrentSchemaShape === true && row.agentId !== undefined) {
           // Existing agent databases require Doctor-owned migration before
           // startup; a successor cannot safely repair them after close.
