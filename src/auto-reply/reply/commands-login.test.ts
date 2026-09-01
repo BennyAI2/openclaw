@@ -135,7 +135,7 @@ describe("handleLoginCommand", () => {
     expect(result).toEqual({
       shouldContinue: false,
       reply: {
-        text: "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+        text: "OpenAI login complete. Available OpenAI models will update automatically. Your default model is unchanged. Use /models to browse.",
       },
     });
     expect(onBlockReply).toHaveBeenCalledWith(
@@ -173,7 +173,7 @@ describe("handleLoginCommand", () => {
     );
 
     expect(result?.reply?.text).toBe(
-      "xAI (Grok) login complete. All xAI (Grok) models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      "xAI (Grok) login complete. Available xAI (Grok) models will update automatically. Your default model is unchanged. Use /models to browse.",
     );
     expect(onBlockReply).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining("XAI-CODE") }),
@@ -258,7 +258,7 @@ describe("handleLoginCommand", () => {
       const result = await handleLoginCommand(params, true);
 
       expect(result?.reply?.text).toBe(
-        "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+        "OpenAI login complete. Available OpenAI models will update automatically. Your default model is unchanged. Use /models to browse.",
       );
       expect(onBlockReply).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -415,7 +415,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(params, true);
 
     expect(result?.reply?.text).toBe(
-      "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      "OpenAI login complete. Available OpenAI models will update automatically. Your default model is unchanged. Use /models to browse.",
     );
     expect(params.sessionEntry?.authProfileOverride).toBe("openai:owner@example.com");
   });
@@ -573,7 +573,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(params, true);
 
     expect(result?.reply?.text).toBe(
-      "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      "OpenAI login complete. Available OpenAI models will update automatically. Your default model is unchanged. Use /models to browse.",
     );
     expect(params.sessionEntry).toBe(switchedEntry);
     expect(params.sessionEntry?.authProfileOverride).toBe("openai:old-owner@example.com");

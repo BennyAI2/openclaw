@@ -412,7 +412,7 @@ function formatProviderLoginComplete(
     return `${login} Your credential is saved, but OpenClaw could not enable its models. Retry ${formatProviderLoginCommand(choice)} after the current config change finishes.`;
   }
   if (modelAccess === "enabled") {
-    return `${login} All ${choice.providerLabel} models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.`;
+    return `${login} Available ${choice.providerLabel} models will update automatically. Your default model is unchanged. Use /models to browse.`;
   }
   return `${login} Try your request again now.`;
 }

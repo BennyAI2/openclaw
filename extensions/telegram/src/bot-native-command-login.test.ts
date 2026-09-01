@@ -227,7 +227,7 @@ describe("registerTelegramNativeCommands /login", () => {
       "URL: https://accounts.x.ai/oauth2/device",
     );
     expect(String(sendMessage.mock.calls[1]?.[1])).toBe(
-      "xAI (Grok) login complete. All xAI (Grok) models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      "xAI (Grok) login complete. Available xAI (Grok) models will update automatically. Your default model is unchanged. Use /models to browse.",
     );
   });
 
