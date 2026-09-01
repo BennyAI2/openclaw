@@ -165,6 +165,7 @@ vi.mock("../process/supervisor/index.js", () => {
           input.onStdout?.(stdout);
         }
         return {
+          activity: { rootExited: true, lastOutputAtMs: Date.now() },
           runId: "mock-approval-run",
           startedAtMs: Date.now(),
           stdin: undefined,
@@ -183,7 +184,6 @@ vi.mock("../process/supervisor/index.js", () => {
       },
       cancel: vi.fn(),
       cancelScope: vi.fn(),
-      getRecord: vi.fn(),
     }),
   };
 });
@@ -1052,6 +1052,7 @@ describe("exec approvals", () => {
         security: "full",
         allowBackground: false,
         approvalRunningNoticeMs: 0,
+        cwd: tempRoot,
       });
 
       const result = await tool.execute(`call-${host}-background-approval`, {
