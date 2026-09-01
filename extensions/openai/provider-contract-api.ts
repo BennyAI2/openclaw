@@ -13,6 +13,11 @@ const OPENAI_ACCOUNT_WIZARD_GROUP = {
   groupLabel: "OpenAI",
   groupHint: "ChatGPT/Codex sign-in or API key",
 } as const;
+const CODEX_OAUTH_IMPORT = {
+  migrationProviderId: "codex",
+  itemId: "auth:openai",
+  credentialKind: "oauth",
+} as const;
 
 export function createOpenAIProvider(): ProviderPlugin {
   return {
@@ -27,6 +32,7 @@ export function createOpenAIProvider(): ProviderPlugin {
         kind: "oauth",
         label: OPENAI_CHATGPT_LOGIN_LABEL,
         hint: OPENAI_CHATGPT_LOGIN_HINT,
+        credentialImport: CODEX_OAUTH_IMPORT,
         run: noopAuth,
         wizard: {
           choiceId: "openai",
@@ -42,6 +48,7 @@ export function createOpenAIProvider(): ProviderPlugin {
         kind: "device_code",
         label: OPENAI_CHATGPT_DEVICE_PAIRING_LABEL,
         hint: OPENAI_CHATGPT_DEVICE_PAIRING_HINT,
+        credentialImport: CODEX_OAUTH_IMPORT,
         run: noopAuth,
         wizard: {
           choiceId: "openai-device-code",

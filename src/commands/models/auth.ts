@@ -61,6 +61,7 @@ import type { WizardPrompter } from "../../wizard/prompts.js";
 import { validateAnthropicSetupToken } from "../auth-token.js";
 import { repairCodexRuntimePluginInstallForModelSelection } from "../codex-runtime-plugin-install.js";
 import { repairCopilotRuntimePluginInstallForModelSelection } from "../copilot-runtime-plugin-install.js";
+import { tryImportProviderCredential } from "./auth-credential-import.js";
 import { refreshRunningGatewayAuthState } from "./auth-refresh.js";
 import { loadValidConfigOrThrow, resolveModelsTargetAgent, updateConfig } from "./shared.js";
 
@@ -945,6 +946,7 @@ type LoginOptions = {
 export type ModelsAuthLoginFlowResult = {
   providerId: string;
   methodId: string;
+  imported?: true;
   defaultModel?: string;
   profiles: Array<{
     profileId: string;
@@ -1098,6 +1100,50 @@ export async function runModelsAuthLoginFlowCore(
     throw new Error(
       `Unknown auth method. Run ${formatCliCommand("openclaw models auth login --provider " + selectedProvider.id)} without --method to choose interactively.`,
     );
+  }
+
+  const importedCredential =
+    !opts.force && !opts.profileId
+      ? await tryImportProviderCredential({
+          method: chosenMethod,
+          config: context.config,
+          agentId: context.agentId,
+          runtime: opts.runtime,
+          ...(opts.credentialOnly !== undefined ? { credentialOnly: opts.credentialOnly } : {}),
+          ...(opts.signal ? { signal: opts.signal } : {}),
+          ...(opts.beforePersistentEffect
+            ? { beforePersistentEffect: opts.beforePersistentEffect }
+            : {}),
+        })
+      : undefined;
+  if (importedCredential) {
+    if (
+      normalizeProviderId(importedCredential.provider) !== normalizeProviderId(selectedProvider.id)
+    ) {
+      throw new Error(
+        `Credential import for provider "${selectedProvider.id}" returned provider "${importedCredential.provider}".`,
+      );
+    }
+    await (opts.refreshAuthState ?? refreshRunningGatewayAuthState)(context.agentId);
+    if (importedCredential.configUpdated) {
+      logConfigUpdated(opts.runtime);
+    }
+    opts.runtime.log(
+      `Auth profile: ${importedCredential.profileId} (${importedCredential.provider}/${importedCredential.mode}, imported)`,
+    );
+    maybeLogOpenAICodexNativeSearchTip(opts.runtime, selectedProvider.id);
+    return {
+      providerId: selectedProvider.id,
+      methodId: chosenMethod.id,
+      imported: true,
+      profiles: [
+        {
+          profileId: importedCredential.profileId,
+          provider: importedCredential.provider,
+          mode: importedCredential.mode,
+        },
+      ],
+    };
   }
 
   if (opts.force) {

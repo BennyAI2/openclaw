@@ -316,6 +316,7 @@ function parseModelsAuthLoginFlowResult(value: unknown): ModelsAuthLoginFlowResu
   return {
     providerId,
     methodId,
+    ...(result.imported === true ? { imported: true } : {}),
     ...(defaultModel ? { defaultModel } : {}),
     profiles,
   };
@@ -394,8 +395,10 @@ function formatProviderLoginCommand(choice: ProviderChannelLoginChoice): string 
   return `/login ${choice.command}`;
 }
 
-function formatProviderLoginComplete(choice: ProviderChannelLoginChoice): string {
-  return `${choice.providerLabel} login complete. Try your request again now.`;
+function formatProviderLoginComplete(choice: ProviderChannelLoginChoice, imported = false): string {
+  return imported
+    ? `${choice.providerLabel} login complete using your existing CLI sign-in. Try your request again now.`
+    : `${choice.providerLabel} login complete. Try your request again now.`;
 }
 
 function formatProviderLoginSessionSwitchFailed(

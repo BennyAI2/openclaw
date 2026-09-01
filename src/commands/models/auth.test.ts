@@ -75,6 +75,11 @@ const mocks = vi.hoisted(() => ({
   })),
   writeSecretStoreEntry: vi.fn(),
   deleteSecretStoreEntry: vi.fn(),
+  tryImportProviderCredential: vi.fn(),
+}));
+
+vi.mock("./auth-credential-import.js", () => ({
+  tryImportProviderCredential: mocks.tryImportProviderCredential,
 }));
 
 vi.mock("../../secrets/store/secret-store.js", () => ({
@@ -386,6 +391,8 @@ describe("modelsAuthLoginCommand", () => {
     mocks.promoteAuthProfileInOrder.mockReset();
     mocks.removeProviderAuthProfilesWithLock.mockReset();
     mocks.removeProviderAuthProfilesWithLock.mockResolvedValue({ version: 1, profiles: {} });
+    mocks.tryImportProviderCredential.mockReset();
+    mocks.tryImportProviderCredential.mockResolvedValue(undefined);
 
     mocks.resolveDefaultAgentId.mockReturnValue("main");
     mocks.resolveAgentDir.mockReturnValue("/tmp/openclaw/agents/main");
@@ -963,6 +970,97 @@ describe("modelsAuthLoginCommand", () => {
       params: { refresh: true, agentId: "coder" },
       timeoutMs: 3000,
     });
+  });
+
+  it("uses an imported CLI credential before starting interactive login", async () => {
+    const runtime = createRuntime();
+    const runInteractiveLogin = vi.fn();
+    const refreshAuthState = vi.fn(async () => undefined);
+    mocks.resolvePluginProvidersCore.mockReturnValue([
+      {
+        id: "openai",
+        label: "OpenAI",
+        auth: [
+          {
+            id: "device-code",
+            label: "Device login",
+            kind: "device_code",
+            credentialImport: {
+              migrationProviderId: "codex",
+              itemId: "auth:openai",
+              credentialKind: "oauth",
+            },
+            run: runInteractiveLogin,
+          },
+        ],
+      },
+    ]);
+    mocks.tryImportProviderCredential.mockResolvedValue({
+      profileId: "openai:account-owner",
+      provider: "openai",
+      mode: "oauth",
+      configUpdated: false,
+    });
+
+    const result = await runModelsAuthLoginFlowCore({
+      provider: "openai",
+      method: "device-code",
+      config: currentConfig,
+      runtime,
+      prompter: mocks.createClackPrompter(),
+      credentialOnly: true,
+      refreshAuthState,
+    });
+
+    expect(runInteractiveLogin).not.toHaveBeenCalled();
+    expect(refreshAuthState).toHaveBeenCalledWith("main");
+    expect(result.profiles).toEqual([
+      { profileId: "openai:account-owner", provider: "openai", mode: "oauth" },
+    ]);
+    expect(result.imported).toBe(true);
+    expect(runtime.log).toHaveBeenCalledWith(
+      "Auth profile: openai:account-owner (openai/oauth, imported)",
+    );
+  });
+
+  it("rejects a CLI credential imported for another provider", async () => {
+    const runInteractiveLogin = vi.fn();
+    mocks.resolvePluginProvidersCore.mockReturnValue([
+      {
+        id: "openai",
+        label: "OpenAI",
+        auth: [
+          {
+            id: "device-code",
+            label: "Device login",
+            kind: "device_code",
+            credentialImport: {
+              migrationProviderId: "codex",
+              itemId: "auth:openai",
+              credentialKind: "oauth",
+            },
+            run: runInteractiveLogin,
+          },
+        ],
+      },
+    ]);
+    mocks.tryImportProviderCredential.mockResolvedValue({
+      profileId: "anthropic:wrong-owner",
+      provider: "anthropic",
+      mode: "oauth",
+      configUpdated: false,
+    });
+
+    await expect(
+      runModelsAuthLoginFlowCore({
+        provider: "openai",
+        method: "device-code",
+        config: currentConfig,
+        runtime: createRuntime(),
+        prompter: mocks.createClackPrompter(),
+      }),
+    ).rejects.toThrow('Credential import for provider "openai" returned provider "anthropic".');
+    expect(runInteractiveLogin).not.toHaveBeenCalled();
   });
 
   it("forwards an app-owned cancellation signal to provider auth", async () => {

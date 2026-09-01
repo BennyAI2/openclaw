@@ -232,6 +232,45 @@ describe("buildCodexMigrationProvider", () => {
     ]);
   });
 
+  it("plans explicit auth pickup without scanning Codex apps or user assets", async () => {
+    const fixture = await createCodexFixture();
+    const accessToken = fakeJwt({
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_auth_only" },
+      "https://api.openai.com/profile": { email: "auth-only@example.test" },
+    });
+    await writeFile(
+      path.join(fixture.codexHome, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: accessToken,
+          refresh_token: "refresh-auth-only",
+          id_token: "id-auth-only",
+          account_id: "acct_auth_only",
+        },
+      }),
+    );
+    await writeFile(path.join(fixture.codexHome, "skills", "ignored", "SKILL.md"), "ignored");
+    const provider = buildCodexMigrationProvider();
+    const ctx = makeContext({
+      source: fixture.codexHome,
+      stateDir: fixture.stateDir,
+      workspaceDir: fixture.workspaceDir,
+      includeSecrets: true,
+      itemKinds: ["auth"],
+    });
+
+    await expect(provider.detect?.(ctx)).resolves.toMatchObject({ found: true });
+    const plan = await provider.plan(ctx);
+
+    expect(plan.items.map((item) => item.id)).toEqual(["auth:openai"]);
+    expectRecordFields(findItem(plan.items, "auth:openai"), {
+      status: "planned",
+      sensitive: true,
+    });
+    expect(sourceAppServerClientScope).not.toHaveBeenCalled();
+  });
+
   it("plans and imports only consolidated Codex memory into the selected agent", async () => {
     const fixture = await createCodexFixture();
     const targetWorkspace = path.join(fixture.root, "workspace-research");
