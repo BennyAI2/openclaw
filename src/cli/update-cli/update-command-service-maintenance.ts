@@ -31,7 +31,13 @@ import { resolveSystemdServiceName } from "../../daemon/systemd-service-files.js
 import { sha256Hex } from "../../infra/crypto-digest.js";
 import { getSelfAndAncestorPidsSync } from "../../infra/restart-stale-pids.js";
 import { parseTcpPortFromArgs } from "../../infra/tcp-port.js";
+import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
+import {
+  readManagedHandoffProcessStartTime,
+  readManagedServiceUpdateHandoffLease,
+} from "../../infra/update-managed-service-handoff-lease.js";
 import { defaultRuntime } from "../../runtime.js";
+import { isPidAlive } from "../../shared/pid-alive.js";
 import {
   registerSignalExitBarrier,
   registerSignalExitGate,
@@ -252,15 +258,35 @@ function parsePositivePid(value: unknown): number | null {
   return /^\d+$/u.test(trimmed) ? (parseStrictPositiveInteger(trimmed) ?? null) : null;
 }
 
-function gatewayAncestryBlockMessage(pid: unknown): string | undefined {
-  const gatewayPid = parsePositivePid(pid);
+function gatewayAncestryBlockMessage(state: GatewayServiceState, root: string): string | undefined {
+  const ancestors = getSelfAndAncestorPidsSync();
+  const lease = readManagedServiceUpdateHandoffLease(resolveUpdateInstallRoot(root));
+  // PartOf makes a primary stop terminal for its separately supervised fixer.
+  // A current lease plus exact live ancestry only refuses self-stop; copied
+  // environment or claims never grant maintenance or cancellation exemptions.
+  if (
+    lease?.action.kind === "triage" &&
+    lease.action.phase === "running" &&
+    lease.action.lifetime.kind === "native" &&
+    lease.action.lifetime.placement.kind === "attached" &&
+    lease.action.lifetime.unit === `${resolveSystemdServiceName(state.env)}.service` &&
+    [lease.executor, lease.helper].every(
+      (owner) =>
+        ancestors.has(owner.pid) &&
+        isPidAlive(owner.pid) &&
+        readManagedHandoffProcessStartTime(owner.pid)?.toString() === owner.startIdentity,
+    )
+  ) {
+    return "This maintenance command cannot stop the Gateway from inside its automatic triage process tree: stopping the service would cancel this repair. Use read-only diagnosis or safe offline artifact repair followed by an atomic `openclaw gateway restart`, or run stop-requiring maintenance from a shell outside automatic triage. Report this blocker if repair cannot proceed safely.";
+  }
+  const gatewayPid = parsePositivePid(state.runtime?.pid);
   if (gatewayPid === null) {
     return undefined;
   }
   const inherited =
     isGatewayServiceEnv(process.env) &&
     parsePositivePid(process.env[GATEWAY_SERVICE_RUNTIME_PID_ENV]) === gatewayPid;
-  if (!inherited && !getSelfAndAncestorPidsSync().has(gatewayPid)) {
+  if (!inherited && !ancestors.has(gatewayPid)) {
     return undefined;
   }
   return `This command is running inside the gateway process tree.
@@ -519,9 +545,9 @@ export async function maybeStopManagedServiceBeforeMutableUpdate(params: {
       ...(windowsTaskAutoStartRecovery ? { windowsTaskAutoStartRecovery } : {}),
     };
   }
-  const blockMessage = gatewayAncestryBlockMessage(serviceState.runtime?.pid);
+  const blockMessage = gatewayAncestryBlockMessage(serviceState, params.root);
   if (blockMessage) {
-    return { ...inspected, running: true, blockMessage };
+    return { ...inspected, blockMessage };
   }
 
   if (!params.jsonMode) {
@@ -549,7 +575,7 @@ export async function maybeStopManagedServiceBeforeMutableUpdate(params: {
             : serviceUpdateVerdict,
       },
     });
-    const currentBlockMessage = gatewayAncestryBlockMessage(currentState.runtime?.pid);
+    const currentBlockMessage = gatewayAncestryBlockMessage(currentState, params.root);
     if (currentBlockMessage) {
       throw new Error(currentBlockMessage);
     }

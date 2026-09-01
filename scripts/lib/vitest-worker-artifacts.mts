@@ -15,6 +15,7 @@ export const vitestWorkerDeclarationEntries = {
   "gateway/session-title-retention.test-support":
     "src/gateway/session-title-retention.test-support.ts",
   "tui/tui-pty-runtime-test-support": "src/tui/tui-pty-runtime-test-support.ts",
+  "infra/triage-runtime.test-support": "src/infra/triage-runtime.test-support.ts",
 };
 
 export type VitestWorkerDescriptor = { directory: string };

@@ -49,15 +49,12 @@ import {
 } from "./update-command-service-recovery.js";
 
 export {
-  createAggregateErrorWithCause,
   maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
   maybeRestartServiceAfterFailedMutableUpdate,
   maybeStopManagedServiceBeforeMutableUpdate,
   revalidateManagedGatewayServiceAfterUpdate,
   resolvePreparedGatewayUpdatePolicy,
   resolveUpdatedGatewayRestartPort,
-  shouldBlockMutableUpdateFromGatewayServiceEnv,
-  UpdateCommandAbort,
   type PreManagedServiceStop,
   type UpdateCommandRecoveryState,
 } from "./update-command-service-maintenance.js";

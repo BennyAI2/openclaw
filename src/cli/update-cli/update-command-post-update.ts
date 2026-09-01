@@ -1,5 +1,7 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { PLUGIN_CAPABILITY_CONSENT_REQUIRED } from "../../../packages/gateway-protocol/src/capability-consent-error-details.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
+import { triageAfterFailure } from "../../commands/triage-failure.js";
 import { readConfigFileSnapshot } from "../../config/config.js";
 import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -72,6 +74,7 @@ const CLI_NAME = resolveCliName();
 
 export async function finishUpdate(params: {
   result: UpdateRunResult;
+  mutationStarted: boolean;
   root: string;
   previousInstallRoot?: string;
   installKindChanged: boolean;
@@ -91,15 +94,67 @@ export async function finishUpdate(params: {
   packageUpdateNodeRunner?: string;
   updateStepTimeoutMs: number;
   invocationCwd?: string;
+  expectedVersion?: string;
 }): Promise<void> {
   // Finalization owns the complete outcome, including recovery, restart, and completion work.
   const completedResult = (result: UpdateRunResult): UpdateRunResult => ({
     ...result,
     durationMs: Math.max(0, Date.now() - params.startedAt),
   });
-  const printFinalResult = (result: UpdateRunResult) =>
+  const printFinalResult = async (result: UpdateRunResult, triageAllowed = true) => {
     printResult(result, { ...params.opts, hideSteps: params.showProgress });
-  const reportResult = async (result: UpdateRunResult, recoverService = false) => {
+    if (
+      result.status !== "error" ||
+      !triageAllowed ||
+      (!params.mutationStarted && result.reason !== "restart-unhealthy") ||
+      result.reason === "service-revalidation-failed" ||
+      (result.recovery?.serviceRestartSafe === false &&
+        result.recovery.reason === "rollback-checkout-dirty") ||
+      result.postUpdate?.plugins?.capabilityConsentRequired ||
+      result.postUpdate?.plugins?.npm.outcomes.some(
+        (outcome) => outcome.code === PLUGIN_CAPABILITY_CONSENT_REQUIRED,
+      ) ||
+      params.preManagedServiceStop?.serviceMutationAllowed === false ||
+      result.steps.some((step) => step.termination === "signal")
+    ) {
+      return;
+    }
+    const failedStep = result.steps.find((step) => step.exitCode !== 0 && !step.advisory);
+    const plugins = result.postUpdate?.plugins;
+    const pluginError =
+      plugins?.npm.outcomes.find((outcome) => outcome.status === "error")?.message ||
+      plugins?.sync.errors[0] ||
+      plugins?.reason;
+    const phase = result.reason ?? "update";
+    const gateway =
+      params.shouldRestart &&
+      result.recovery?.serviceRestartSafe !== false &&
+      (params.preManagedServiceStop?.running ||
+        params.preManagedServiceStop?.stopped ||
+        phase === "restart-unhealthy")
+        ? "verify-running"
+        : "preserve";
+    await withOwnedManagedUpdateEnv(params.ownedManagedUpdateEnv, () =>
+      triageAfterFailure(defaultRuntime, {
+        kind: "update",
+        phase,
+        error: failedStep?.stderrTail || failedStep?.stdoutTail || pluginError || phase,
+        // A Git candidate is not the installed owner until global exposure. The
+        // invocation package path follows that verified link (and any rollback).
+        installationRoot:
+          params.installKindChanged && result.mode === "git"
+            ? params.root
+            : (result.root ?? params.root),
+        expectedVersion: params.expectedVersion ?? result.after?.version ?? undefined,
+        gateway,
+      }),
+    );
+  };
+  const reportResult = async (
+    result: UpdateRunResult,
+    recoverService = false,
+    triageAllowed = true,
+  ) => {
     const finalResult = completedResult(result);
     await writeControlPlaneUpdateRestartSentinelBestEffort({
       meta: params.controlPlaneUpdateSentinelMeta,
@@ -118,7 +173,7 @@ export async function finishUpdate(params: {
       });
     }
     // Only recovery advances the outcome after persistence; ordinary reports share one snapshot.
-    printFinalResult(recoverService ? completedResult(result) : finalResult);
+    await printFinalResult(recoverService ? completedResult(result) : finalResult, triageAllowed);
   };
   const restoreWindowsAutoStart = async (result: UpdateRunResult) => {
     try {
@@ -266,7 +321,11 @@ export async function finishUpdate(params: {
       if (!(await restoreWindowsAutoStart(params.result))) {
         return;
       }
-      await reportResult({ ...params.result, status: "error", reason: "post-core-update-failed" });
+      await reportResult(
+        { ...params.result, status: "error", reason: "post-core-update-failed" },
+        false,
+        freshProcessResult.exitCode !== 130 && freshProcessResult.exitCode !== 143,
+      );
       // A nested process exit is not this updater's verified recovery verdict.
       defaultRuntime.exit(1);
       return;
@@ -541,8 +600,9 @@ export async function finishUpdate(params: {
       reason: "restart-unhealthy",
       jsonMode: Boolean(params.opts.json),
     });
-    printFinalResult(
+    await printFinalResult(
       completedResult({ ...resultWithPostUpdate, status: "error", reason: "restart-unhealthy" }),
+      serviceMutationAllowed,
     );
     defaultRuntime.exit(1);
     return;
@@ -581,7 +641,7 @@ export async function finishUpdate(params: {
         reason: "wrapper-retirement-failed",
         jsonMode: Boolean(params.opts.json),
       });
-      printFinalResult(
+      await printFinalResult(
         completedResult({
           ...resultWithPostUpdate,
           status: "error",
@@ -596,7 +656,7 @@ export async function finishUpdate(params: {
   if (resultWithPostUpdate.status === "error") {
     // The recovering Gateway may have consumed the recorded Doctor failure.
     // Keep that outcome without publishing a second notification after activation.
-    printFinalResult(completedResult(resultWithPostUpdate));
+    await printFinalResult(completedResult(resultWithPostUpdate));
     defaultRuntime.exit(1);
     return;
   }

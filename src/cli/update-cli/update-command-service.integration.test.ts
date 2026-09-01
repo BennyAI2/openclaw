@@ -21,6 +21,7 @@ import { addGatewayServiceCommands } from "../daemon-cli/register-service-comman
 import * as startRepair from "../daemon-cli/start-repair.js";
 import { assertGatewayServiceManagementAllowedForUpdate } from "./update-command-service-plan.js";
 import { registerInstallRootTransitionTests } from "./update-command-service-transition.test-support.js";
+import { registerTriageMaintenancePolicyTests } from "./update-command-service-triage.test-support.js";
 import {
   maybeRestartService,
   maybeRestartServiceAfterFailedMutableUpdate,
@@ -237,6 +238,8 @@ afterEach(async () => {
 });
 
 describe("preserved update activation with real version guards", () => {
+  registerTriageMaintenancePolicyTests(() => ({ root, events: mocks.events }));
+
   it.each([
     ...(
       [

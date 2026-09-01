@@ -3,13 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
-import { GATEWAY_SERVICE_SELECTOR_ENV_KEYS } from "../../daemon/constants.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
-import { captureEnv } from "../../test-utils/env.js";
+import {
+  createManagedServiceIdentityFixture,
+  successfulPluginUpdate,
+  validConfigSnapshot,
+} from "./update-command-post-update.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const mocks = vi.hoisted(() => ({
+  triage: vi.fn(async () => undefined),
   checkCompletionStatus: vi.fn(),
   completePluginUpdate: vi.fn(),
   ensureCompletionCache: vi.fn(),
@@ -36,6 +40,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./progress.js", () => ({ printResult: mocks.printResult }));
+vi.mock("../../commands/triage-failure.js", () => ({ triageAfterFailure: mocks.triage }));
 vi.mock("../../config/config.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../config/config.js")>()),
   readConfigFileSnapshot: mocks.readConfig,
@@ -113,56 +118,13 @@ afterEach(() => {
   }
 });
 
-const validConfigSnapshot = {
-  valid: true,
-  parsed: {},
-  config: {},
-  runtimeConfig: {},
-  sourceConfig: {},
-  warnings: [],
-  issues: [],
-  legacyIssues: [],
-};
-
-const successfulPluginUpdate = {
-  status: "ok",
-  changed: false,
-  sync: {
-    changed: false,
-    switchedToBundled: [],
-    switchedToNpm: [],
-    warnings: [],
-    errors: [],
-  },
-  npm: { changed: false, outcomes: [] },
-  integrityDrifts: [],
-  warnings: [],
-};
-
-function createManagedServiceIdentityFixture() {
-  const home = tempDirs.make("openclaw-post-update-service-home-");
-  const keys = [
-    "HOME",
-    "USERPROFILE",
-    "OPENCLAW_HOME",
-    "OPENCLAW_SUPERVISOR_MODE",
-    ...GATEWAY_SERVICE_SELECTOR_ENV_KEYS,
-  ];
-  const env = captureEnv(keys);
-  // A private HOME does not change the OS account home checked by the real service guard.
-  const userInfo = vi.spyOn(os, "userInfo").mockReturnValue({ ...os.userInfo(), homedir: home });
-  for (const key of keys) {
-    delete process.env[key];
-  }
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  return {
-    home,
-    restore: () => {
-      userInfo.mockRestore();
-      env.restore();
-    },
-  };
+function expectFailureReport(reason: string, json?: boolean): void {
+  expect(mocks.printResult).toHaveBeenCalledOnce();
+  expect(mocks.printResult).toHaveBeenCalledWith(
+    expect.objectContaining({ status: "error", reason }),
+    json === undefined ? expect.any(Object) : expect.objectContaining({ json }),
+  );
+  expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
 }
 
 async function finishSuccessfulPackageSwitch(
@@ -184,6 +146,7 @@ async function finishSuccessfulPackageSwitch(
   },
 ): Promise<void> {
   await finishUpdate({
+    mutationStarted: true,
     result: {
       status: "ok",
       mode: params.updateMode ?? "npm",
@@ -360,15 +323,10 @@ describe("successful update finalization ordering", () => {
 
     await finishSuccessfulPackageSwitch();
 
-    expect(mocks.printResult).toHaveBeenCalledOnce();
-    expect(mocks.printResult).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "error", reason: "restart-unhealthy" }),
-      expect.any(Object),
-    );
+    expectFailureReport("restart-unhealthy");
     expect(mocks.markSentinelFailure).toHaveBeenCalledWith(
       expect.objectContaining({ reason: "restart-unhealthy" }),
     );
-    expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
     expect(mocks.checkCompletionStatus).not.toHaveBeenCalled();
   });
 
@@ -418,12 +376,7 @@ describe("successful update finalization ordering", () => {
 
     expect(restore).toHaveBeenCalledOnce();
     expect(mocks.restartService).not.toHaveBeenCalled();
-    expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
-    expect(mocks.printResult).toHaveBeenCalledOnce();
-    expect(mocks.printResult).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "error", reason: "windows-task-autostart-restore-failed" }),
-      expect.objectContaining({ json: true }),
-    );
+    expectFailureReport("windows-task-autostart-restore-failed", true);
     expect(mocks.writeSentinel.mock.lastCall?.[0].result).toEqual(
       mocks.printResult.mock.lastCall?.[0],
     );
@@ -553,14 +506,10 @@ describe("successful update finalization ordering", () => {
       });
 
       expect(mocks.writeSentinel).toHaveBeenCalledOnce();
-      expect(mocks.printResult).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "error", reason: "wrapper-retirement-failed" }),
-        expect.any(Object),
-      );
+      expectFailureReport("wrapper-retirement-failed");
       expect(mocks.markSentinelFailure).toHaveBeenCalledWith(
         expect.objectContaining({ reason: "wrapper-retirement-failed" }),
       );
-      expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
     } finally {
       unlink.mockRestore();
       process.env.PATH = previousPath;
@@ -569,7 +518,9 @@ describe("successful update finalization ordering", () => {
   });
 
   it("removes operator overrides and process identity from the managed install environment", async () => {
-    const identity = createManagedServiceIdentityFixture();
+    const identity = createManagedServiceIdentityFixture(
+      tempDirs.make("openclaw-post-update-service-home-"),
+    );
     const programArguments = ["/usr/bin/node", "/tmp/openclaw-update/dist/index.js", "gateway"];
     const managedEnvironment = {
       ANTHROPIC_API_KEY: "managed-provider",
@@ -660,7 +611,9 @@ describe("successful update finalization ordering", () => {
   describe("managed service finalization", () => {
     let identity: ReturnType<typeof createManagedServiceIdentityFixture>;
     beforeEach(() => {
-      identity = createManagedServiceIdentityFixture();
+      identity = createManagedServiceIdentityFixture(
+        tempDirs.make("openclaw-post-update-service-home-"),
+      );
     });
     afterEach(() => {
       vi.unstubAllEnvs();
@@ -793,15 +746,10 @@ describe("successful update finalization ordering", () => {
 
         expect(mocks.restartService).not.toHaveBeenCalled();
         expect(mocks.prepareRestartScript).not.toHaveBeenCalled();
-        expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
         expect(defaultRuntime.error).toHaveBeenCalledWith(
           "Stopped gateway service could not be revalidated; inspect it before restarting manually.",
         );
-        expect(mocks.printResult).toHaveBeenCalledOnce();
-        expect(mocks.printResult).toHaveBeenCalledWith(
-          expect.objectContaining({ status: "error", reason: "service-revalidation-failed" }),
-          expect.objectContaining({ json: true }),
-        );
+        expectFailureReport("service-revalidation-failed", true);
         expect(mocks.writeSentinel.mock.lastCall?.[0].result).toEqual(
           mocks.printResult.mock.lastCall?.[0],
         );
@@ -843,6 +791,7 @@ describe("successful update finalization ordering", () => {
       expect(mocks.prepareRestartScript).not.toHaveBeenCalled();
       expect(mocks.restartService).toHaveBeenCalledWith(
         expect.objectContaining({
+          shouldRestart: true,
           refreshServiceEnv: false,
           serviceEnv,
           serviceUpdateVerdict: {
@@ -862,21 +811,26 @@ describe("successful update finalization ordering", () => {
         mocks.restartService.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
       );
       if (activated) {
+        expect(mocks.triage).not.toHaveBeenCalled();
         expect(mocks.writeSentinel).toHaveBeenCalledTimes(2);
         expect(mocks.restartService.mock.invocationCallOrder[0]).toBeLessThan(
           mocks.writeSentinel.mock.invocationCallOrder[1] ?? Number.POSITIVE_INFINITY,
         );
       } else {
         expect(mocks.writeSentinel).toHaveBeenCalledOnce();
-        expect(mocks.printResult).toHaveBeenCalledOnce();
-        expect(mocks.printResult).toHaveBeenCalledWith(
-          expect.objectContaining({ status: "error", reason: "restart-unhealthy" }),
-          expect.any(Object),
-        );
+        expectFailureReport("restart-unhealthy");
         expect(mocks.markSentinelFailure).toHaveBeenCalledWith(
           expect.objectContaining({ reason: "restart-unhealthy" }),
         );
-        expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
+        expect(mocks.triage).toHaveBeenCalledExactlyOnceWith(
+          defaultRuntime,
+          expect.objectContaining({
+            kind: "update",
+            phase: "restart-unhealthy",
+            expectedVersion: "2026.4.24",
+            gateway: "verify-running",
+          }),
+        );
       }
     });
 

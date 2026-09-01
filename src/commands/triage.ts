@@ -1,24 +1,35 @@
-// Collect read-only doctor findings and sanitized diagnostics for an agent handoff.
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+// Collect read-only doctor findings and sanitized diagnostics for an agent handoff.
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { tryResolveAmbientOwnerAgentId } from "../agents/agent-scope-config.js";
 import { resolveAgentEffectiveModelPrimary } from "../agents/agent-scope.js";
+import {
+  recordAgentCleanupFailure,
+  withAgentCleanupOutcome,
+} from "../agents/run-cleanup-timeout.js";
 import { callGatewayFromCliWithTransport } from "../cli/gateway-rpc.js";
 import { resolveSubprocessExitCode } from "../cli/subprocess-exit-code.js";
 import { readConfigFileSnapshot } from "../config/config.js";
 import { scrubDoctorErrorMessage } from "../flows/doctor-error-message.js";
 import type { HealthFindingSeverity } from "../flows/health-checks.js";
+import { createEmbeddedStateSignalBridge } from "../infra/embedded-state-lock.js";
 import { resolveExecutablePath } from "../infra/executable-path.js";
 import {
   installationTargetEnv,
   resolveInstallationTarget,
   withInstallationTarget,
 } from "../infra/installation-target-context.js";
+import { acceptTriageContinuation } from "../infra/triage-continuation.js";
 import { redactSupportString } from "../logging/diagnostic-support-redaction.js";
-import { writeRuntimeJson, type RuntimeEnv } from "../runtime.js";
+import { ExitError, writeRuntimeJson, type RuntimeEnv } from "../runtime.js";
 import { select } from "./configure.shared.js";
-import { renderTriagePrompt, type TriageBundle } from "./triage-prompt.js";
+import {
+  renderTriagePrompt,
+  type TriageBundle,
+  type TriageFailureContext,
+} from "./triage-prompt.js";
 
 type TriageOptions = {
   json?: boolean;
@@ -80,7 +91,37 @@ function quoteShellArgument(value: string): string {
 export async function triageCommand(
   runtime: RuntimeEnv,
   options: TriageOptions = {},
+  automatic?: { failure: TriageFailureContext; signal: AbortSignal } & (
+    | { diagnosticOnly: true }
+    | { diagnosticOnly?: false; assertCurrent: () => void }
+  ),
 ): Promise<void> {
+  if (!automatic && !options.json && !options.run && !options.noExport) {
+    const continuation = await acceptTriageContinuation();
+    if (continuation) {
+      const bridge = createEmbeddedStateSignalBridge();
+      try {
+        const automaticRuntime: RuntimeEnv = {
+          ...runtime,
+          exit: (code) => {
+            throw new ExitError(code);
+          },
+        };
+        return await withAgentCleanupOutcome(
+          () =>
+            triageCommand(automaticRuntime, options, {
+              failure: continuation.failure,
+              signal: AbortSignal.any([continuation.signal, bridge.signal]),
+              assertCurrent: continuation.assertCurrent,
+            }),
+          continuation.finish,
+        );
+      } finally {
+        bridge.dispose();
+      }
+    }
+  }
+  automatic?.signal.throwIfAborted();
   const { collectDoctorFindings } = await import("./doctor-lint.js");
   const findings = await collectDoctorFindings(runtime);
   // Doctor has loaded dotenv; capture selectors before agent exec redirects run state.
@@ -88,7 +129,7 @@ export async function triageCommand(
   const targetEnv = installationTargetEnv(target);
   const redaction = { env: process.env, stateDir: target.stateDir };
   const bundle = await collectTriageBundle(options.noExport === true);
-  const prompt = renderTriagePrompt({ findings, bundle, redaction });
+  const prompt = renderTriagePrompt({ findings, bundle, redaction, failure: automatic?.failure });
   const now = new Date().toISOString().replace(/[:.]/gu, "-");
   const outputDir = path.join(redaction.stateDir, "logs", "support");
   const promptPath = path.join(outputDir, `openclaw-triage-prompt-${now}-${process.pid}.md`);
@@ -111,7 +152,9 @@ export async function triageCommand(
   for (const finding of findings) {
     findingCounts[finding.severity] += 1;
   }
-  let handoff = resolveTriageHandoff(options);
+  let handoff: TriageHandoffMode = automatic
+    ? { kind: automatic.diagnosticOnly ? "print" : "offer" }
+    : resolveTriageHandoff(options);
   const externalAgents =
     options.json === true || handoff.kind === "offer"
       ? (["claude", "codex"] as const).flatMap((agent) => {
@@ -165,10 +208,12 @@ export async function triageCommand(
       });
     }
     choices.push({ value: { kind: "print" }, label: "Just print the commands" });
-    const selected = await select<TriageHandoff>({
-      message: "Choose an agent to investigate this OpenClaw installation",
-      options: choices,
-    });
+    const selected = automatic
+      ? choices[0]!.value
+      : await select<TriageHandoff>({
+          message: "Choose an agent to investigate this OpenClaw installation",
+          options: choices,
+        });
     if (typeof selected === "symbol") {
       runtime.exit(130);
       return;
@@ -176,28 +221,88 @@ export async function triageCommand(
     handoff = selected;
   }
 
+  automatic?.signal.throwIfAborted();
+
   if (handoff.kind === "print" || handoff.kind === "embedded") {
     runtime.log("Ready-to-run agent handoffs:");
     for (const command of suggestedCommands) {
       runtime.log(`  ${command}`);
     }
     if (handoff.kind === "print") {
+      if (automatic && !automatic.diagnosticOnly) {
+        runtime.error(
+          "No configured embedded agent or directly launchable external agent is available. Use a handoff command above.",
+        );
+      }
       return;
     }
   }
   if (handoff.kind === "external") {
     let exitCode: number;
     try {
-      exitCode = await new Promise<number>((resolve, reject) => {
-        const child = spawn(handoff.executablePath, [prompt], {
-          stdio: "inherit",
-          env: { ...process.env, ...targetEnv },
+      if (automatic) {
+        const { runUtf8CommandWithTimeout } = await import("../process/exec.js");
+        runtime.log(
+          `Running ${handoff.agent} triage with its configured permissions and authentication…`,
+        );
+        // Headless Claude skips workspace trust prompts; safe mode keeps project
+        // customizations from running implicitly while preserving auth and permissions.
+        const args =
+          handoff.agent === "claude"
+            ? ["--safe-mode", "-p"]
+            : ["exec", "--skip-git-repo-check", "-"];
+        if (!automatic.diagnosticOnly) {
+          automatic.assertCurrent();
+        }
+        const result = await runUtf8CommandWithTimeout([handoff.executablePath, ...args], {
+          input: prompt,
+          env: { ...targetEnv, OPENCLAW_SHELL: "exec" },
+          signal: automatic.signal,
+          timeoutMs: 600_000,
+          killProcessTree: true,
+          killSignal: "SIGINT",
+          outputCapture: "tail",
+          maxOutputBytes: 32 * 1024,
         });
-        child.once("error", reject);
-        child.once("exit", (code, signal) => resolve(resolveSubprocessExitCode(code, signal)));
-      });
+        if (result.cleanup === "uncertain" || result.cleanup === "forced") {
+          recordAgentCleanupFailure();
+        }
+        // Native auth/permission failures can be printed on either stream.
+        for (const output of [result.stdout, result.stderr]) {
+          if (output.trim()) {
+            runtime.log(redactSupportString(output, redaction, { maxLength: 32 * 1024 }));
+          }
+        }
+        exitCode = result.termination === "exit" ? (result.code ?? 1) : 1;
+        if (exitCode !== 0) {
+          runtime.error(
+            `${handoff.agent} triage failed (${result.termination}, exit ${result.code ?? "unknown"}).`,
+          );
+          runtime.log(`Run manually: ${suggestedCommands[handoff.agent === "claude" ? 0 : 1]}`);
+        }
+      } else {
+        exitCode = await new Promise<number>((resolve, reject) => {
+          const child = spawn(handoff.executablePath, [prompt], {
+            stdio: "inherit",
+            env: { ...process.env, ...targetEnv },
+          });
+          child.once("error", reject);
+          child.once("exit", (code, signal) => resolve(resolveSubprocessExitCode(code, signal)));
+        });
+      }
     } catch (error) {
-      runtime.error(`Failed to launch ${handoff.agent}: ${scrubDoctorErrorMessage(error)}`);
+      if (
+        automatic &&
+        isRecord(error) &&
+        (error.cleanup === "uncertain" || error.cleanup === "forced")
+      ) {
+        recordAgentCleanupFailure();
+      }
+      const reason = redactSupportString(
+        error instanceof Error ? error.message : String(error),
+        redaction,
+      );
+      runtime.error(`Failed to launch ${handoff.agent}: ${scrubDoctorErrorMessage(reason)}`);
       runtime.log(`Run manually: ${suggestedCommands[handoff.agent === "claude" ? 0 : 1]}`);
       runtime.exit(1);
       return;
@@ -207,23 +312,35 @@ export async function triageCommand(
     }
     return;
   }
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!automatic && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     throw new Error(
       "Embedded triage requires an interactive terminal; use a suggested handoff command.",
     );
   }
 
   const { verifySetupInference } = await import("../system-agent/setup-inference.js");
+  if (automatic && !automatic.diagnosticOnly) {
+    automatic.assertCurrent();
+  }
   const inference = await verifySetupInference({ runtime, timeoutMs: 15_000 });
   if (!inference.ok) {
-    const reason = redactSupportString(scrubDoctorErrorMessage(inference.error), redaction);
+    const reason = scrubDoctorErrorMessage(redactSupportString(inference.error, redaction));
     throw new Error(
       `Embedded agent unavailable: ${reason}. Run \`openclaw onboard\` or use a suggested handoff command.`,
     );
   }
+  automatic?.signal.throwIfAborted();
   const { agentExecCommand } = await import("./agent-exec.js");
+  if (automatic && !automatic.diagnosticOnly) {
+    automatic.assertCurrent();
+  }
   const result = await withInstallationTarget(target, () =>
-    agentExecCommand(undefined, { messageFile: promptPath }, runtime),
+    agentExecCommand(
+      undefined,
+      { messageFile: promptPath },
+      runtime,
+      automatic ? { abortSignal: automatic.signal } : {},
+    ),
   );
   if (result.exitCode !== 0) {
     runtime.exit(result.exitCode);

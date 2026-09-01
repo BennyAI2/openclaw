@@ -614,6 +614,7 @@ async function updateCommandInternal(
   const preUpdatePluginInstallRecords = await loadInstalledPluginIndexInstallRecords();
 
   const execution = await executeMutableUpdate({
+    expectedVersion: targetVersion ?? undefined,
     root,
     installKind,
     updateInstallKind,
@@ -647,6 +648,8 @@ async function updateCommandInternal(
     ownedManagedUpdateContext?.pluginInstallRecords ?? preUpdatePluginInstallRecords;
   stop();
   await finishUpdate({
+    mutationStarted: execution.mutationStarted,
+    expectedVersion: targetVersion ?? undefined,
     result,
     root,
     previousInstallRoot: discoveredRoot,

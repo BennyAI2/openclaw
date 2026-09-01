@@ -40,9 +40,35 @@ env OPENCLAW_STATE_DIR='<state-dir>' OPENCLAW_CONFIG_PATH='<config-path>' OPENCL
 env OPENCLAW_STATE_DIR='<state-dir>' OPENCLAW_CONFIG_PATH='<config-path>' OPENCLAW_WORKSPACE_DIR='<default-workspace-dir>' openclaw triage --run
 ```
 
-JSON output also includes `detectedAgents`, listing the external agents found on `PATH`. JSON output and non-interactive sessions never start an agent.
+JSON output also includes `detectedAgents`, listing the external agents found on `PATH`. Running `openclaw triage --json` or plain `openclaw triage` non-interactively never starts an agent.
 
 The Codex command works outside a Git checkout; it does not change Codex sandbox or approval settings.
+
+## Automatic failure handoff
+
+Failed updates that reached installation changes, unhealthy update restarts, and recorded Gateway server startup failures can invoke the same triage flow automatically. Existing update settlement runs first; restoration requires the update owner to verify that restarting is safe. After package replacement, the installed CLI owns triage; unavailable or incompatible CLI files leave saved failure diagnostics and manual guidance. A supervised Gateway attempts triage only when its existing crash-loop breaker first trips. Later failures in the same Gateway process do not launch another agent.
+
+The automatic handoff selects the configured embedded agent first, otherwise a directly launchable Claude Code or Codex CLI, in that order. External agents run non-interactively with their existing authentication and permissions. Claude Code uses `--safe-mode` to disable custom hooks, plugins, and project instructions while retaining authentication and built-in tools. Finding an executable does not establish authentication. A failed selected route, including a Claude version that does not support safe mode, is reported without trying another agent; the private prompt and manual handoff commands remain available.
+
+The fixing agent receives the original failure and a verification goal: check the intended installation with `openclaw health --json` and `openclaw status --all` or `openclaw gateway status --deep`, confirm the expected running version after an update when known, and verify the original symptom. A PID, valid config, or successful repair command alone does not prove recovery. The report must include changes, verification evidence, and any remaining blocker.
+
+Skipped or blocked updates, capability approval refusals, ownership and schema refusals, existing-Gateway lock conflicts, external supervisors, and commands already running inside a fixing agent do not trigger another automatic agent. Automatic triage honors `--no-restart` and leaves intentionally stopped services stopped. Termination signals cancel foreground triage. Diagnostics and agent output go to stderr; the original failure result and exit status remain unchanged even if the agent reports success.
+
+Automatic fixing is single-flight per canonical installation, including foreground updates and unsupervised Gateway startup. A competing failure reports that triage is already owned, preserves its original output and exit status, and leaves the running attempt alone. After normal cleanup, a later independent failure can start a fresh attempt.
+
+Foreground triage stays attached to its caller. Cancellation or loss of that connection stops new work and gives registered OpenClaw resources their existing cleanup deadlines. The CLI gets the existing 30-second handoff grace to exit after cancellation or terminal disconnect; a stuck CLI is then terminated and its generation remains fenced. A normally exiting external CLI completes that invocation; OpenClaw cannot certify that arbitrary processes detached by that CLI have exited. A failed agent can still finish cleanup normally.
+
+If the fixing process disappears abruptly, forced termination is needed, or teardown fails, automatic admission remains blocked for that OS boot. Cooperative cancellation that drains normally confirms closure and allows another attempt; a forced or uncertain terminal outcome cannot certify that closure. Inspect the saved diagnostics and use `openclaw triage` manually. Do not delete the claim while prior work may still be running. A verified different OS boot allows a fresh attempt; triage never initiates a reboot. Unavailable boot identity or incompatible private handoff data leaves diagnostics and manual guidance.
+
+For a Linux user-systemd Gateway, automatic managed recovery reuses the existing update handoff in a native scope attached to the Gateway service. **Cancellation begins when that native scope attachment is verified**, before readiness is announced or a fixing agent starts. Earlier update parking, restoration, and preparation keep their existing update behavior; a stop completed before attachment is not treated as cancellation of a future recovery. Failed update restoration may leave the installed service inactive, and triage can still be admitted. An unsafe installation or preserve-activation request permits offline diagnosis and repair while leaving the primary stopped; running health verification is deferred.
+
+When managed triage needs a restart, use the atomic `openclaw gateway restart` command. An explicit stop cancels recovery and its descendants, including `systemctl --user stop <gateway-unit>` when the primary is already inactive or a restart is pending. Do not use stop-then-start during recovery. Losing the helper, fixing child, or current handoff claim also closes recovery; the updater cannot restore the Gateway afterward. Cancellation or infeasibility must be reported, and an agent exit code or prose alone is not proof of health.
+
+Repair commands such as `openclaw doctor --fix` remain available when the target is offline and ownership, schema, and maintenance locks permit repair. If maintenance needs to stop the managed Gateway, it refuses from inside that Gateway's automatic fixing subtree before issuing the stop. Continue with read-only diagnosis or safe offline artifact repair followed by an atomic restart, or report the blocker so an independent operator can run maintenance from a shell outside triage.
+
+Automatic managed execution is limited to verified Linux user-systemd ownership. Launchd, Windows, system-scope systemd, and unverifiable managed ownership retain diagnostics/manual guidance. Foreground recovery remains available. No broader native cancellation support is implied.
+
+This connection requires a working CLI. Missing Node or CLI files, failures before Gateway server startup or while recording its boot, and invalid-config paths that retain the existing Doctor recovery flow may still require `openclaw triage` manually. It does not install a separate recovery service.
 
 ## Output and exit codes
 
