@@ -1,5 +1,6 @@
 // Opencode Go plugin module implements stream behavior.
 import type { ProviderWrapStreamFnContext } from "openclaw/plugin-sdk/plugin-entry";
+import { resolveProviderRequestHeaders } from "openclaw/plugin-sdk/provider-http";
 import {
   composeProviderStreamWrappers,
   createDeepSeekV4OpenAICompatibleThinkingWrapper,
@@ -14,6 +15,33 @@ import {
   OPENCODE_GO_STREAM_FIRST_EVENT_TIMEOUT_MS_DEFAULT,
   OPENCODE_GO_STREAM_IDLE_TIMEOUT_MS_DEFAULT,
 } from "./stream-termination.js";
+
+export function createOpencodeGoAttributionWrapper(
+  baseStreamFn: ProviderWrapStreamFnContext["streamFn"],
+): ProviderWrapStreamFnContext["streamFn"] {
+  if (!baseStreamFn) {
+    return undefined;
+  }
+  return (model, context, options) => {
+    // OpenAI transports already consume the central policy; Anthropic does not.
+    // Keep this narrow so each request resolves attribution exactly once.
+    if (model.provider !== "opencode-go" || model.api !== "anthropic-messages") {
+      return baseStreamFn(model, context, options);
+    }
+    return baseStreamFn(model, context, {
+      ...options,
+      headers: resolveProviderRequestHeaders({
+        provider: model.provider,
+        api: model.api,
+        baseUrl: model.baseUrl,
+        capability: "llm",
+        transport: "stream",
+        callerHeaders: options?.headers,
+        precedence: "defaults-win",
+      }),
+    });
+  };
+}
 
 export function createOpencodeGoWrapper(
   baseStreamFn: ProviderWrapStreamFnContext["streamFn"],
@@ -80,6 +108,7 @@ export function createOpencodeGoWrapper(
           shouldPatchModel: (model) =>
             model.provider === "opencode-go" && model.id === "deepseek-v4-pro",
         }) ?? streamFn,
+      createOpencodeGoAttributionWrapper,
     ) ?? baseStreamFn;
   // Outermost layer: provider-owned stalled SSE termination so the underlying
   // OpenAI SDK request is aborted at the raw opencode-go boundary instead of

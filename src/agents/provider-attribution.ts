@@ -400,6 +400,23 @@ function buildOpenAIAttributionPolicy(
   };
 }
 
+function buildOpenCodeGoAttributionPolicy(env: RuntimeVersionEnv): ProviderAttributionPolicy {
+  const identity = resolveProviderAttributionIdentity(env);
+  return {
+    provider: "opencode-go",
+    enabledByDefault: true,
+    verification: "vendor-documented",
+    hook: "request-headers",
+    docsUrl: "https://opencode.ai/docs/go/",
+    reviewNote:
+      "OpenCode Go requires coding agents to identify themselves with a specific User-Agent.",
+    ...identity,
+    headers: {
+      "User-Agent": formatOpenClawUserAgent(identity.version),
+    },
+  };
+}
+
 function buildXaiAttributionPolicy(
   env: RuntimeVersionEnv = process.env as RuntimeVersionEnv,
 ): ProviderAttributionPolicy {
@@ -444,6 +461,7 @@ function listProviderAttributionPolicies(
     buildNvidiaAttributionPolicy(env),
     buildGoogleAttributionPolicy(env),
     buildOpenAIAttributionPolicy(env),
+    buildOpenCodeGoAttributionPolicy(env),
     buildXaiAttributionPolicy(env),
     buildSdkHookOnlyPolicy(
       "anthropic",
@@ -515,6 +533,14 @@ export function resolveProviderRequestPolicy(
     if (usesXaiNativeAttributionHost || endpointClass === "default") {
       attributionProvider = "xai";
     }
+  } else if (
+    provider === "opencode-go" &&
+    policy?.enabledByDefault &&
+    endpointClass === "opencode-native"
+  ) {
+    // The documented identification contract belongs to Go's native endpoint.
+    // A custom baseUrl is a proxy and must not inherit OpenClaw attribution.
+    attributionProvider = "opencode-go";
   }
   if (!attributionProvider && endpointClass === "nvidia-native") {
     attributionProvider = "nvidia";
