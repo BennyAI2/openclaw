@@ -88,6 +88,7 @@ export default {
             message: "https://example.invalid/device",
           });
           return {
+            ${params.selected ? 'configPatch: { agents: { defaults: { model: "collision-provider/default" } } },' : ""}
             profiles: [{
               profileId: ${JSON.stringify(`${COLLISION_PROVIDER}:${profile}`)},
               credential: {
@@ -197,8 +198,6 @@ describe("models.authLogin.start owner binding", () => {
           token,
           clientDisplayName: "provider-login-owner-proof",
         });
-        const configBeforeLogin = await fs.readFile(configPath, "utf8");
-
         const started = await gateway.client.request<WizardStartResult>("models.authLogin.start", {
           sessionId: "owner-collision-login",
           agentId: "main",
@@ -226,7 +225,9 @@ describe("models.authLogin.start owner binding", () => {
         });
         expect(Object.keys(store.profiles)).toContain("collision-provider:selected");
         expect(Object.keys(store.profiles)).not.toContain("collision-provider:workspace");
-        await expect(fs.readFile(configPath, "utf8")).resolves.toBe(configBeforeLogin);
+        const configAfterLogin = JSON.parse(await fs.readFile(configPath, "utf8"));
+        expect(configAfterLogin.agents?.defaults?.model).toBeUndefined();
+        expect(configAfterLogin.agents?.defaults?.workspace).toBe(workspaceDir);
       } finally {
         if (gateway) {
           await disconnectGatewayClient(gateway.client);

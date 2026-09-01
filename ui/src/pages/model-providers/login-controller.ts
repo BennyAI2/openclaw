@@ -71,7 +71,7 @@ export class ModelProviderLoginController implements ReactiveController {
       return;
     }
     this.cancellationPending = true;
-    void this.runner.cancel().finally(() => {
+    void this.runner.cancel({ waitForRelease: true }).finally(() => {
       this.cancellationPending = false;
       this.host.requestUpdate();
     });
