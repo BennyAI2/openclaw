@@ -16,6 +16,7 @@ import { runCommandWithRuntime } from "../cli-utils.js";
 import { inheritOptionFromParent } from "../command-options.js";
 import { parseCliEnumFilter } from "../enum-filter.js";
 import { ExpectedCliError } from "../failure-output.js";
+import { createCliModuleLoader as createModuleLoader } from "../module-loader.js";
 
 type TasksParentOption = "json" | "runtime" | "status";
 const TASKS_PARENT_OPTIONS = ["json", "runtime", "status"] as const;
@@ -33,11 +34,6 @@ const TASKS_LEAF_OPTION_SUPPORT = {
   "flow cancel": [],
 } satisfies Record<string, readonly TasksParentOption[]>;
 type TasksLeaf = keyof typeof TASKS_LEAF_OPTION_SUPPORT;
-
-function createModuleLoader<T>(load: () => Promise<T>): () => Promise<T> {
-  let promise: Promise<T> | undefined;
-  return () => (promise ??= load());
-}
 
 const loadTasksCommands = createModuleLoader(() => import("../../commands/tasks.js"));
 const loadFlowsCommands = createModuleLoader(() => import("../../commands/flows.js"));

@@ -22,6 +22,7 @@ import { defaultRuntime } from "../runtime.js";
 import { shortenHomeInString } from "../utils.js";
 import { formatMissingPluginMessage } from "./error-format.js";
 import { ExpectedCliError, formatCliJsonFailure } from "./failure-output.js";
+import { createCliModuleLoader as createModuleLoader } from "./module-loader.js";
 import { exitCliAfterOutput } from "./one-shot-exit.js";
 import { resolvePluginCapabilityConsentCliOptions } from "./plugin-capability-consent.js";
 import type {
@@ -40,11 +41,6 @@ type PluginInstallActionOptions = {
   pin?: boolean;
   marketplace?: string;
 };
-
-function createModuleLoader<T>(load: () => Promise<T>): () => Promise<T> {
-  let promise: Promise<T> | undefined;
-  return () => (promise ??= load());
-}
 
 const loadPluginsConfigState = createModuleLoader(() => import("../plugins/config-state.js"));
 const loadPluginsStatus = createModuleLoader(() => import("../plugins/status.js"));
