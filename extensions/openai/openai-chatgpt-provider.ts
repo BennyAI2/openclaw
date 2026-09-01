@@ -644,7 +644,6 @@ export function buildOpenAICodexProviderHooks(): Pick<
       return OPENAI_CHATGPT_MODERN_MODEL_IDS.some((modelId) => modelId === id);
     },
     ...buildOpenAIResponsesProviderHooks(),
-    resolveReasoningOutputMode: () => "native",
     normalizeResolvedModel: (ctx) => {
       if (!isOpenAIOrLegacyCodexProvider(ctx.provider)) {
         return undefined;

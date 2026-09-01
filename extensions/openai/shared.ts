@@ -69,7 +69,11 @@ function defaultOpenAIResponsesExtraParams(
 
 type OpenAIResponsesProviderHooks = Pick<
   ProviderPlugin,
-  "buildReplayPolicy" | "prepareExtraParams" | "wrapStreamFn" | "resolveTransportTurnState"
+  | "buildReplayPolicy"
+  | "prepareExtraParams"
+  | "resolveReasoningOutputMode"
+  | "wrapStreamFn"
+  | "resolveTransportTurnState"
 >;
 
 const resolveOpenAIResponsesTransportTurnState: NonNullable<
@@ -94,6 +98,7 @@ export function buildOpenAIResponsesProviderHooks(options?: {
   return {
     buildReplayPolicy: buildOpenAIReplayPolicy,
     prepareExtraParams: (ctx) => defaultOpenAIResponsesExtraParams(ctx.extraParams, options),
+    resolveReasoningOutputMode: () => "native",
     wrapStreamFn: wrapOpenAIResponsesProviderStreamFn,
     resolveTransportTurnState: resolveOpenAIResponsesTransportTurnState,
   };
