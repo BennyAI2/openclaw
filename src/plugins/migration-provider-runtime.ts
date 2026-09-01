@@ -209,18 +209,14 @@ export function resolvePluginMigrationProviders(
     cfg?: OpenClawConfig;
   } = {},
 ): MigrationProviderPlugin[] {
+  // Plural listing is registry-admission-scoped. Cold pickers read manifest contracts,
+  // while admission-independent public artifacts belong only to explicit provider lookup.
   const activeRegistry = getLoadedRuntimePluginRegistry();
   const activeProviders = activeRegistry?.migrationProviders ?? [];
   const resolution = resolveMigrationProviderPluginResolution({ cfg: params.cfg });
-  const publicProviders = resolveBundledMigrationProviderPublicArtifacts({
-    plugins: resolution.bundledPlugins,
-  }).map(({ provider }) => provider);
   const pluginIds = resolution.pluginIds;
   if (pluginIds.length === 0) {
-    return mergeMigrationProviders(
-      activeProviders.map(({ provider }) => provider),
-      publicProviders,
-    );
+    return mergeMigrationProviders(activeProviders.map(({ provider }) => provider));
   }
   const registry = resolveMigrationProviderRegistry({
     cfg: params.cfg,
@@ -233,7 +229,6 @@ export function resolvePluginMigrationProviders(
     : [];
   return mergeMigrationProviders(
     activeProviders.map(({ provider }) => provider),
-    publicProviders,
     scopedProviders,
   );
 }

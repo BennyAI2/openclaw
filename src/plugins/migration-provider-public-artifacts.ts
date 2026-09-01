@@ -17,7 +17,7 @@ export type MigrationProviderArtifactPlugin = Pick<
 
 export function resolveBundledMigrationProviderPublicArtifacts(params: {
   plugins: readonly MigrationProviderArtifactPlugin[];
-  providerId?: string;
+  providerId: string;
 }): Array<{ pluginId: string; provider: MigrationProviderPlugin }> {
   const providers: Array<{ pluginId: string; provider: MigrationProviderPlugin }> = [];
   for (const plugin of params.plugins) {
@@ -25,7 +25,7 @@ export function resolveBundledMigrationProviderPublicArtifacts(params: {
     if (
       plugin.origin !== "bundled" ||
       declared.length === 0 ||
-      (params.providerId && !declared.includes(params.providerId))
+      !declared.includes(params.providerId)
     ) {
       continue;
     }
@@ -49,8 +49,7 @@ export function resolveBundledMigrationProviderPublicArtifacts(params: {
     }
     const provider = artifact.buildMigrationProvider();
     if (
-      !declared.includes(provider.id) ||
-      (params.providerId !== undefined && provider.id !== params.providerId) ||
+      provider.id !== params.providerId ||
       typeof provider.plan !== "function" ||
       typeof provider.apply !== "function"
     ) {
