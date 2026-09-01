@@ -2,10 +2,6 @@
 import { listTrackedTestFiles } from "./list-test-files.mts";
 import { assignWeightedTestFiles } from "./weighted-test-shards.mts";
 
-function listContractTestFiles(rootDir = "src/plugins/contracts") {
-  return listTrackedTestFiles(rootDir);
-}
-
 const CONTRACT_FILE_WEIGHTS = new Map([
   ["plugin-sdk-subpaths.test.ts", 80],
   ["tts.contract.test.ts", 70],
@@ -33,6 +29,7 @@ function resolveContractFileWeight(file: string) {
 
 /** Create balanced plugin contract test shards for CI check planning. */
 export function createPluginContractTestShards() {
+  const rootDir = "src/plugins/contracts";
   const suffixes = ["a", "b"];
   const groups = suffixes.map((suffix) => ({
     checkName: `checks-fast-contracts-plugins-${suffix}`,
@@ -40,7 +37,7 @@ export function createPluginContractTestShards() {
     weight: 0,
   }));
 
-  assignWeightedTestFiles(groups, listContractTestFiles(), resolveContractFileWeight);
+  assignWeightedTestFiles(groups, listTrackedTestFiles(rootDir), resolveContractFileWeight);
 
   return groups
     .map(({ checkName, includePatterns }) => ({
