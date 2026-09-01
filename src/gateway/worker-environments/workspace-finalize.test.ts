@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { WorkerWorkspaceQuiescence } from "./tunnel-contract.js";
+import type { WorkerWorkspaceReconcileResult } from "./tunnel-contract.js";
 import {
   runInstrumentedWorkspaceReconcile,
   verifyReconciledWorkspaceFinal,
@@ -20,20 +20,15 @@ vi.mock("../../logging/subsystem.js", async (importOriginal) => {
 });
 
 function remoteVerifier(capture: () => Promise<void>) {
-  return vi.fn(
-    async (renewal?: {
-      quiescence: WorkerWorkspaceQuiescence;
-      capture: "before-and-after" | "after";
-    }) => {
-      if (!renewal || renewal.capture === "before-and-after") {
-        await capture();
-      }
-      if (renewal) {
-        await renewal.quiescence.assertActive();
-        await capture();
-      }
-    },
-  );
+  return vi.fn<WorkerWorkspaceReconcileResult["verifyStable"]>(async (renewal) => {
+    if (!renewal || renewal.capture === "before-and-after") {
+      await capture();
+    }
+    if (renewal) {
+      await renewal.quiescence.assertActive();
+      await capture();
+    }
+  });
 }
 
 describe("final worker workspace fences", () => {

@@ -696,9 +696,6 @@ describe("anthropic provider replay hooks", () => {
       restoresMissingCost,
       checksCliPolicy,
     }) => {
-      // This table describes the promotional contract before the September pricing cutover.
-      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 7, 31));
-      onTestFinished(() => clock.mockRestore());
       const provider = await registerSingleProviderPlugin(anthropicPlugin);
       const resolved = provider.resolveDynamicModel?.({
         provider: "anthropic",

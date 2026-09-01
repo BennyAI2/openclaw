@@ -727,9 +727,6 @@ describe("bedrock mantle discovery", () => {
   // ---------------------------------------------------------------------------
 
   it("resolves implicit provider when bearer token is set", async () => {
-    // This catalog includes the promotional contract before the September pricing cutover.
-    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 7, 31));
-    onTestFinished(() => clock.mockRestore());
     const mockFetch = vi.fn().mockResolvedValue(
       modelDiscoveryResponse({
         data: [{ id: "anthropic.claude-sonnet-4-6", object: "model" }],
