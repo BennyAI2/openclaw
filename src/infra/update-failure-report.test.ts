@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import { readUpdateFailureReportReceiptRowSync } from "./restart-sentinel-store.js";
 import { prepareUpdateFailureReport, submitUpdateFailureReport } from "./update-failure-report.js";
 import type { UpdateRunResult } from "./update-runner.js";
 
@@ -95,6 +97,46 @@ describe("update failure report", () => {
 
     expect(createIssue).toHaveBeenCalledOnce();
     expect([first.status, second.status].toSorted()).toEqual(["created", "duplicate"]);
+    const state = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: stateDir } });
+    expect(readUpdateFailureReportReceiptRowSync(state.db, "attempt-once")).toMatchObject({
+      status: "created",
+      url: "https://github.com/openclaw/openclaw/issues/123",
+    });
+    expect((await fs.readdir(path.dirname(prepared.savedReportPath))).toSorted()).toEqual([
+      path.basename(prepared.savedReportPath),
+    ]);
+  });
+
+  it("keeps the event loop responsive while issue creation is pending", async () => {
+    const stateDir = tempDirs.make("openclaw-update-report-");
+    const prepared = await prepareUpdateFailureReport(
+      { attemptId: "attempt-responsive", result: failedUpdate() },
+      { stateDir },
+    );
+    let resolveIssue!: (result: { ok: true; url: string }) => void;
+    const createIssue = vi.fn(
+      () =>
+        new Promise<{ ok: true; url: string }>((resolve) => {
+          resolveIssue = resolve;
+        }),
+    );
+
+    const submission = submitUpdateFailureReport(prepared, prepared.previewDigest, {
+      createIssue,
+      stateDir,
+    });
+    await vi.waitFor(() => expect(createIssue).toHaveBeenCalledOnce());
+    let timerRan = false;
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        timerRan = true;
+        resolve();
+      }, 0);
+    });
+    expect(timerRan).toBe(true);
+
+    resolveIssue({ ok: true, url: "https://github.com/openclaw/openclaw/issues/123" });
+    await expect(submission).resolves.toMatchObject({ status: "created" });
   });
 
   it("consumes timeout ambiguity and returns the prefilled and saved fallbacks", async () => {

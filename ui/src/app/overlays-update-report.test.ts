@@ -58,7 +58,6 @@ describe("update failure report continuity", () => {
     const harness = harnessFor(request);
     const pending = deferred<{
       status: "created";
-      savedReportPath: string;
       url: string;
     }>();
     reportUpdateFailure.mockReturnValue(pending.promise);
@@ -74,7 +73,6 @@ describe("update failure report continuity", () => {
       await vi.waitFor(() => expect(reportUpdateFailure).toHaveBeenCalledOnce());
       pending.resolve({
         status: "created",
-        savedReportPath: "/tmp/report.md",
         url: "https://github.com/openclaw/openclaw/issues/123",
       });
       await Promise.all([first, duplicate]);
@@ -118,6 +116,26 @@ describe("update failure report continuity", () => {
       expect(overlays.snapshot.reportableUpdateFailureId).toBe("handoff-failed");
       await overlays.reportUpdateFailure("handoff-failed");
       expect(reportUpdateFailure).toHaveBeenCalledTimes(2);
+    } finally {
+      overlays.dispose();
+    }
+  });
+
+  it("shows an older Gateway's missing-method error instead of hiding the action", async () => {
+    const request = vi.fn<RequestFn>(async (method) =>
+      method === "update.status" ? { sentinel: FAILURE } : {},
+    );
+    const harness = harnessFor(request);
+    reportUpdateFailure.mockRejectedValue(new Error("unknown method: update.report"));
+    const overlays = createApplicationOverlays(harness.gateway);
+    try {
+      await flushMicrotasks();
+      await overlays.reportUpdateFailure("handoff-failed");
+
+      expect(overlays.snapshot.updateFailureReportNotice).toMatchObject({
+        attemptId: "handoff-failed",
+        result: { status: "error", message: expect.stringContaining("unknown method") },
+      });
     } finally {
       overlays.dispose();
     }

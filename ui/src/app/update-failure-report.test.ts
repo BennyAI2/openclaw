@@ -12,7 +12,6 @@ const ready = {
   attemptId: "handoff-failed",
   body: "sanitized preview",
   previewDigest: "a".repeat(64),
-  savedReportPath: "/tmp/report.md",
   title: "Update failure",
 };
 
@@ -44,7 +43,6 @@ describe("Control UI update failure report consent", () => {
   it("submits the reviewed digest after explicit confirmation", async () => {
     const created = {
       status: "created" as const,
-      savedReportPath: "/tmp/report.md",
       url: "https://github.com/openclaw/openclaw/issues/123",
     };
     const request = vi.fn(async (_method: string, params: { action: string }) =>

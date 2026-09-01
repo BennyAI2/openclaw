@@ -1107,7 +1107,9 @@ export class ConfigPage extends OpenClawLightDomElement {
         canUpdate: canCallGatewayMethod(gatewaySnapshot, "update.run", "operator.admin"),
         canCheckStatus: canCallGatewayMethod(gatewaySnapshot, "update.status", "operator.admin"),
         canHoldUpdate: canCallGatewayMethod(gatewaySnapshot, "update.hold", "operator.admin"),
-        canReport: canCallGatewayMethod(gatewaySnapshot, "update.report", "operator.admin"),
+        canReport: canCallGatewayMethod(gatewaySnapshot, "update.report", "operator.admin", {
+          requireAdvertisement: false,
+        }),
         updateBusy: this.isUpdateBusy(),
         onChannelChange: (channel) => runtimeConfig.patchForm(["update", "channel"], channel),
         onUpdateChecksChange: (enabled) =>

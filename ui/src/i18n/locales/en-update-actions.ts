@@ -32,7 +32,7 @@ const enUpdateActions = {
     report: {
       title: "Report update failure",
       message:
-        "Review the sanitized report below. Confirming will submit it with the authenticated GitHub CLI when available; otherwise OpenClaw will keep a saved report and provide a prefilled issue link.",
+        "Review the sanitized report below. Confirming will submit it with the authenticated GitHub CLI when available; otherwise OpenClaw will provide a prefilled issue link.",
       submit: "Submit report",
       cancel: "Cancel",
     },

@@ -1,5 +1,5 @@
 /** Creates sanitized OpenClaw GitHub issues through the installed GitHub CLI. */
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
 
 export type SanitizedGithubIssue = {
@@ -16,6 +16,9 @@ type SpawnGh = (
   args: readonly string[],
   options: { input: string },
 ) => Pick<SpawnSyncReturns<Buffer>, "error" | "status" | "stderr" | "stdout">;
+
+type GithubCliResult = Pick<SpawnSyncReturns<Buffer>, "error" | "status" | "stderr" | "stdout">;
+type RunGhAsync = (args: readonly string[], options: { input: string }) => Promise<GithubCliResult>;
 
 const GITHUB_ISSUE_CREATE_TIMEOUT_MS = 30_000;
 const GITHUB_PREFILL_BODY_MAX_BYTES = 6_000;
@@ -36,10 +39,51 @@ export function createGithubIssue(
   issue: SanitizedGithubIssue,
   spawnGh: SpawnGh = defaultSpawnGh,
 ): GithubIssueCreateResult {
-  const result = spawnGh(
-    ["issue", "create", "--repo", "openclaw/openclaw", "--title", issue.title, "--body-file", "-"],
-    { input: issue.body },
+  return resolveGithubIssueCreateResult(
+    issue,
+    spawnGh(
+      [
+        "issue",
+        "create",
+        "--repo",
+        "openclaw/openclaw",
+        "--title",
+        issue.title,
+        "--body-file",
+        "-",
+      ],
+      { input: issue.body },
+    ),
   );
+}
+
+/** Async issue creation for Gateway request paths; never blocks the event loop on `gh`. */
+export async function createGithubIssueAsync(
+  issue: SanitizedGithubIssue,
+  runGh: RunGhAsync = defaultRunGhAsync,
+): Promise<GithubIssueCreateResult> {
+  return resolveGithubIssueCreateResult(
+    issue,
+    await runGh(
+      [
+        "issue",
+        "create",
+        "--repo",
+        "openclaw/openclaw",
+        "--title",
+        issue.title,
+        "--body-file",
+        "-",
+      ],
+      { input: issue.body },
+    ),
+  );
+}
+
+function resolveGithubIssueCreateResult(
+  issue: SanitizedGithubIssue,
+  result: GithubCliResult,
+): GithubIssueCreateResult {
   if (!result.error && result.status === 0) {
     const outputUrl = String(result.stdout).trim().split(/\r?\n/).at(-1);
     let url = REPOSITORY_ISSUES_URL;
@@ -68,20 +112,81 @@ export function createGithubIssue(
   };
 }
 
+function testProcessBlockResult(): GithubCliResult {
+  return {
+    error: Object.assign(
+      new Error("External GitHub issue creation is disabled in test processes."),
+      { code: "EPERM" },
+    ),
+    status: null,
+    stderr: Buffer.alloc(0),
+    stdout: Buffer.alloc(0),
+  };
+}
+
+async function defaultRunGhAsync(
+  args: readonly string[],
+  options: { input: string },
+): Promise<GithubCliResult> {
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    return testProcessBlockResult();
+  }
+  return await new Promise<GithubCliResult>((resolve) => {
+    const child = spawn("gh", [...args], { stdio: ["pipe", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let error: Error | undefined;
+    let settled = false;
+    const appendBounded = (chunks: Buffer[], chunk: Buffer, currentBytes: number): number => {
+      const remaining = 1024 * 1024 - currentBytes;
+      if (remaining <= 0) {
+        return currentBytes;
+      }
+      chunks.push(chunk.subarray(0, remaining));
+      return currentBytes + Math.min(chunk.byteLength, remaining);
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes = appendBounded(stdout, chunk, stdoutBytes);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrBytes = appendBounded(stderr, chunk, stderrBytes);
+    });
+    child.on("error", (spawnError) => {
+      error = spawnError;
+    });
+    const timeout = setTimeout(() => {
+      error = Object.assign(new Error("gh issue creation timed out"), { code: "ETIMEDOUT" });
+      child.kill("SIGKILL");
+    }, GITHUB_ISSUE_CREATE_TIMEOUT_MS);
+    timeout.unref?.();
+    child.on("close", (status) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      resolve({
+        ...(error ? { error } : {}),
+        status,
+        stderr: Buffer.concat(stderr),
+        stdout: Buffer.concat(stdout),
+      });
+    });
+    child.stdin.on("error", () => {
+      // The process result owns the actionable error and fallback.
+    });
+    child.stdin.end(options.input);
+  });
+}
+
 function defaultSpawnGh(
   args: readonly string[],
   options: { input: string },
 ): Pick<SpawnSyncReturns<Buffer>, "error" | "status" | "stderr" | "stdout"> {
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
-    return {
-      error: Object.assign(
-        new Error("External GitHub issue creation is disabled in test processes."),
-        { code: "EPERM" },
-      ),
-      status: null,
-      stderr: Buffer.alloc(0),
-      stdout: Buffer.alloc(0),
-    };
+    return testProcessBlockResult();
   }
   return spawnSync("gh", [...args], {
     input: options.input,

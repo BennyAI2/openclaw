@@ -218,7 +218,6 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["skills.proposals.reject", "skills", "operator.admin", "<=2026.7"],
   ["skills.proposals.quarantine", "skills", "operator.admin", "<=2026.7"],
   ["update.status", "update", "operator.admin", "<=2026.7"],
-  ["update.report", "update", "operator.admin", "2026.8", { controlPlaneWrite: true }],
   ["update.run", "update", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
   ["voicewake.get", "voicewake", "operator.read", "<=2026.7"],
   ["voicewake.set", "voicewake", "operator.write", "<=2026.7"],
@@ -643,6 +642,7 @@ const CORE_GATEWAY_METHOD_SPECS = [
     "2026.8",
     { startup: true, controlPlaneWrite: true },
   ],
+  ["update.report", "update", "operator.admin", "2026.8", { controlPlaneWrite: true }],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];
 
 export type CoreGatewayHandlerFamily = Exclude<(typeof CORE_GATEWAY_METHOD_SPECS)[number][1], null>;

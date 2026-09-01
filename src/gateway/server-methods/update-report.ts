@@ -8,6 +8,7 @@ import {
   prepareUpdateFailureReport,
   submitUpdateFailureReport,
   type UpdateFailureReportInput,
+  type UpdateFailureReportSubmitResult,
 } from "../../infra/update-failure-report.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
@@ -92,6 +93,25 @@ function projectReportInput(payload: RestartSentinelPayload): UpdateFailureRepor
   };
 }
 
+function projectPublicSubmitResult(result: UpdateFailureReportSubmitResult) {
+  if (result.status === "created") {
+    return { status: result.status, url: result.url };
+  }
+  if (result.status === "fallback") {
+    return {
+      status: result.status,
+      fallbackUrl: result.fallbackUrl,
+      message: result.message,
+    };
+  }
+  return {
+    status: result.status,
+    message: result.message,
+    ...(result.url ? { url: result.url } : {}),
+    ...(result.fallbackUrl ? { fallbackUrl: result.fallbackUrl } : {}),
+  };
+}
+
 export const updateReportHandler: GatewayRequestHandlers["update.report"] = async ({
   params,
   respond,
@@ -111,17 +131,32 @@ export const updateReportHandler: GatewayRequestHandlers["update.report"] = asyn
       return;
     }
     const prepared = await prepareUpdateFailureReport(input);
-    const result =
-      params.action === "preview"
-        ? {
-            status: "ready" as const,
-            attemptId: prepared.attemptId,
-            body: prepared.body,
-            previewDigest: prepared.previewDigest,
-            savedReportPath: prepared.savedReportPath,
-            title: prepared.title,
-          }
-        : await submitUpdateFailureReport(prepared, params.previewDigest);
+    let result;
+    if (params.action === "preview") {
+      result = {
+        status: "ready" as const,
+        attemptId: prepared.attemptId,
+        body: prepared.body,
+        previewDigest: prepared.previewDigest,
+        title: prepared.title,
+      };
+    } else {
+      // Preparation performs filesystem I/O. Recheck the in-memory authority immediately
+      // before the synchronous canonical reservation and any external side effect.
+      const currentSentinel =
+        getLatestUpdateRestartSentinel() ?? (await refreshLatestUpdateRestartSentinel());
+      const currentInput = currentSentinel ? projectReportInput(currentSentinel) : null;
+      if (!currentInput || currentInput.attemptId !== params.attemptId) {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "This failed update attempt is stale or unavailable.",
+        });
+        return;
+      }
+      result = projectPublicSubmitResult(
+        await submitUpdateFailureReport(prepared, params.previewDigest),
+      );
+    }
     if (!validateUpdateReportResult(result)) {
       respond(false, undefined, {
         code: "UNAVAILABLE",

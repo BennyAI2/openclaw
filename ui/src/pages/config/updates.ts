@@ -184,8 +184,6 @@ function renderUpdateFailureReportNotice(notice: UpdateFailureReportNotice) {
           : t("updates.page.reportError");
   const url = "url" in result && result.url ? result.url : null;
   const fallbackUrl = "fallbackUrl" in result && result.fallbackUrl ? result.fallbackUrl : null;
-  const savedReportPath =
-    "savedReportPath" in result && result.savedReportPath ? result.savedReportPath : null;
   return renderSettingsRow({
     title: t("updates.page.reportResult"),
     stacked: true,
@@ -202,9 +200,6 @@ function renderUpdateFailureReportNotice(notice: UpdateFailureReportNotice) {
               >${t("updates.page.openPrefilledIssue")}</a
             >
           </div>`
-        : nothing}
-      ${savedReportPath
-        ? html`<div>${t("updates.page.savedReport")}: <code>${savedReportPath}</code></div>`
         : nothing}
       ${"message" in result && result.message ? html`<div>${result.message}</div>` : nothing}
     </div>`,

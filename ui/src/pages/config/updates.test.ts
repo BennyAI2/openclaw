@@ -596,7 +596,7 @@ describe("renderUpdates", () => {
     expect(onReportFailure).toHaveBeenCalledExactlyOnceWith("handoff-failed");
   });
 
-  it("renders a prefilled issue and saved report after GitHub CLI fallback", () => {
+  it("renders a prefilled issue without exposing a server-local path", () => {
     const projected = projectUpdateStatusResponse(
       {
         sentinel: {
@@ -620,7 +620,6 @@ describe("renderUpdates", () => {
               status: "fallback",
               fallbackUrl: "https://github.com/openclaw/openclaw/issues/new?title=update",
               message: "gh is not authenticated",
-              savedReportPath: "/private/report.md",
             },
           },
         }),
@@ -630,7 +629,7 @@ describe("renderUpdates", () => {
 
     const report = row("Failure report");
     expect(report.textContent).toContain("GitHub CLI submission was unavailable");
-    expect(report.textContent).toContain("/private/report.md");
+    expect(report.textContent).not.toContain("/private/report.md");
     expect(report.querySelector("a")?.getAttribute("href")).toContain("issues/new");
   });
 

@@ -217,7 +217,6 @@ export const UpdateReportParamsSchema = Type.Union([
   }),
 ]);
 
-const UpdateReportSavedPathSchema = Type.String({ minLength: 1, maxLength: 4096 });
 const UpdateReportUrlSchema = Type.String({ minLength: 1, maxLength: 16_384 });
 
 /** Result of a consent-gated update failure report action. */
@@ -227,25 +226,21 @@ export const UpdateReportResultSchema = Type.Union([
     attemptId: Type.String({ minLength: 1, maxLength: 256 }),
     body: Type.String({ maxLength: 16_000 }),
     previewDigest: Type.String({ pattern: "^[a-f0-9]{64}$" }),
-    savedReportPath: UpdateReportSavedPathSchema,
     title: Type.String({ minLength: 1, maxLength: 200 }),
   }),
   closedObject({
     status: Type.Literal("created"),
-    savedReportPath: UpdateReportSavedPathSchema,
     url: UpdateReportUrlSchema,
   }),
   closedObject({
     status: Type.Literal("fallback"),
     fallbackUrl: UpdateReportUrlSchema,
     message: Type.String({ maxLength: 512 }),
-    savedReportPath: UpdateReportSavedPathSchema,
   }),
   closedObject({
     status: Type.Literal("duplicate"),
     fallbackUrl: Type.Optional(UpdateReportUrlSchema),
     message: Type.String({ maxLength: 512 }),
-    savedReportPath: UpdateReportSavedPathSchema,
     url: Type.Optional(UpdateReportUrlSchema),
   }),
 ]);

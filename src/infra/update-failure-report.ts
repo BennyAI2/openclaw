@@ -1,5 +1,5 @@
 /** Privacy-bounded, consent-gated reporting for one terminal update failure. */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
@@ -8,11 +8,16 @@ import { classifyUpdateOutcome } from "../shared/update-outcome.js";
 import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
 import { VERSION } from "../version.js";
 import {
-  createGithubIssue,
+  createGithubIssueAsync,
   createPrefilledGithubIssueUrl,
   type GithubIssueCreateResult,
   type SanitizedGithubIssue,
 } from "./github-issue.js";
+import {
+  finalizeUpdateFailureReportReceipt,
+  reserveUpdateFailureReportReceipt,
+  type UpdateFailureReportReceipt,
+} from "./restart-sentinel.js";
 import type { UpdateRunResult } from "./update-runner.js";
 
 const UPDATE_REPORT_BODY_MAX_BYTES = 16_000;
@@ -51,13 +56,6 @@ export type UpdateFailureReportInput = {
 type UpdateFailureReportContext = {
   env: NodeJS.ProcessEnv;
   stateDir: string;
-};
-
-type UpdateFailureReportReceipt = {
-  fallbackUrl?: string;
-  savedReportPath: string;
-  status: "pending" | "created" | "fallback";
-  url?: string;
 };
 
 function stripPrivatePaths(value: string): string {
@@ -173,14 +171,12 @@ function resolveReportPaths(
 ): {
   reportDir: string;
   reportPath: string;
-  receiptPath: string;
 } {
   const key = createHash("sha256").update(attemptId).digest("hex");
   const reportDir = path.join(stateDir, "update-reports");
   return {
     reportDir,
     reportPath: path.join(reportDir, `${key}.md`),
-    receiptPath: path.join(reportDir, `${key}.receipt.json`),
   };
 }
 
@@ -241,40 +237,22 @@ export async function prepareUpdateFailureReport(
   };
 }
 
-async function readExistingReceipt(
-  receiptPath: string,
+function resultFromExistingReceipt(
+  receipt: UpdateFailureReportReceipt | null,
   savedReportPath: string,
-): Promise<UpdateFailureReportSubmitResult> {
-  try {
-    // SAFETY: the receipt is written only by this module and every optional field is rechecked.
-    const parsed = JSON.parse(await fs.readFile(receiptPath, "utf8")) as UpdateFailureReportReceipt;
-    return {
-      status: "duplicate",
-      savedReportPath: parsed.savedReportPath || savedReportPath,
-      ...(parsed.url ? { url: parsed.url } : {}),
-      ...(parsed.fallbackUrl ? { fallbackUrl: parsed.fallbackUrl } : {}),
-      message:
-        parsed.status === "pending"
-          ? "This update attempt already has a report submission in progress."
-          : "This update attempt was already reported.",
-    };
-  } catch {
-    return {
-      status: "duplicate",
-      savedReportPath,
-      message: "This update attempt already has a report reservation.",
-    };
-  }
-}
-
-async function writeReceipt(
-  receiptPath: string,
-  receipt: UpdateFailureReportReceipt,
-): Promise<void> {
-  const tempPath = `${receiptPath}.${process.pid}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(receipt)}\n`, { encoding: "utf8", mode: 0o600 });
-  await fs.rename(tempPath, receiptPath);
-  await fs.chmod(receiptPath, 0o600);
+): UpdateFailureReportSubmitResult {
+  return {
+    status: "duplicate",
+    savedReportPath,
+    ...(receipt?.url ? { url: receipt.url } : {}),
+    ...(receipt?.fallbackUrl ? { fallbackUrl: receipt.fallbackUrl } : {}),
+    message:
+      receipt?.status === "pending"
+        ? "This update attempt already has a report submission in progress."
+        : receipt
+          ? "This update attempt was already reported."
+          : "This update attempt already has a report reservation.",
+  };
 }
 
 /** Consumes one reviewed preview and invokes the shared GitHub issue creator at most once. */
@@ -282,7 +260,9 @@ export async function submitUpdateFailureReport(
   prepared: PreparedUpdateFailureReport,
   previewDigest: string,
   options: {
-    createIssue?: (issue: SanitizedGithubIssue) => GithubIssueCreateResult;
+    createIssue?: (
+      issue: SanitizedGithubIssue,
+    ) => GithubIssueCreateResult | Promise<GithubIssueCreateResult>;
     env?: NodeJS.ProcessEnv;
     stateDir?: string;
   } = {},
@@ -293,41 +273,38 @@ export async function submitUpdateFailureReport(
   const env = options.env ?? process.env;
   const stateDir = options.stateDir ?? resolveStateDir(env);
   const context = { env, stateDir };
-  const { reportDir, receiptPath } = resolveReportPaths(prepared.attemptId, stateDir);
-  await fs.mkdir(reportDir, { mode: 0o700, recursive: true });
-  try {
-    const reservation = await fs.open(receiptPath, "wx", 0o600);
-    await reservation.writeFile(
-      `${JSON.stringify({
-        savedReportPath: prepared.savedReportPath,
-        status: "pending",
-      } satisfies UpdateFailureReportReceipt)}\n`,
-      "utf8",
-    );
-    await reservation.close();
-  } catch (error) {
-    // SAFETY: Node filesystem errors expose `code`; unknown errors safely miss this comparison.
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      return await readExistingReceipt(receiptPath, prepared.savedReportPath);
-    }
-    throw error;
+  const stateEnv = { ...env, OPENCLAW_STATE_DIR: stateDir };
+  const reservationId = randomUUID();
+  const reservation = reserveUpdateFailureReportReceipt(
+    prepared.attemptId,
+    reservationId,
+    stateEnv,
+  );
+  if (!reservation.reserved) {
+    return resultFromExistingReceipt(reservation.receipt, prepared.savedReportPath);
   }
 
-  const created = (options.createIssue ?? createGithubIssue)(prepared);
+  const created = await (options.createIssue ?? createGithubIssueAsync)(prepared);
   if (created.ok) {
-    await writeReceipt(receiptPath, {
-      savedReportPath: prepared.savedReportPath,
+    const receipt: UpdateFailureReportReceipt = {
+      reservationId,
       status: "created",
       url: created.url,
-    });
+    };
+    if (!finalizeUpdateFailureReportReceipt(prepared.attemptId, receipt, stateEnv)) {
+      throw new Error("Update failure report reservation could not be finalized.");
+    }
     return { savedReportPath: prepared.savedReportPath, status: "created", url: created.url };
   }
   const message = sanitizeReportField(created.message, context);
-  await writeReceipt(receiptPath, {
+  const receipt: UpdateFailureReportReceipt = {
     fallbackUrl: created.fallbackUrl,
-    savedReportPath: prepared.savedReportPath,
+    reservationId,
     status: "fallback",
-  });
+  };
+  if (!finalizeUpdateFailureReportReceipt(prepared.attemptId, receipt, stateEnv)) {
+    throw new Error("Update failure report reservation could not be finalized.");
+  }
   return {
     fallbackUrl: created.fallbackUrl,
     message,

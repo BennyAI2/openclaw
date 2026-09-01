@@ -1,23 +1,115 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGithubIssue } from "./github-issue.js";
+import { createGithubIssue, createGithubIssueAsync } from "./github-issue.js";
 
 const spawnSyncMock = vi.hoisted(() => vi.fn());
+const spawnMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
-  return { ...actual, spawnSync: spawnSyncMock };
+  return { ...actual, spawn: spawnMock, spawnSync: spawnSyncMock };
 });
 
 describe("createGithubIssue", () => {
   beforeEach(() => {
     spawnSyncMock.mockReset();
+    spawnMock.mockReset();
     vi.stubEnv("VITEST", undefined);
     vi.stubEnv("NODE_ENV", undefined);
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
+
+  it.each([
+    ["VITEST", "true"],
+    ["NODE_ENV", "test"],
+  ])("blocks the default async transport when %s marks a test process", async (key, value) => {
+    vi.stubEnv(key, value);
+    const fallbackUrl = "https://github.com/openclaw/openclaw/issues/new?title=update";
+
+    await expect(
+      createGithubIssueAsync({
+        body: "sanitized body",
+        title: "Update failed",
+        url: fallbackUrl,
+      }),
+    ).resolves.toEqual({
+      fallbackUrl,
+      message: "External GitHub issue creation is disabled in test processes.",
+      ok: false,
+    });
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("bounds the async GitHub CLI transport without blocking the process", async () => {
+    vi.useFakeTimers();
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: EventEmitter & { end: ReturnType<typeof vi.fn> };
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      kill: ReturnType<typeof vi.fn>;
+    };
+    child.stdin = Object.assign(new EventEmitter(), { end: vi.fn() });
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn(() => {
+      queueMicrotask(() => child.emit("close", null));
+      return true;
+    });
+    spawnMock.mockReturnValue(child);
+    const fallbackUrl = "https://github.com/openclaw/openclaw/issues/new?title=update";
+
+    const result = createGithubIssueAsync({
+      body: "sanitized body",
+      title: "Update failed",
+      url: fallbackUrl,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(result).resolves.toEqual({
+      fallbackUrl,
+      message: "gh issue creation timed out",
+      ok: false,
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it.each([
+    {
+      label: "missing gh",
+      result: {
+        error: Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }),
+        status: null,
+        stderr: Buffer.alloc(0),
+        stdout: Buffer.alloc(0),
+      },
+      message: "spawn gh ENOENT",
+    },
+    {
+      label: "unauthenticated gh",
+      result: {
+        status: 4,
+        stderr: Buffer.from("To get started with GitHub CLI, run: gh auth login"),
+        stdout: Buffer.alloc(0),
+      },
+      message: "To get started with GitHub CLI, run: gh auth login",
+    },
+  ])(
+    "returns the prefilled handoff from the async transport for $label",
+    async ({ result, message }) => {
+      const fallbackUrl = "https://github.com/openclaw/openclaw/issues/new?title=update";
+
+      await expect(
+        createGithubIssueAsync(
+          { body: "sanitized body", title: "Update failed", url: fallbackUrl },
+          async () => result,
+        ),
+      ).resolves.toEqual({ fallbackUrl, message, ok: false });
+    },
+  );
 
   it.each([
     ["VITEST", "true"],

@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGithubIssue, createPrefilledGithubIssueUrl } from "./github-issue.js";
+import {
+  createGithubIssue,
+  createGithubIssueAsync,
+  createPrefilledGithubIssueUrl,
+} from "./github-issue.js";
 
 describe("createGithubIssue default GitHub CLI spawn", () => {
   afterEach(() => {
@@ -21,10 +25,13 @@ describe("createGithubIssue default GitHub CLI spawn", () => {
       const body = "sanitized body";
       const fallbackUrl = createPrefilledGithubIssueUrl(title, body);
 
-      const result = createGithubIssue({ body, title, url: fallbackUrl });
+      const syncResult = createGithubIssue({ body, title, url: fallbackUrl });
+      const asyncResult = await createGithubIssueAsync({ body, title, url: fallbackUrl });
 
-      expect(result).toMatchObject({ fallbackUrl, ok: false });
-      expect(result.ok ? "" : result.message).toContain("ENOENT");
+      expect(syncResult).toMatchObject({ fallbackUrl, ok: false });
+      expect(syncResult.ok ? "" : syncResult.message).toContain("ENOENT");
+      expect(asyncResult).toMatchObject({ fallbackUrl, ok: false });
+      expect(asyncResult.ok ? "" : asyncResult.message).toContain("ENOENT");
     } finally {
       await fs.rm(emptyPath, { force: true, recursive: true });
     }

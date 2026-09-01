@@ -113,6 +113,7 @@ describe("update.report", () => {
       true,
       expect.objectContaining({ status: "ready", previewDigest: "a".repeat(64) }),
     );
+    expect(respond.mock.calls[0]?.[1]).not.toHaveProperty("savedReportPath");
   });
 
   it("submits only the reviewed digest for the same current attempt", async () => {
@@ -127,6 +128,40 @@ describe("update.report", () => {
       "a".repeat(64),
     );
     expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ status: "created" }));
+    expect(respond.mock.calls[0]?.[1]).not.toHaveProperty("savedReportPath");
+  });
+
+  it("rechecks the attempt after preparation and refuses a replacement before submission", async () => {
+    mocks.prepare.mockImplementation(async () => {
+      mocks.getLatest.mockReturnValue({
+        ...failure,
+        stats: { ...failure.stats, handoffId: "replacement-attempt" },
+      });
+      return {
+        attemptId: "handoff-failed",
+        body: "sanitized body",
+        previewDigest: "a".repeat(64),
+        savedReportPath: "/tmp/report.md",
+        title: "Update failure",
+        url: "https://github.com/openclaw/openclaw/issues/new",
+      };
+    });
+
+    const respond = await invoke({
+      action: "submit",
+      attemptId: "handoff-failed",
+      previewDigest: "a".repeat(64),
+    });
+
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("stale"),
+      }),
+    );
   });
 
   it("rejects a stale update identity before preparing or submitting", async () => {

@@ -81,10 +81,19 @@ describe("update protocol schemas", () => {
         attemptId,
         body: "sanitized",
         previewDigest,
-        savedReportPath: "/tmp/report.md",
         title: "Update failure",
       }),
     ).toBe(true);
+    expect(
+      Value.Check(UpdateReportResultSchema, {
+        status: "ready",
+        attemptId,
+        body: "sanitized",
+        previewDigest,
+        savedReportPath: "/private/report.md",
+        title: "Update failure",
+      }),
+    ).toBe(false);
   });
 
   it("accepts only closed, exact tracked Git targets for update.run", () => {

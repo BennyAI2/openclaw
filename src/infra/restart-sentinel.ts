@@ -14,21 +14,25 @@ import { gitCommitPrefixesMatch } from "./git-commit.js";
 import { resolveOpenClawPackageRoot } from "./openclaw-root.js";
 import {
   deleteRestartSentinelRowSync,
+  finalizeUpdateFailureReportReceiptRowSync,
   readRestartSentinelRowSync,
   readRestartSentinelSnapshotSync,
   readUpdateInstallReceiptRowSync,
+  reserveUpdateFailureReportReceiptRowSync,
   writeRestartSentinelRowIfRevisionSync,
   writeRestartSentinelRowSync,
   writeUpdateInstallReceiptRowSync,
   type RestartSentinel,
   type RestartSentinelContinuation,
   type RestartSentinelPayload,
+  type UpdateFailureReportReceipt,
 } from "./restart-sentinel-store.js";
 import { resolveUpdateInstallRoot } from "./update-install-root.js";
 
 export type {
   RestartSentinelContinuation,
   RestartSentinelPayload,
+  UpdateFailureReportReceipt,
 } from "./restart-sentinel-store.js";
 
 export type VerifiedGitUpdateReceipt = {
@@ -57,6 +61,30 @@ export async function writeRestartSentinel(
     ({ db }) => writeRestartSentinelRowSync(db, payload),
     { env },
     { operationLabel: "restart-sentinel.write" },
+  );
+}
+
+export function reserveUpdateFailureReportReceipt(
+  attemptId: string,
+  reservationId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { receipt: UpdateFailureReportReceipt | null; reserved: boolean } {
+  return runOpenClawStateWriteTransaction(
+    ({ db }) => reserveUpdateFailureReportReceiptRowSync(db, attemptId, reservationId),
+    { env },
+    { operationLabel: "update-failure-report.reserve" },
+  );
+}
+
+export function finalizeUpdateFailureReportReceipt(
+  attemptId: string,
+  receipt: UpdateFailureReportReceipt,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return runOpenClawStateWriteTransaction(
+    ({ db }) => finalizeUpdateFailureReportReceiptRowSync(db, attemptId, receipt),
+    { env },
+    { operationLabel: "update-failure-report.finalize" },
   );
 }
 
