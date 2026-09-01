@@ -83,8 +83,8 @@ export function renderChatPagePaneCell(options: ChatPagePaneRenderOptions) {
               areUiSessionKeysEquivalent(sessionKey, options.preparingSessionKey);
             const presented = visible && (!options.narrow || options.active);
             const interactive = selected && visible && presented;
-            const active = options.active && visible;
-            const draft = active
+            const active = options.active && selected;
+            const draft = interactive
               ? routeDraft(options.data, options.consumedDraftData, sessionKey)
               : undefined;
             const resolvedKey =
@@ -113,7 +113,7 @@ export function renderChatPagePaneCell(options: ChatPagePaneRenderOptions) {
               .active=${active}
               .draft=${draft}
               .focusComposer=${options.draftFocus.shouldFocusPane(
-                active,
+                interactive,
                 draft,
                 sessionKey,
                 options.data,
