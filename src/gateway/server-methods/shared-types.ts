@@ -222,6 +222,7 @@ type GatewayKernelContext = {
     agentId?: string;
     agentDir?: string;
     readOnly?: boolean;
+    refreshFullCatalog?: boolean;
     workspaceDir?: string;
   }) => Promise<GatewayModelCatalogSnapshot>;
   readPreparedGatewayModelCatalog?: (params?: {
