@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import ts from "typescript";
+import { toPosixPath } from "./check-file-utils.ts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import {
   collectFileViolations,
@@ -102,10 +103,6 @@ export const migratedSessionTranscriptReaderFiles = new Set([
   "src/tui/embedded-backend.test.ts",
   "src/tui/embedded-backend.ts",
 ]);
-
-function normalizeRelativePath(filePath: string) {
-  return filePath.replaceAll(path.sep, "/");
-}
 
 function importedModuleName(node: ts.ImportDeclaration | ts.ExportDeclaration) {
   return node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
@@ -264,9 +261,7 @@ export async function main() {
     sourceRoots,
     includeTests: true,
     skipFile: (filePath) =>
-      !migratedSessionTranscriptReaderFiles.has(
-        normalizeRelativePath(path.relative(repoRoot, filePath)),
-      ),
+      !migratedSessionTranscriptReaderFiles.has(toPosixPath(path.relative(repoRoot, filePath))),
     findViolations: findSessionTranscriptReaderBoundaryViolations,
   });
 

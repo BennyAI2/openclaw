@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 import { z } from "zod";
+import { toPosixPath } from "./check-file-utils.ts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import {
   collectFileViolations,
@@ -294,12 +295,8 @@ type BoundaryViolation = { line: number; reason: string };
 const sessionAccessorDebtCountsSchema = z.record(z.string(), z.record(z.string(), z.number()));
 type SessionAccessorDebtCounts = z.infer<typeof sessionAccessorDebtCountsSchema>;
 
-function normalizeRelativePath(filePath: string) {
-  return filePath.replaceAll(path.sep, "/");
-}
-
 function legacyNamesForFile(fileName: string) {
-  const normalized = normalizeRelativePath(fileName);
+  const normalized = toPosixPath(fileName);
   if (
     fileName === "source.ts" ||
     [...migratedBundledPluginSessionAccessorFiles].some((filePath) => normalized.endsWith(filePath))
@@ -800,12 +797,12 @@ async function collectSessionAccessorDebtCounts(repoRoot: string) {
       // Inverse of the enforcement skip: migrated files are held at zero by the
       // boundary checks, so the ratchet tracks only the unmigrated rest.
       skipFile: (filePath) =>
-        concern.migratedFiles.has(normalizeRelativePath(path.relative(repoRoot, filePath))),
+        concern.migratedFiles.has(toPosixPath(path.relative(repoRoot, filePath))),
       findViolations: concern.findViolations,
     });
     const fileCounts: Record<string, number> = {};
     for (const violation of violations) {
-      const relativePath = normalizeRelativePath(violation.path);
+      const relativePath = toPosixPath(violation.path);
       fileCounts[relativePath] = (fileCounts[relativePath] ?? 0) + 1;
     }
     counts[key] = sortRecordByKey(fileCounts);

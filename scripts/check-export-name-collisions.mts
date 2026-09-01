@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { toPosixPath } from "./check-file-utils.ts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import {
   collectTypeScriptFilesFromRoots,
@@ -59,12 +60,8 @@ export type ModuleExports = {
 const failurePrefix = "check-export-name-collisions";
 const extraExcludedFileSuffixes = [".test-support.ts", ".test-helpers.ts", ".d.ts"];
 
-function normalizeRelativePath(filePath: string) {
-  return filePath.replaceAll(path.sep, "/");
-}
-
 export function isExcludedExportCollisionSource(filePath: string) {
-  const normalized = normalizeRelativePath(filePath);
+  const normalized = toPosixPath(filePath);
   const segments = normalized.split("/");
   return (
     segments.includes("test") ||
@@ -620,7 +617,7 @@ function analyzeExportNames(modules: SourceModule[]) {
   for (const sourceModule of modules.toSorted((left, right) =>
     left.path.localeCompare(right.path),
   )) {
-    const relativePath = normalizeRelativePath(sourceModule.path);
+    const relativePath = toPosixPath(sourceModule.path);
     const moduleExports = collectModuleExportNames(sourceModule.content, relativePath);
     modulesByPath.set(relativePath, moduleExports);
     if (sourceModule.includeDefinitions !== false && !relativePath.startsWith("src/plugin-sdk/")) {
@@ -713,7 +710,7 @@ async function collectRepositoryModules(repoRoot: string) {
     ].map(async ({ filePath, includeDefinitions }) => ({
       content: await fs.readFile(filePath, "utf8"),
       includeDefinitions,
-      path: normalizeRelativePath(path.relative(repoRoot, filePath)),
+      path: toPosixPath(path.relative(repoRoot, filePath)),
     })),
   );
   return modules;

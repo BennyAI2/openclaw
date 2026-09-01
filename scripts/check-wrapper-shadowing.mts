@@ -9,6 +9,7 @@ import {
   type ModuleExports,
   type SourceModule,
 } from "./check-export-name-collisions.mts";
+import { toPosixPath } from "./check-file-utils.ts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import {
   collectTypeScriptFilesFromRoots,
@@ -25,12 +26,8 @@ export type WrapperShadowingViolation = {
 
 const failurePrefix = "check-wrapper-shadowing";
 
-function normalizeRelativePath(filePath: string) {
-  return filePath.replaceAll(path.sep, "/");
-}
-
 export function isExcludedWrapperShadowingSource(filePath: string) {
-  const normalized = normalizeRelativePath(filePath);
+  const normalized = toPosixPath(filePath);
   const segments = normalized.split("/");
   return (
     isExcludedExportCollisionSource(normalized) ||
@@ -113,7 +110,7 @@ export function findWrapperShadowingViolations(modules: SourceModule[]) {
   for (const sourceModule of modules.toSorted((left, right) =>
     left.path.localeCompare(right.path),
   )) {
-    const modulePath = normalizeRelativePath(sourceModule.path);
+    const modulePath = toPosixPath(sourceModule.path);
     modulesByPath.set(modulePath, collectModuleExportNames(sourceModule.content, modulePath));
   }
 
@@ -159,7 +156,7 @@ export async function collectRepositoryWrapperShadowing(repoRoot: string) {
   const modules = await Promise.all(
     files.map(async (filePath) => ({
       content: await fs.readFile(filePath, "utf8"),
-      path: normalizeRelativePath(path.relative(repoRoot, filePath)),
+      path: toPosixPath(path.relative(repoRoot, filePath)),
     })),
   );
   return findWrapperShadowingViolations(modules);
