@@ -28,6 +28,7 @@ import {
   readSessionUpdatedAtCore as readAccessorSessionUpdatedAt,
   readTranscriptStatsSync as readAccessorTranscriptStatsSync,
   resolveTranscriptSessionKeyBySessionId as resolveAccessorTranscriptSessionKeyBySessionId,
+  toSessionAccessScope,
   updateSessionEntry,
 } from "../config/sessions/session-accessor.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
@@ -49,7 +50,6 @@ import {
   projectPluginSessionStore,
   reconcilePluginSessionStore,
   type SessionStoreReadParams,
-  toSessionAccessScope,
 } from "./session-store-runtime-internal.js";
 import type { SessionTranscriptEvent } from "./session-transcript-runtime.js";
 export { SessionStoreAgentIdRequiredError } from "../config/sessions/paths.js";

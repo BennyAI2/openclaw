@@ -5,6 +5,7 @@
  * Runtime callers import this barrel instead of storage-specific modules.
  */
 export * from "./session-history.js";
+export { toSessionAccessScope } from "./session-accessor.scope.js";
 export {
   bindSessionPendingInputSources,
   listSessionPendingInputReceipts,

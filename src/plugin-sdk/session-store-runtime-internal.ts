@@ -1,5 +1,4 @@
 import { MAIN_SESSION_RECOVERY_CLEAR_PATCH } from "../agents/main-session-recovery/main-session-recovery-clear.js";
-import type { SessionAccessScope } from "../config/sessions/session-accessor.js";
 import {
   projectPublicSessionEntry,
   projectPublicSessionEntryPatch,
@@ -15,20 +14,6 @@ export type SessionStoreReadParams = {
   sessionKey: string;
   storePath?: string;
 };
-
-export function toSessionAccessScope(params: SessionStoreReadParams): SessionAccessScope {
-  // Keep plugin-facing options separate from internal accessor-only controls.
-  return {
-    sessionKey: params.sessionKey,
-    ...(params.agentId !== undefined ? { agentId: params.agentId } : {}),
-    ...(params.env !== undefined ? { env: params.env } : {}),
-    ...(params.hydrateSkillPromptRefs !== undefined
-      ? { hydrateSkillPromptRefs: params.hydrateSkillPromptRefs }
-      : {}),
-    ...(params.readConsistency !== undefined ? { readConsistency: params.readConsistency } : {}),
-    ...(params.storePath !== undefined ? { storePath: params.storePath } : {}),
-  };
-}
 
 export function projectPluginSessionEntry(entry: InternalSessionEntry): SessionEntry {
   const publicEntry = projectPublicSessionEntry(entry);
