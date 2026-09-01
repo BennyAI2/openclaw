@@ -742,7 +742,7 @@ describe("ModelProvidersPage agent scope", () => {
     await vi.waitFor(() =>
       expect(page.messages.xai).toEqual({
         kind: "success",
-        text: "Signed in. Provider models are enabled; your default is unchanged.",
+        text: "Signed in. Available models will update automatically; your default is unchanged.",
       }),
     );
     await vi.waitFor(() => expect(requestCount(request, "models.authStatus")).toBe(1));

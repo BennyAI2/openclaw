@@ -4677,7 +4677,7 @@ export const en: TranslationMap & {
       done: "Logged out.",
     },
     login: {
-      done: "Signed in. Provider models are enabled; your default is unchanged.",
+      done: "Signed in. Available models will update automatically; your default is unchanged.",
     },
     setup: {
       action: "Set up {provider}",
