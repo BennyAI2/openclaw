@@ -3,7 +3,9 @@ import { ButtonStyle } from "discord-api-types/v10";
 import type {
   ApprovalViewModel,
   ChannelApprovalCapabilityHandlerContext,
+  ExpiredApprovalView,
   PendingApprovalView,
+  ResolvedApprovalView,
 } from "openclaw/plugin-sdk/approval-handler-runtime";
 import { createChannelApprovalNativeRuntimeAdapter } from "openclaw/plugin-sdk/approval-handler-runtime";
 import type { ExecApprovalActionDescriptor } from "openclaw/plugin-sdk/approval-reply-runtime";
@@ -329,6 +331,23 @@ function createApprovalContainer(params: {
   });
 }
 
+function buildDiscordTerminalApprovalResult(
+  params: ChannelApprovalCapabilityHandlerContext & {
+    view: ResolvedApprovalView | ExpiredApprovalView;
+  },
+) {
+  const resolvedContext = resolveHandlerContext(params);
+  if (!resolvedContext) {
+    return { kind: "delete" } as const;
+  }
+  const container = createApprovalContainer({
+    view: params.view,
+    cfg: params.cfg,
+    accountId: resolvedContext.accountId,
+  });
+  return { kind: "update", payload: container } as const;
+}
+
 async function updateMessage(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -431,30 +450,8 @@ export const discordApprovalNativeRuntime = createChannelApprovalNativeRuntimeAd
         body: stripUndefinedFields(serializePayload(buildExecApprovalPayload(container))),
       };
     },
-    buildResolvedResult: ({ cfg, accountId, context, view }) => {
-      const resolvedContext = resolveHandlerContext({ cfg, accountId, context });
-      if (!resolvedContext) {
-        return { kind: "delete" } as const;
-      }
-      const container = createApprovalContainer({
-        view,
-        cfg,
-        accountId: resolvedContext.accountId,
-      });
-      return { kind: "update", payload: container } as const;
-    },
-    buildExpiredResult: ({ cfg, accountId, context, view }) => {
-      const resolvedContext = resolveHandlerContext({ cfg, accountId, context });
-      if (!resolvedContext) {
-        return { kind: "delete" } as const;
-      }
-      const container = createApprovalContainer({
-        view,
-        cfg,
-        accountId: resolvedContext.accountId,
-      });
-      return { kind: "update", payload: container } as const;
-    },
+    buildResolvedResult: buildDiscordTerminalApprovalResult,
+    buildExpiredResult: buildDiscordTerminalApprovalResult,
   },
   transport: {
     prepareTarget: async ({ cfg, accountId, context, plannedTarget }) => {
