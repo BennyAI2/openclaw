@@ -9,7 +9,7 @@ import {
   type TempWorkspace,
 } from "openclaw/plugin-sdk/temp-path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildCodexMigrationProvider } from "../migration/provider.js";
+import { buildMigrationProvider as buildCodexMigrationProvider } from "../../migration-provider-api.js";
 import { createCodexAppServerModelCatalog } from "./model-catalog.js";
 import { listAllCodexAppServerModels } from "./models.js";
 import { withCodexAppServerJsonClient } from "./request.js";

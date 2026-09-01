@@ -53,7 +53,7 @@ describe("OpenAI provider Codex transport hooks", () => {
       },
       {
         migrationProviderId: "codex",
-        itemId: "auth:openai",
+        itemId: "auth:openai:api-key",
         credentialKind: "api_key",
       },
     ]);

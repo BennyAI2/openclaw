@@ -32,6 +32,8 @@ import type { CodexSource } from "./source.js";
 import type { resolveCodexMigrationTargets } from "./targets.js";
 
 const OPENAI_PROVIDER_ID = "openai";
+const OPENAI_OAUTH_ITEM_ID = "auth:openai";
+const OPENAI_API_KEY_ITEM_ID = "auth:openai:api-key";
 const OPENAI_CODEX_DEFAULT_MODEL = "openai/gpt-5.6-sol";
 const CODEX_IMPORT_DISPLAY_NAME = "Codex import";
 const CODEX_REASON_AUTH_NOT_SELECTED = "auth credential migration not selected";
@@ -69,6 +71,11 @@ type CodexAuthProfileConfig = {
 type CodexAuthConfigApplyResult = "configured" | "conflict" | "unavailable";
 
 class CodexAuthConfigConflict extends Error {}
+
+function authItemId(credential: CodexAuthCredential): string {
+  // Keep the shipped OAuth id while giving the API-key candidate its own selectable identity.
+  return credential.kind === "oauth" ? OPENAI_OAUTH_ITEM_ID : OPENAI_API_KEY_ITEM_ID;
+}
 
 async function readModelRefs(source: CodexAuthSource): Promise<string[]> {
   const cache = await readJsonObject(source.modelsCachePath);
@@ -426,7 +433,7 @@ export async function buildCodexAuthItems(params: {
     const conflict =
       ((targetExists && !matchedExisting && !params.ctx.overwrite) || configConflict) && !skipped;
     return createMigrationItem({
-      id: `auth:${credential.provider}`,
+      id: authItemId(credential),
       kind: "auth",
       action: skipped ? "skip" : "create",
       source: params.source.authPath,
@@ -469,16 +476,17 @@ export async function applyCodexAuthItems(params: {
   const provider = typeof item.details?.provider === "string" ? item.details.provider : "";
   const sourceProfileId =
     typeof item.details?.sourceProfileId === "string" ? item.details.sourceProfileId : undefined;
-  if (!profileId || !provider) {
+  const credentialKind = item.details?.credentialKind;
+  if (!profileId || !provider || (credentialKind !== "oauth" && credentialKind !== "api_key")) {
     return [markMigrationItemError(item, CODEX_REASON_MISSING_AUTH_METADATA)];
   }
   const credential = (await readCodexAuthCredentials(source)).find(
-    (candidate) => candidate.provider === provider,
+    (candidate) =>
+      candidate.provider === provider &&
+      candidate.kind === credentialKind &&
+      (!sourceProfileId || candidate.profileId === sourceProfileId),
   );
   if (!credential) {
-    return [markMigrationItemSkipped(item, CODEX_REASON_AUTH_NO_LONGER_PRESENT)];
-  }
-  if (credential.kind === "oauth" && sourceProfileId && credential.profileId !== sourceProfileId) {
     return [markMigrationItemSkipped(item, CODEX_REASON_AUTH_NO_LONGER_PRESENT)];
   }
   const oauthProfile = credential.kind === "oauth" ? credential.result.profiles[0] : undefined;

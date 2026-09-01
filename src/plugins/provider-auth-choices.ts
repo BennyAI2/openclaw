@@ -250,20 +250,20 @@ function resolveManifestProviderAuthChoiceCandidates(
   });
 }
 
-function pickPreferredManifestAuthChoice(
+function resolvePreferredManifestAuthChoiceCandidates(
   candidates: readonly ProviderAuthChoiceCandidate[],
-): ProviderAuthChoiceCandidate | undefined {
-  let preferred: ProviderAuthChoiceCandidate | undefined;
+): ProviderAuthChoiceCandidate[] {
+  let preferredPriority = Number.MAX_SAFE_INTEGER;
+  const preferred: ProviderAuthChoiceCandidate[] = [];
   for (const candidate of candidates) {
-    if (!preferred) {
-      preferred = candidate;
+    const priority = resolveProviderAuthChoiceOriginPriority(candidate.origin);
+    if (priority < preferredPriority) {
+      preferredPriority = priority;
+      preferred.splice(0, preferred.length, candidate);
       continue;
     }
-    if (
-      resolveProviderAuthChoiceOriginPriority(candidate.origin) <
-      resolveProviderAuthChoiceOriginPriority(preferred.origin)
-    ) {
-      preferred = candidate;
+    if (priority === preferredPriority) {
+      preferred.push(candidate);
     }
   }
   return preferred;
@@ -271,23 +271,22 @@ function pickPreferredManifestAuthChoice(
 
 function resolvePreferredManifestAuthChoicesByChoiceId(
   candidates: readonly ProviderAuthChoiceCandidate[],
+  preserveEqualPriority = false,
 ): ProviderAuthChoiceCandidate[] {
-  const preferredByChoiceId = new Map<string, ProviderAuthChoiceCandidate>();
+  const candidatesByChoiceId = new Map<string, ProviderAuthChoiceCandidate[]>();
   for (const candidate of candidates) {
     const normalizedChoiceId = candidate.choiceId.trim();
     if (!normalizedChoiceId) {
       continue;
     }
-    const existing = preferredByChoiceId.get(normalizedChoiceId);
-    if (
-      !existing ||
-      resolveProviderAuthChoiceOriginPriority(candidate.origin) <
-        resolveProviderAuthChoiceOriginPriority(existing.origin)
-    ) {
-      preferredByChoiceId.set(normalizedChoiceId, candidate);
-    }
+    const grouped = candidatesByChoiceId.get(normalizedChoiceId) ?? [];
+    grouped.push(candidate);
+    candidatesByChoiceId.set(normalizedChoiceId, grouped);
   }
-  return [...preferredByChoiceId.values()];
+  return [...candidatesByChoiceId.values()].flatMap((group) => {
+    const preferred = resolvePreferredManifestAuthChoiceCandidates(group);
+    return preserveEqualPriority ? preferred : preferred.slice(0, 1);
+  });
 }
 
 function resolvePreferredManifestAuthChoiceMetadata(params: {
@@ -297,8 +296,8 @@ function resolvePreferredManifestAuthChoiceMetadata(params: {
   const candidates = resolveManifestProviderAuthChoiceCandidates(params.config).filter(
     params.matches,
   );
-  const preferred = pickPreferredManifestAuthChoice(candidates);
-  return preferred ? stripChoiceOrigin(preferred) : undefined;
+  const preferred = resolvePreferredManifestAuthChoiceCandidates(candidates);
+  return preferred.length === 1 ? stripChoiceOrigin(preferred[0]!) : undefined;
 }
 
 export function resolveManifestProviderAuthChoices(
@@ -315,6 +314,7 @@ export function resolveManifestDeclaredProviderAuthChoices(
 ): ProviderAuthChoiceMetadata[] {
   return resolvePreferredManifestAuthChoicesByChoiceId(
     resolveManifestProviderAuthChoiceCandidates(params).filter((choice) => choice.manifestDeclared),
+    true,
   ).map(stripChoiceOrigin);
 }
 
