@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathExists } from "../infra/fs-safe.js";
 import { readPackageName, readPackageVersion } from "../infra/package-json.js";
 import type { GatewayServiceCommandConfig } from "./service-types.js";
+import { quotePosixShellArgument } from "./system-ownership-format.js";
 
 /** Summary of the installed gateway service command and package layout. */
 export type GatewayServiceLayoutSummary = {
@@ -19,15 +20,8 @@ export type GatewayServiceLayoutSummary = {
   entrypointSourceCheckout?: boolean;
 };
 
-function shellQuoteArg(value: string): string {
-  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) {
-    return value;
-  }
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 function formatExecStart(programArguments: readonly string[]): string {
-  return programArguments.map(shellQuoteArg).join(" ");
+  return programArguments.map(quotePosixShellArgument).join(" ");
 }
 
 function resolveSystemdScopeFromServicePath(

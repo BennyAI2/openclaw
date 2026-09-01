@@ -14,6 +14,7 @@ import { parseLaunchdPlistLabel } from "./launchd-plist.js";
 import { readLaunchDaemonPlistLabel } from "./launchd-system.js";
 import { resolveDaemonHomeDir } from "./paths.js";
 import { execSchtasks } from "./schtasks-exec.js";
+import { quotePosixShellArgument } from "./system-ownership-format.js";
 import { parseSystemdExecStart } from "./systemd-unit.js";
 
 export type ExtraGatewayService = {
@@ -44,10 +45,6 @@ const SYSTEMD_REFERENCE_ONLY_KEYS = new Set([
   "wants",
 ]);
 
-function quotePosixCleanupArgument(value: string): string {
-  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 export function renderGatewayServiceCleanupHints(
   services: readonly ExtraGatewayService[] = [],
 ): string[] {
@@ -67,24 +64,24 @@ export function renderGatewayServiceCleanupHints(
             : "gui/$UID";
         const launchctlCommand = domain === "system" ? "sudo launchctl" : "launchctl";
         hints.push(
-          `${launchctlCommand} bootout ${domain}/${quotePosixCleanupArgument(service.label)}`,
+          `${launchctlCommand} bootout ${domain}/${quotePosixShellArgument(service.label)}`,
         );
         if (plistPath) {
           const removeCommand = service.scope === "system" ? "sudo rm" : "rm";
-          hints.push(`${removeCommand} ${quotePosixCleanupArgument(plistPath)}`);
+          hints.push(`${removeCommand} ${quotePosixShellArgument(plistPath)}`);
         }
         break;
       }
       case "linux": {
         const systemctlCommand = service.scope === "user" ? "systemctl --user" : "sudo systemctl";
         hints.push(
-          `${systemctlCommand} disable --now -- ${quotePosixCleanupArgument(service.label)}`,
+          `${systemctlCommand} disable --now -- ${quotePosixShellArgument(service.label)}`,
         );
         if (service.detail.startsWith("unit:")) {
           const unitPath = service.detail.slice("unit:".length).trim();
           if (unitPath) {
             const removeCommand = service.scope === "system" ? "sudo rm" : "rm";
-            hints.push(`${removeCommand} ${quotePosixCleanupArgument(unitPath)}`);
+            hints.push(`${removeCommand} ${quotePosixShellArgument(unitPath)}`);
           }
         }
         break;

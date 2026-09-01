@@ -1,8 +1,6 @@
 /** Detects system-domain launchd ownership before mutating a user LaunchAgent. */
 import fs from "node:fs/promises";
 import path from "node:path";
-import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
-import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { isMissingPathError } from "../infra/errors.js";
 import { execFileUtf8 } from "./exec-file.js";
 import {
@@ -11,6 +9,10 @@ import {
   isLaunchctlNotLoaded,
   type LaunchctlResult,
 } from "./launchd-exec.js";
+import {
+  formatSystemOwnershipFailureDetail,
+  quotePosixShellArgument,
+} from "./system-ownership-format.js";
 
 const SYSTEM_LAUNCH_DAEMON_DIR = "/Library/LaunchDaemons";
 const PLUTIL_PATH = "/usr/bin/plutil";
@@ -28,15 +30,6 @@ type SystemLaunchDaemonOwnership =
 
 type SystemLaunchDaemonConflict = Exclude<SystemLaunchDaemonOwnership, { status: "absent" }>;
 
-function formatUnknownError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return truncateUtf16Safe(sanitizeForLog(raw), 500);
-}
-
-function quotePosixArgument(value: string): string {
-  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 /**
  * Renders the package-independent ownership probe used by detached restart helpers.
  * The caller must refuse activation when `openclaw_system_launchd_conflict` is non-empty.
@@ -45,9 +38,9 @@ export function renderSystemLaunchDaemonOwnershipShellProbe(label: string): stri
   const serviceTarget = `system/${label}`;
   return `openclaw_system_launchd_conflict=""
 openclaw_system_launchd_detail=""
-openclaw_system_launchd_target=${quotePosixArgument(serviceTarget)}
-openclaw_system_launchd_dir=${quotePosixArgument(SYSTEM_LAUNCH_DAEMON_DIR)}
-openclaw_system_launchd_label=${quotePosixArgument(label)}
+openclaw_system_launchd_target=${quotePosixShellArgument(serviceTarget)}
+openclaw_system_launchd_dir=${quotePosixShellArgument(SYSTEM_LAUNCH_DAEMON_DIR)}
+openclaw_system_launchd_label=${quotePosixShellArgument(label)}
 openclaw_query_system_launchd() {
   openclaw_system_launchd_probe=$(launchctl print "$openclaw_system_launchd_target" 2>&1)
   openclaw_system_launchd_probe_status=$?
@@ -138,7 +131,7 @@ export async function readLaunchDaemonPlistLabel(
         ? { status: "ok", label }
         : { status: "unlabeled" };
     } catch (error) {
-      return { status: "unverifiable", detail: formatUnknownError(error) };
+      return { status: "unverifiable", detail: formatSystemOwnershipFailureDetail(error) };
     }
   }
   try {
@@ -151,7 +144,7 @@ export async function readLaunchDaemonPlistLabel(
     if (code === "EACCES" || code === "EPERM") {
       return { status: "unreadable" };
     }
-    return { status: "unverifiable", detail: formatUnknownError(error) };
+    return { status: "unverifiable", detail: formatSystemOwnershipFailureDetail(error) };
   }
   return {
     status: "unverifiable",
@@ -174,7 +167,7 @@ async function findInstalledSystemLaunchDaemon(
     if (isMissingPathError(error)) {
       return { status: "absent" };
     }
-    return { status: "unverifiable", detail: formatUnknownError(error) };
+    return { status: "unverifiable", detail: formatSystemOwnershipFailureDetail(error) };
   }
 
   for (const entry of entries.filter((candidate) => candidate.endsWith(".plist")).toSorted()) {
@@ -275,7 +268,7 @@ function formatSystemLaunchDaemonOwnershipError(ownership: SystemLaunchDaemonCon
     ownership.status === "loaded"
       ? `Keep it as the sole gateway manager, or unload it with \`sudo launchctl bootout ${ownership.serviceTarget}\` and remove its plist before retrying.`
       : ownership.status === "installed"
-        ? `Keep it as the sole gateway manager, or remove or relocate ${quotePosixArgument(ownership.plistPath)} before retrying.`
+        ? `Keep it as the sole gateway manager, or remove or relocate ${quotePosixShellArgument(ownership.plistPath)} before retrying.`
         : "Fix the reported launchctl or filesystem access error, then retry.";
   return [
     formatSystemLaunchDaemonOwnershipSummary(ownership),
