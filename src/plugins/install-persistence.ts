@@ -427,7 +427,10 @@ function resolveReplacedManagedInstallRemoval(params: {
   return plan.directoryRemoval;
 }
 
-function prepareConfigForDisabledInstall(config: OpenClawConfig, pluginId: string): OpenClawConfig {
+export function prepareConfigForDisabledInstall(
+  config: OpenClawConfig,
+  pluginId: string,
+): OpenClawConfig {
   const entry = config.plugins?.entries?.[pluginId];
   const policy = isRecord(entry) ? { ...entry } : {};
   delete policy.config;
