@@ -82,7 +82,9 @@ export async function tryImportProviderCredential(params: {
     !provider.trim() ||
     credentialKind !== spec.credentialKind
   ) {
-    return undefined;
+    throw new Error(
+      "The existing provider credential changed during import. Start the sign-in again.",
+    );
   }
   return {
     profileId: profileId.trim(),
