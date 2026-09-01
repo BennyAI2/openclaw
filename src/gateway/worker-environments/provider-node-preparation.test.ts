@@ -1,17 +1,278 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
+import { promisify } from "node:util";
+import * as tar from "tar";
 import { describe, expect, it, vi } from "vitest";
 import { requireGit } from "../../agents/worktrees/git.js";
 import { bindCloudWorkerSetupCompletion } from "../../infra/device-pairing-cloud-worker.js";
+import { NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE } from "../../infra/node-runner-inventory.js";
+import { NodeWorkerBundleInstaller } from "../../node-host/node-worker-bundle-installer.js";
+import { resolveNodeWorkerEntry } from "../../node-host/node-worker-entry.js";
 import type { WorkerProvider } from "../../plugins/types.js";
 import { createDeferredCore } from "../../shared/deferred.js";
+import {
+  DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS,
+  readWorkerBundleDirectoryManifest,
+} from "../../shared/worker-bundle-archive.js";
+import { hashWorkerBundleManifest } from "../../shared/worker-bundle-hash.js";
+import { parseNodeWorkerWorkspaceRetainInput } from "../../worker/node-workspace-retain-protocol.js";
+import type { NodeWorkerSupervisorTransport } from "../node-registry-private.js";
+import { createNodeWorkspaceRetainCoordinator } from "./node-workspace-retain-coordinator.js";
 import { createWorkerNodeProvisioning } from "./provider-node-provisioning.js";
 import { createWorkerEnvironmentService } from "./service.js";
 import * as support from "./service.test-support.js";
 
 describe("prepared node registration ownership", () => {
   support.setupWorkerEnvironmentServiceSuite();
+
+  it("keeps the installed worker launchable while registration spans two retention sweeps", async () => {
+    const { store, root, stateDb } = support.testState;
+    const source = path.join(root, "bundle-source");
+    await fs.mkdir(source);
+    await fs.writeFile(
+      path.join(source, "worker.mjs"),
+      'console.log("prepared-worker-started");\n',
+      {
+        mode: 0o700,
+      },
+    );
+    const bundleHash = hashWorkerBundleManifest(
+      await readWorkerBundleDirectoryManifest({
+        root: source,
+        limits: DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS,
+      }),
+    );
+    const archivePath = path.join(root, "worker.tgz");
+    await tar.create({ cwd: source, file: archivePath, gzip: true }, ["worker.mjs"]);
+    const archive = await fs.readFile(archivePath);
+    const artifact = {
+      ...support.BUNDLE_ARTIFACT,
+      bundleHash,
+      tarballPath: archivePath,
+      tarballSha256: createHash("sha256").update(archive).digest("hex"),
+      tarballBytes: archive.length,
+    };
+    const receipt = { ...support.BOOTSTRAP_RECEIPT, bundleHash };
+    const coldId = "cold-worker";
+    store.createIntent({
+      environmentId: coldId,
+      providerId: "fake",
+      profileId: "development",
+      provisionOperationId: "cold",
+      profileSnapshot: { settings: {} },
+    });
+    store.transition({ environmentId: coldId, from: "requested", to: "provisioning" });
+    store.transition({
+      environmentId: coldId,
+      from: "provisioning",
+      to: "ready",
+      patch: {
+        leaseId: "cold-lease",
+        nodeDeviceId: "cold-node",
+        ...support.readyPatch(coldId),
+        bootstrapReceipt: receipt,
+      },
+    });
+    store.transition({
+      environmentId: coldId,
+      from: "ready",
+      to: "attached",
+      patch: support.attachedPatch(coldId, "cold-session"),
+    });
+    const environmentId = "registering-worker";
+    const deviceId = "registering-node";
+    const gatewayNamespace = "gateway-test";
+    const preparationKey = "a".repeat(64);
+    store.createIntent({
+      environmentId,
+      providerId: "fake",
+      profileId: "development",
+      provisionOperationId: "registering",
+      profileSnapshot: {
+        settings: {},
+        project: {
+          key: preparationKey,
+          root,
+          baseCommit: "b".repeat(40),
+          preparation: {
+            key: preparationKey,
+            contractVersion: 1,
+            target: { machineClass: "small", platform: "linux", arch: "x64" },
+            artifacts: {
+              nodeBootstrapSha256: "c".repeat(64),
+              enabledPluginIds: [],
+              workerBundleHash: bundleHash,
+              workerArchiveSha256: artifact.tarballSha256,
+              openclawVersion: artifact.openclawVersion,
+              protocolFeatures: [],
+            },
+          },
+        },
+      },
+    });
+    store.transition({ environmentId, from: "requested", to: "provisioning" });
+    const enrolled = store.ensureNodeEnrollment(environmentId);
+    if (!enrolled.nodeSetupId) {
+      throw new Error("Expected node setup");
+    }
+    bindCloudWorkerSetupCompletion({
+      db: stateDb.db,
+      completion: {
+        setupId: enrolled.nodeSetupId,
+        deviceId,
+        completedAtMs: support.testState.nowMs,
+      },
+    });
+    const installer = new NodeWorkerBundleInstaller({ root });
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-length": archive.length }).end(archive);
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected bound fixture server");
+    }
+    const entered = createDeferredCore();
+    const release = createDeferredCore();
+    const patch = {
+      leaseId: "registering-lease",
+      nodeDeviceId: deviceId,
+      sharedHost: false,
+      desktop: null,
+    };
+    const provisioning = createWorkerNodeProvisioning({
+      store,
+      isStopping: () => false,
+      prepareInstallation: async () => artifact,
+      ensureNodeWorkerBundle: async () =>
+        await installer.ensure({
+          input: {
+            gatewayNamespace,
+            build: receipt,
+            archive: {
+              token: "A".repeat(43),
+              sha256: artifact.tarballSha256,
+              bytes: archive.length,
+            },
+          },
+          gatewayUrl: `ws://127.0.0.1:${address.port}`,
+        }),
+      registerPreparedWorkspace: async ({ assertCurrent }) => {
+        assertCurrent();
+        entered.resolve();
+        await release.promise;
+        assertCurrent();
+      },
+      commitReady: () =>
+        store.transition({
+          environmentId,
+          from: "provisioning",
+          to: "ready",
+          patch: {
+            ...patch,
+            ...support.readyPatch(environmentId),
+            bootstrapReceipt: receipt,
+          },
+        }),
+      failBootstrap: async (_record, _lease, _provider, error) => {
+        throw error;
+      },
+      move: (record, to, transitionPatch) =>
+        store.transition({ environmentId, from: record.state, to, patch: transitionPatch }),
+      serviceError: (_code, message) => new Error(message),
+    });
+    const completion = provisioning.finish(
+      store.ensureNodeEnrollment(environmentId),
+      { leaseId: patch.leaseId, sharedHost: false, node: { deviceId } },
+      support.createProvider(),
+      patch,
+      artifact,
+      undefined,
+      {
+        preparationKey,
+        workspaceDir: "/prepared/workspace",
+        homeDir: "/prepared/home",
+        sourceManifestRef: `sha256:${"d".repeat(64)}`,
+      },
+    );
+    const transport: NodeWorkerSupervisorTransport = {
+      hasCurrentRunner: () => true,
+      isCurrent: () => true,
+      listCurrentNodes: async () => [
+        {
+          nodeId: deviceId,
+          connId: "connection",
+          pairingIdentity: "pairing",
+          pairingGeneration: "generation",
+          clientId: "node-host",
+          clientMode: "node",
+          protocolFeature: NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
+          commands: [],
+          workerHost: { enabled: true, capacity: { total: 1, available: 1 }, bundleRetention: 1 },
+        },
+      ],
+      invoke: async ({ params }) => {
+        const input = parseNodeWorkerWorkspaceRetainInput(JSON.stringify(params));
+        const result = await installer.retain({
+          gatewayNamespace: input.gatewayNamespace,
+          bundleHashes: input.bundleHashes ?? [],
+          acknowledgedGeneration: input.acknowledgedBundleGeneration,
+        });
+        return {
+          ok: true,
+          payloadJSON: JSON.stringify({
+            applied: true,
+            deleted: 0,
+            hasMore: result.hasMore,
+            bundleGeneration: result.generation,
+          }),
+        };
+      },
+    };
+    const coordinator = createNodeWorkspaceRetainCoordinator({
+      gatewayNamespace,
+      environments: support.createService(support.createProvider()),
+      placements: { list: () => [], listPendingWorkspaceResults: () => [] },
+      warn: vi.fn(),
+    });
+    coordinator.bindTransport(transport);
+    try {
+      await Promise.race([entered.promise, completion]);
+      expect(store.get(environmentId)?.state).toBe("provisioning");
+      expect(store.get(environmentId)?.bootstrapReceipt).toBeNull();
+      await coordinator.start();
+      await coordinator.schedule(deviceId);
+      release.resolve();
+      await expect(completion).resolves.toMatchObject({ state: "ready" });
+      await coordinator.schedule(deviceId);
+      const entry = resolveNodeWorkerEntry({
+        bundleRoot: root,
+        expectedBundleHash: bundleHash,
+        gatewayNamespace,
+      });
+      const result = await promisify(execFile)(process.execPath, [entry], { timeout: 5_000 });
+      expect(result.stdout.trim()).toBe("prepared-worker-started");
+      store.transition({ environmentId, from: "ready", to: "orphaned" });
+      await coordinator.schedule(deviceId);
+      await expect(installer.inspect({ gatewayNamespace, bundleHash })).resolves.toMatchObject({
+        status: "missing",
+      });
+      expect(store.get(coldId)?.state).toBe("attached");
+    } finally {
+      release.resolve();
+      await completion.catch(() => undefined);
+      await coordinator.stop();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  });
 
   it("retains both reserve slots after foreground timeouts until their raw provider calls settle", async () => {
     const { store, config, root } = support.testState;

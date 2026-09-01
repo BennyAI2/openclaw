@@ -604,10 +604,6 @@ export function createWorkerWorkspaceActions(
           entries: current.entries.filter((entry) => transferPathSet.has(entry.path)),
         });
       }
-      // Catch additions, deletions, and writes that raced the inbound transfer.
-      // Stop performs this check once more after local acceptance, directly
-      // before destroying the remote owner.
-      await verifyStable(currentRef);
       const preparedStagedResult = request.stagedResult
         ? await runLocalReconciliation(
             async () =>
@@ -636,6 +632,8 @@ export function createWorkerWorkspaceActions(
         : undefined;
       let appliedWorkspaceResult: WorkerWorkspaceApplyResult | undefined;
       if (!stagedResult) {
+        // Staged results are fenced by the finalizer immediately before apply.
+        await verifyStable(currentRef);
         appliedWorkspaceResult = await runLocalReconciliation(
           async () =>
             await applyStagedWorkerWorkspace({

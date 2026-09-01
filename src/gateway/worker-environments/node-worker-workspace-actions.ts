@@ -189,7 +189,6 @@ export function createNodeWorkerWorkspaceActions(params: {
           throw new Error("Cloud workspace changed during final reconciliation");
         }
       };
-      await verifyStable();
       const publishAcceptedManifest = async (accepted: {
         manifestRef: string;
         manifest: typeof uploaded.current;
@@ -238,6 +237,8 @@ export function createNodeWorkerWorkspaceActions(params: {
         : undefined;
       let appliedWorkspaceResult: WorkerWorkspaceApplyResult | undefined;
       if (!preparedStagedResult) {
+        // Staged results are fenced by the finalizer immediately before apply.
+        await verifyStable();
         appliedWorkspaceResult = await runLocalReconciliation(
           async () =>
             await applyStagedWorkerWorkspace({
@@ -253,22 +254,6 @@ export function createNodeWorkerWorkspaceActions(params: {
         );
       }
       return {
-        get manifestRef() {
-          return expectedRemoteRef;
-        },
-        changed,
-        verifyStable,
-        verifyLocalStable: async () =>
-          await runLocalReconciliation(
-            async () =>
-              await (appliedWorkspaceResult?.verifyLocalStable() ??
-                assertWorkspaceResultStable({
-                  root: request.localPath,
-                  base: uploaded.base,
-                  current: uploaded.current,
-                })),
-          ),
-        getAppliedWorkspaceResult: () => appliedWorkspaceResult,
         ...(preparedStagedResult
           ? {
               ...preparedStagedResult,
@@ -280,6 +265,23 @@ export function createNodeWorkerWorkspaceActions(params: {
               },
             }
           : {}),
+        get manifestRef() {
+          return expectedRemoteRef;
+        },
+        changed,
+        verifyStable,
+        verifyLocalStable: async () =>
+          await runLocalReconciliation(
+            async () =>
+              await (preparedStagedResult?.verifyLocalStable() ??
+                appliedWorkspaceResult?.verifyLocalStable() ??
+                assertWorkspaceResultStable({
+                  root: request.localPath,
+                  base: uploaded.base,
+                  current: uploaded.current,
+                })),
+          ),
+        getAppliedWorkspaceResult: () => appliedWorkspaceResult,
       };
     } finally {
       await fsp.rm(uploaded.stagingRoot, { recursive: true, force: true });
