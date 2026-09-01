@@ -1,4 +1,7 @@
-import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import {
+  openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
+} from "../state/openclaw-state-db.js";
 import {
   loadDeliveryQueueEntry,
   upsertDeliveryQueueEntry,
@@ -41,9 +44,7 @@ export function transitionOwnedDeliveryQueueEntry(
   },
   transition: (entry: DeliveryQueueEntryState) => void,
 ): boolean {
-  const database = openOpenClawStateDatabase({
-    env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
-  });
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   return runSqliteImmediateTransactionSync(
     database.db,
     () => {
@@ -76,9 +77,7 @@ function transitionDeliveryQueueEntryPlatformSend(
 ): boolean {
   // State-database opens reuse the canonical path-owned connection, so both
   // existing queue primitives execute inside this same IMMEDIATE transaction.
-  const database = openOpenClawStateDatabase({
-    env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
-  });
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   return runSqliteImmediateTransactionSync(
     database.db,
     () => {
@@ -154,9 +153,7 @@ export function renewDeliveryQueueEntryPlatformSendLease(
     claimId: string;
   },
 ): number | undefined {
-  const database = openOpenClawStateDatabase({
-    env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
-  });
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   return runSqliteImmediateTransactionSync(
     database.db,
     () => {

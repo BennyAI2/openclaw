@@ -8,8 +8,8 @@ import { z } from "zod";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
   runOpenClawStateWriteTransaction,
-  type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
 import { loadPairedDevicePairingStoreRecordFromDatabase } from "./device-pairing-store.js";
 import { resolveNodePairingGeneration } from "./device-pairing.js";
@@ -99,12 +99,6 @@ const MAX_APNS_TOKEN_HEX_LENGTH = 512;
 const MAX_RELAY_IDENTIFIER_LENGTH = 256;
 const MAX_SEND_GRANT_LENGTH = 1024;
 const APNS_REGISTRATION_LOOKUP_CHUNK_SIZE = 500;
-
-function apnsStateDatabaseOptions(stateDir?: string): OpenClawStateDatabaseOptions {
-  return stateDir
-    ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } }
-    : { env: process.env };
-}
 
 export function normalizeApnsNodeId(value: string): string {
   return value.trim();
@@ -524,7 +518,7 @@ export async function registerApnsRegistration(
       stateDb.deleteFrom("apns_registration_tombstones").where("node_id", "=", nodeId),
     );
     return next;
-  }, apnsStateDatabaseOptions(params.baseDir));
+  }, stateDbOptions(params.baseDir));
 }
 
 /** Loads one normalized APNs registration by node id. */
@@ -536,7 +530,7 @@ export async function loadApnsRegistration(
   if (!normalizedNodeId) {
     return null;
   }
-  const database = openOpenClawStateDatabase(apnsStateDatabaseOptions(baseDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(baseDir));
   const row = executeSqliteQueryTakeFirstSync(
     database.db,
     getNodeSqliteKysely<ApnsRegistrationDatabase>(database.db)
@@ -566,7 +560,7 @@ export async function loadApnsRegistrations(
   if (uniqueNodeIds.length === 0) {
     return [];
   }
-  const database = openOpenClawStateDatabase(apnsStateDatabaseOptions(baseDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(baseDir));
   const registrations = new Map<string, ApnsRegistration>();
   const stateDb = getNodeSqliteKysely<ApnsRegistrationDatabase>(database.db);
   for (
@@ -644,5 +638,5 @@ export async function clearApnsRegistrationIfCurrent(params: {
       stateDb.deleteFrom("apns_registrations").where("node_id", "=", normalizedNodeId),
     );
     return true;
-  }, apnsStateDatabaseOptions(params.baseDir));
+  }, stateDbOptions(params.baseDir));
 }

@@ -10,19 +10,16 @@ import {
 } from "../state/config-machine-state.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
-import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
+import {
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
+  type OpenClawStateDatabaseOptions,
+} from "../state/openclaw-state-db.js";
 import type { TuiSessionList } from "./tui-backend.js";
 import type { SessionScope } from "./tui-types.js";
 
 type TuiLastSessionDatabase = Pick<OpenClawStateKyselyDatabase, "config_machine_state">;
 
 const TUI_LAST_SESSION_STATE_KEY_PREFIX = "tui.lastSession.";
-
-function stateDatabaseOptions(stateDir?: string) {
-  return stateDir
-    ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } }
-    : { env: process.env };
-}
 
 /** Builds a stable private-store key for the current TUI connection, agent, and session scope. */
 export function buildTuiLastSessionScopeKey(params: {
@@ -66,7 +63,7 @@ export async function readTuiLastSessionKey(params: {
 }): Promise<string | null> {
   const sessionKey = readConfigMachineStateWithMetadata<string>(
     `${TUI_LAST_SESSION_STATE_KEY_PREFIX}${params.scopeKey}`,
-    stateDatabaseOptions(params.stateDir),
+    stateDbOptions(params.stateDir),
   );
   const rememberedKey = sessionKey?.value.trim() ?? "";
   return rememberedKey && !isHeartbeatSessionKey(rememberedKey) ? rememberedKey : null;
@@ -85,7 +82,7 @@ export async function writeTuiLastSessionKey(params: {
   writeConfigMachineState(
     `${TUI_LAST_SESSION_STATE_KEY_PREFIX}${params.scopeKey}`,
     sessionKey,
-    stateDatabaseOptions(params.stateDir),
+    stateDbOptions(params.stateDir),
   );
 }
 
@@ -126,7 +123,7 @@ export function clearTuiLastSessionPointers(params: {
   if (params.sessionKeys.size === 0) {
     return 0;
   }
-  const options = stateDatabaseOptions(params.stateDir);
+  const options = stateDbOptions(params.stateDir);
   const matchingKeys = withExistingOpenClawStateDatabaseReadOnly(({ db }) => {
     const rows = executeSqliteQuerySync(
       db,

@@ -2,6 +2,7 @@
 import { safeParseJsonRecord } from "@openclaw/normalization-core";
 import {
   openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
   type OpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
 import {
@@ -48,9 +49,7 @@ type TerminalizePendingDeliveryQueueEntryResult =
   | { status: "not_pending" };
 
 function openStateDatabase(stateDir?: string) {
-  return openOpenClawStateDatabase({
-    env: stateDir ? { ...process.env, OPENCLAW_STATE_DIR: stateDir } : process.env,
-  });
+  return openOpenClawStateDatabase(stateDbOptions(stateDir));
 }
 
 function enoent(queueName: string, id: string): Error & { code: string } {

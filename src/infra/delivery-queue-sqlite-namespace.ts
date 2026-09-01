@@ -1,6 +1,9 @@
 // Owns atomic delivery-queue ownership changes across namespace versions.
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
-import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import {
+  openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
+} from "../state/openclaw-state-db.js";
 import {
   completeDeliveryQueueEntry,
   deleteDeliveryQueueEntry,
@@ -19,9 +22,7 @@ type DeliveryQueueDatabase = Pick<OpenClawStateKyselyDatabase, "delivery_queue_e
 type QueueStatus = "pending" | "failed" | "completed";
 
 function openStateDatabase(stateDir?: string) {
-  return openOpenClawStateDatabase({
-    env: stateDir ? { ...process.env, OPENCLAW_STATE_DIR: stateDir } : process.env,
-  });
+  return openOpenClawStateDatabase(stateDbOptions(stateDir));
 }
 
 /** Atomically publishes one staged owner only when retired namespaces do not own its id. */

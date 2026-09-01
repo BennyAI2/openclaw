@@ -7,8 +7,8 @@ import { ensureColumn } from "../state/openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
   runOpenClawStateWriteTransaction,
-  type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
 import { sha256HexPrefixCore } from "./crypto-digest.js";
 import {
@@ -81,12 +81,6 @@ CREATE INDEX IF NOT EXISTS idx_web_push_approval_deliveries_subscription
   ON web_push_approval_deliveries(subscription_id, approval_id);
 `;
 
-function webPushStateDatabaseOptions(stateDir?: string): OpenClawStateDatabaseOptions {
-  return stateDir
-    ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } }
-    : { env: process.env };
-}
-
 /** Adds downgrade-safe binding columns before the first Web Push store operation. */
 export function ensureWebPushSubscriptionBindingColumns(db: DatabaseSync): void {
   ensureColumn(db, "web_push_subscriptions", "device_id TEXT");
@@ -95,7 +89,7 @@ export function ensureWebPushSubscriptionBindingColumns(db: DatabaseSync): void 
 }
 
 function ensureWebPushSubscriptionBindingSchema(stateDir?: string): void {
-  const options = webPushStateDatabaseOptions(stateDir);
+  const options = stateDbOptions(stateDir);
   const database = openOpenClawStateDatabase(options);
   if (ensuredWebPushBindingDatabases.has(database.db)) {
     return;
@@ -115,7 +109,7 @@ function ensureWebPushApprovalDeliveryTable(db: DatabaseSync): void {
 }
 
 function ensureWebPushApprovalDeliverySchema(stateDir?: string): void {
-  const options = webPushStateDatabaseOptions(stateDir);
+  const options = stateDbOptions(stateDir);
   const database = openOpenClawStateDatabase(options);
   if (ensuredWebPushApprovalDeliveryDatabases.has(database.db)) {
     return;
@@ -206,7 +200,7 @@ export function findBoundWebPushSubscriptionByEndpoint(params: {
   stateDir?: string;
 }): BoundWebPushSubscription | null {
   ensureWebPushSubscriptionBindingSchema(params.stateDir);
-  const database = openOpenClawStateDatabase(webPushStateDatabaseOptions(params.stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   const row = executeSqliteQueryTakeFirstSync(
     database.db,
     getNodeSqliteKysely<WebPushDatabase>(database.db)
@@ -226,7 +220,7 @@ export function setWebPushSubscriptionPreferences(params: {
   stateDir?: string;
 }): boolean {
   ensureWebPushSubscriptionBindingSchema(params.stateDir);
-  const options = webPushStateDatabaseOptions(params.stateDir);
+  const options = stateDbOptions(params.stateDir);
   return runOpenClawStateWriteTransaction(({ db }) => {
     const result = executeSqliteQuerySync(
       db,
@@ -265,7 +259,7 @@ export function webPushSubscriptionsEqual(
 
 export function listWebPushSubscriptions(stateDir?: string): WebPushSubscription[] {
   ensureWebPushSubscriptionBindingSchema(stateDir);
-  const database = openOpenClawStateDatabase(webPushStateDatabaseOptions(stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(stateDir));
   const stateDb = getNodeSqliteKysely<WebPushDatabase>(database.db);
   return executeSqliteQuerySync(
     database.db,
@@ -280,7 +274,7 @@ export function listWebPushSubscriptions(stateDir?: string): WebPushSubscription
 /** Lists only subscriptions reconciled by an authenticated browser device. */
 export function listBoundWebPushSubscriptions(stateDir?: string): BoundWebPushSubscription[] {
   ensureWebPushSubscriptionBindingSchema(stateDir);
-  const database = openOpenClawStateDatabase(webPushStateDatabaseOptions(stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(stateDir));
   const rows = executeSqliteQuerySync(
     database.db,
     getNodeSqliteKysely<WebPushDatabase>(database.db)
@@ -314,7 +308,7 @@ export function prepareWebPushApprovalDeliveries(params: {
     return false;
   }
   ensureWebPushApprovalDeliverySchema(params.stateDir);
-  const options = webPushStateDatabaseOptions(params.stateDir);
+  const options = stateDbOptions(params.stateDir);
   return runOpenClawStateWriteTransaction(({ db }) => {
     const stateDb = getNodeSqliteKysely<WebPushDatabase>(db);
     const approval = executeSqliteQueryTakeFirstSync(
@@ -403,7 +397,7 @@ export function listWebPushApprovalDeliveryTargets(params: {
       const subscription = boundWebPushSubscriptionFromRow(row);
       return subscription ? [subscription] : [];
     });
-  }, webPushStateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 /** Remove only targets whose terminal replacement was accepted. */
@@ -425,7 +419,7 @@ export function deleteWebPushApprovalDeliveryTargets(params: {
         .where("approval_id", "=", params.approvalId)
         .where("subscription_id", "in", subscriptionIds),
     );
-  }, webPushStateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 /** Page through a stable snapshot of terminal approvals that still need replacement. */
@@ -439,7 +433,7 @@ export function listTerminalWebPushApprovalDeliveryIds(params: {
   throughApprovalId: string | null;
 } {
   ensureWebPushApprovalDeliverySchema(params.stateDir);
-  const database = openOpenClawStateDatabase(webPushStateDatabaseOptions(params.stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   const stateDb = getNodeSqliteKysely<WebPushDatabase>(database.db);
   const terminalApprovalQuery = () =>
     stateDb
@@ -564,7 +558,7 @@ export function upsertWebPushSubscription(params: {
         ),
     );
     return subscription;
-  }, webPushStateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 export function deleteBoundWebPushSubscription(params: {
@@ -590,7 +584,7 @@ export function deleteBoundWebPushSubscription(params: {
         ),
     );
     return Number(result.numAffectedRows ?? 0) > 0;
-  }, webPushStateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 /** Delete an expired send target only if no newer registration replaced it in flight. */
@@ -614,15 +608,12 @@ export function deleteWebPushSubscriptionIfCurrent(params: {
         .where("updated_at_ms", "=", subscription.updatedAtMs),
     );
     return Number(result.numAffectedRows ?? 0) > 0;
-  }, webPushStateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 export function readPersistedVapidKeyPair(stateDir?: string): VapidKeyPair | null {
   return (
-    readConfigMachineState<VapidKeyPair>(
-      WEB_PUSH_VAPID_STATE_KEY,
-      webPushStateDatabaseOptions(stateDir),
-    ) ?? null
+    readConfigMachineState<VapidKeyPair>(WEB_PUSH_VAPID_STATE_KEY, stateDbOptions(stateDir)) ?? null
   );
 }
 
@@ -635,6 +626,6 @@ export function insertVapidKeyPairIfAbsent(params: {
   return updateConfigMachineState<VapidKeyPair>(
     WEB_PUSH_VAPID_STATE_KEY,
     (current) => current ?? params.candidate,
-    webPushStateDatabaseOptions(params.stateDir),
+    stateDbOptions(params.stateDir),
   );
 }

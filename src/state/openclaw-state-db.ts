@@ -120,6 +120,11 @@ export {
 export { ensureOpenClawStatePermissions } from "./openclaw-state-db-permissions.js";
 export { detectOpenClawStateDatabaseSchemaMigrations } from "./openclaw-state-db-schema-repair.js";
 
+// oxfmt-ignore
+export function openClawStateDatabaseOptionsForStateDir(stateDir?: string): OpenClawStateDatabaseOptions {
+  return stateDir ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } } : { env: process.env };
+}
+
 /** Reconfirm an advisory worker failure on the live owner connection. */
 export function confirmOpenClawStateDatabaseIntegrity(
   pathname: string,

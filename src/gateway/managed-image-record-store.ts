@@ -8,8 +8,8 @@ import {
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
+  openClawStateDatabaseOptionsForStateDir as stateDbOptions,
   runOpenClawStateWriteTransaction,
-  type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
 
 export const MANAGED_OUTGOING_ORIGINALS_SUBDIR = "outgoing/originals";
@@ -53,12 +53,6 @@ type ManagedImageRecordEntry = {
   record: ManagedImageRecord;
   cleanupPending: boolean;
 };
-
-function stateDatabaseOptions(stateDir?: string): OpenClawStateDatabaseOptions {
-  return stateDir
-    ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } }
-    : { env: process.env };
-}
 
 export function managedImageRecordToRow(record: ManagedImageRecord): ManagedImageRecordInsert {
   return {
@@ -118,7 +112,7 @@ export function readManagedImageRecord(
   attachmentId: string,
   stateDir?: string,
 ): ManagedImageRecord | null {
-  const database = openOpenClawStateDatabase(stateDatabaseOptions(stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(stateDir));
   const row = executeSqliteQueryTakeFirstSync(
     database.db,
     getNodeSqliteKysely<ManagedImageRecordDatabase>(database.db)
@@ -134,7 +128,7 @@ export function listManagedImageRecordEntries(params: {
   stateDir?: string;
   sessionKey?: string;
 }): ManagedImageRecordEntry[] {
-  const database = openOpenClawStateDatabase(stateDatabaseOptions(params.stateDir));
+  const database = openOpenClawStateDatabase(stateDbOptions(params.stateDir));
   const stateDb = getNodeSqliteKysely<ManagedImageRecordDatabase>(database.db);
   let query = stateDb.selectFrom("managed_outgoing_image_records").selectAll();
   if (params.sessionKey) {
@@ -157,7 +151,7 @@ export function insertManagedImageRecord(record: ManagedImageRecord, stateDir?: 
         .insertInto("managed_outgoing_image_records")
         .values(managedImageRecordToRow(record)),
     );
-  }, stateDatabaseOptions(stateDir));
+  }, stateDbOptions(stateDir));
 }
 
 /** Promote a transient record atomically so concurrent message commits cannot lose state. */
@@ -208,7 +202,7 @@ export function attachManagedImageRecordToMessage(params: {
         .where("attachment_id", "=", params.attachmentId),
     );
     return true;
-  }, stateDatabaseOptions(params.stateDir));
+  }, stateDbOptions(params.stateDir));
 }
 
 /** Claim only the exact row cleanup planned against; concurrent updates win. */
@@ -240,7 +234,7 @@ export function claimManagedImageRecordCleanupIfCurrent(
         .where("attachment_id", "=", planned.attachmentId),
     );
     return true;
-  }, stateDatabaseOptions(stateDir));
+  }, stateDbOptions(stateDir));
 }
 
 /** Delete a durably claimed row only after its attachment file is gone. */
@@ -271,5 +265,5 @@ export function deleteClaimedManagedImageRecord(
         .where("attachment_id", "=", planned.attachmentId),
     );
     return true;
-  }, stateDatabaseOptions(stateDir));
+  }, stateDbOptions(stateDir));
 }
