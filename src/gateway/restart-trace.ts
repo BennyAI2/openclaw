@@ -233,6 +233,26 @@ function collectGatewayProcessResourceCounts(): ReadonlyArray<readonly [string, 
   }
   if (activeRequests) {
     metrics.push(["activeRequestsCount", activeRequests.length]);
+    if (process.env.OPENCLAW_GATEWAY_STARTUP_TRACE === "1") {
+      const kinds = new Map([
+        ["FSReqCallback", 0],
+        ["FSReqPromise", 0],
+        ["GetAddrInfoReqWrap", 0],
+        ["TCPConnectWrap", 0],
+        ["PipeConnectWrap", 0],
+        ["ShutdownWrap", 0],
+        ["WriteWrap", 0],
+        ["other", 0],
+      ]);
+      for (const request of activeRequests) {
+        const name = request?.constructor?.name ?? "other";
+        const kind = kinds.has(name) ? name : "other";
+        kinds.set(kind, kinds.get(kind)! + 1);
+      }
+      for (const [kind, count] of kinds) {
+        metrics.push([`diagnosticRequest${kind}Count`, count]);
+      }
+    }
   }
   const activeTimersCount = activeResources
     ? countActiveTimersFromResourceInfo(activeResources)

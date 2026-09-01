@@ -172,6 +172,15 @@ export async function prepareWorkspaceBuildGroup(
     | "configuredProjectionMs"
   >;
 }> {
+  const diagnosticStartedAt = performance.now();
+  const trace = (phase: string) => {
+    if (process.env.OPENCLAW_GATEWAY_STARTUP_TRACE === "1") {
+      console.error(
+        `[doctor-readiness-profile] model-facts.${phase} elapsedMs=${(performance.now() - diagnosticStartedAt).toFixed(1)}`,
+      );
+    }
+  };
+  trace("start");
   const input = inputs[0];
   if (!input) {
     throw new Error("prepared model runtime workspace group is empty");
@@ -185,6 +194,7 @@ export async function prepareWorkspaceBuildGroup(
   const pluginMetadataMs = reusablePluginGeneration
     ? 0
     : performance.now() - pluginMetadataStartedAt;
+  trace("metadata-complete");
   const runtimePluginStartedAt = performance.now();
   const preferBuiltPluginArtifacts =
     reusablePluginGeneration?.preferBuiltPluginArtifacts ??
@@ -199,6 +209,7 @@ export async function prepareWorkspaceBuildGroup(
   const reuseRuntimeFacts =
     reusablePluginGeneration && runtimePluginRegistry === reusablePluginGeneration.pluginRegistry;
   const runtimePluginMs = performance.now() - runtimePluginStartedAt;
+  trace("runtime-registries-complete");
   prepareOwnedPluginLoadContext(
     input,
     env,
@@ -269,6 +280,7 @@ export async function prepareWorkspaceBuildGroup(
       ]),
     ].toSorted((left, right) => left.localeCompare(right));
     const staticProviderCatalogStartedAt = performance.now();
+    trace("static-catalog-start");
     let preparedStaticProviderCatalog = reusablePluginGeneration
       ? reusablePluginGeneration.preparedStaticProviderCatalog
       : catalogMode === "static"
@@ -306,6 +318,7 @@ export async function prepareWorkspaceBuildGroup(
     const staticProviderCatalogMs = reusablePluginGeneration
       ? 0
       : performance.now() - staticProviderCatalogStartedAt;
+    trace("static-catalog-complete");
     const preparedSyntheticAuthProviders = preparedStaticProviderCatalog?.providers ?? [];
     // Static Gateway publication consumes discovery entrypoints; the run owns activation.
     const ambientCredentialsStartedAt = performance.now();
@@ -339,6 +352,7 @@ export async function prepareWorkspaceBuildGroup(
       ...(input.workspaceDir ? { workspaceDir: input.workspaceDir } : {}),
     });
     const ambientCredentialsMs = performance.now() - ambientCredentialsStartedAt;
+    trace("ambient-credentials-complete");
     const agentFactsStartedAt = performance.now();
     const agentBaseFacts = inputs.map((candidate) =>
       prepareAgentFacts(
@@ -349,6 +363,7 @@ export async function prepareWorkspaceBuildGroup(
       ),
     );
     const agentFactsMs = performance.now() - agentFactsStartedAt;
+    trace("agent-facts-complete");
     const configuredProjectionStartedAt = performance.now();
     const providerStaticModels =
       reusablePluginGeneration?.providerStaticModels ??
@@ -424,6 +439,7 @@ export async function prepareWorkspaceBuildGroup(
       });
     }
     const configuredProjectionMs = performance.now() - configuredProjectionStartedAt;
+    trace("configured-projection-complete");
     const pluginGeneration = createPreparedPluginGeneration({
       catalogMode,
       configuredCatalogEntries,

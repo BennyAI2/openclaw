@@ -231,17 +231,19 @@ export async function prepareGatewayKernelRequestRuntime(params: {
     });
   });
   bindApprovalPublicationContext(gatewayRequestContext);
-  await attachInitialGatewayLifetimeSidecars({
-    chatMetadataLifecycle,
-    gatewayRequestContext,
-    flushPendingSessionsChangedEvents: shutdownRuntime.flushPendingSessionsChangedEvents,
-    minimalTestGateway,
-    logWarning: (message) => log.warn(message),
-    ...(!workerPlacementRuntime && githubPublicationRuntime
-      ? { reconcileGitHubPublications: githubPublicationRuntime.reconcilePublications }
-      : {}),
-    sidecars: runtimeState.gatewayLifetimeSidecars,
-  });
+  await startupTrace.measure("diagnostic.initial-lifetime-sidecars", () =>
+    attachInitialGatewayLifetimeSidecars({
+      chatMetadataLifecycle,
+      gatewayRequestContext,
+      flushPendingSessionsChangedEvents: shutdownRuntime.flushPendingSessionsChangedEvents,
+      minimalTestGateway,
+      logWarning: (message) => log.warn(message),
+      ...(!workerPlacementRuntime && githubPublicationRuntime
+        ? { reconcileGitHubPublications: githubPublicationRuntime.reconcilePublications }
+        : {}),
+      sidecars: runtimeState.gatewayLifetimeSidecars,
+    }),
+  );
   pluginGatewayContext.current = gatewayRequestContext;
   gatewayRequestContext.dispatchHookAgentTurn = async (pluginId, hookParams) => {
     const transport = runtime.transportBridge.current();
@@ -250,7 +252,10 @@ export async function prepareGatewayKernelRequestRuntime(params: {
     }
     return await transport.dispatchHookAgentTurn(pluginId, hookParams);
   };
-  const { createGatewayInstanceRuntime } = await import("./server-instance-runtime.js");
+  const { createGatewayInstanceRuntime } = await startupTrace.measure(
+    "diagnostic.instance-runtime-import",
+    () => import("./server-instance-runtime.js"),
+  );
   const gatewayInstanceRuntime = createGatewayInstanceRuntime({
     getContext: () => gatewayRequestContext,
     getMethodRegistry: () => getAttachedGatewayMethodRegistry(),

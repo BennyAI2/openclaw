@@ -1740,3 +1740,13 @@ jobs:
         with:
           path: ${{ steps.docs-i18n-go-cache-key.outputs.paths }}
           key: ${{ steps.docs-i18n-go-cache.outputs.cache-primary-key }}
+
+      - name: Retain synthetic Doctor child profiles
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: doctor-readiness-child-profiles
+          path: .local/doctor-readiness-profile/*.cpuprofile
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 3

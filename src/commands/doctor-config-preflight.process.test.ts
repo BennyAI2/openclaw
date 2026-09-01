@@ -436,9 +436,14 @@ describe("gateway startup-migration refusal", () => {
     );
     const stdout = openclawTestInstanceTesting.createBoundedStringLog();
     const stderr = openclawTestInstanceTesting.createBoundedStringLog();
+    // Task-only profile artifacts outlive the synthetic fixture's cleanup.
+    const profileDir = path.resolve(".local/doctor-readiness-profile");
+    fs.mkdirSync(profileDir, { recursive: true });
     const gateway = spawn(
       process.execPath,
       [
+        "--cpu-prof",
+        `--cpu-prof-dir=${profileDir}`,
         "--preserve-symlinks",
         "--preserve-symlinks-main",
         "--import",
@@ -452,6 +457,7 @@ describe("gateway startup-migration refusal", () => {
       ],
       { cwd: runtimeRoot, env, stdio: ["ignore", "pipe", "pipe"] },
     );
+    console.log(`[doctor-readiness-profile] childPid=${gateway.pid}`);
     gateway.stdout.setEncoding("utf8");
     gateway.stderr.setEncoding("utf8");
     gateway.stdout.on("data", (chunk) => openclawTestInstanceTesting.appendLogChunk(stdout, chunk));
