@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGithubIssue } from "./github-issue.js";
 
 const spawnSyncMock = vi.hoisted(() => vi.fn());
@@ -11,6 +11,33 @@ vi.mock("node:child_process", async () => {
 describe("createGithubIssue", () => {
   beforeEach(() => {
     spawnSyncMock.mockReset();
+    vi.stubEnv("VITEST", undefined);
+    vi.stubEnv("NODE_ENV", undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ["VITEST", "true"],
+    ["NODE_ENV", "test"],
+  ])("blocks the default GitHub CLI transport when %s marks a test process", (key, value) => {
+    vi.stubEnv(key, value);
+    const fallbackUrl = "https://github.com/openclaw/openclaw/issues/new?title=update";
+
+    expect(
+      createGithubIssue({
+        body: "sanitized body",
+        title: "Update failed",
+        url: fallbackUrl,
+      }),
+    ).toEqual({
+      fallbackUrl,
+      message: "External GitHub issue creation is disabled in test processes.",
+      ok: false,
+    });
+    expect(spawnSyncMock).not.toHaveBeenCalled();
   });
 
   it("returns the issue URL after a successful authenticated CLI submission", () => {

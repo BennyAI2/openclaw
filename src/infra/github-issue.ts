@@ -72,6 +72,17 @@ function defaultSpawnGh(
   args: readonly string[],
   options: { input: string },
 ): Pick<SpawnSyncReturns<Buffer>, "error" | "status" | "stderr" | "stdout"> {
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    return {
+      error: Object.assign(
+        new Error("External GitHub issue creation is disabled in test processes."),
+        { code: "EPERM" },
+      ),
+      status: null,
+      stderr: Buffer.alloc(0),
+      stdout: Buffer.alloc(0),
+    };
+  }
   return spawnSync("gh", [...args], {
     input: options.input,
     killSignal: "SIGKILL",

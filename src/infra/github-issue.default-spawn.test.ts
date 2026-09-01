@@ -12,6 +12,10 @@ describe("createGithubIssue default GitHub CLI spawn", () => {
   it("returns a prefilled handoff when gh is absent from PATH", async () => {
     const emptyPath = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-no-gh-"));
     try {
+      // This test intentionally reaches the real default spawn with a private empty PATH.
+      // Every positive issue-creation test injects or mocks the transport instead.
+      vi.stubEnv("VITEST", undefined);
+      vi.stubEnv("NODE_ENV", undefined);
       vi.stubEnv("PATH", emptyPath);
       const title = "Update failure: test";
       const body = "sanitized body";
