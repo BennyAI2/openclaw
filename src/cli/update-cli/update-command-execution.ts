@@ -1,3 +1,5 @@
+import { ScheduledTaskAutoStartRecoveryError } from "../../daemon/schtasks-update-recovery.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import type { DevUpdateTarget } from "../../infra/update-dev-target.js";
 import {
   verifyPackageUpdateRecovery,
@@ -41,8 +43,10 @@ const CLI_NAME = resolveCliName();
 
 type MutableUpdateExecutionResult = {
   result: UpdateRunResult;
+  failure?: { cause: unknown; detail: string };
   preManagedServiceStop: PreManagedServiceStop | undefined;
   ownedManagedUpdateContext: OwnedManagedUpdateContext | undefined;
+  recoveryEnv: NodeJS.ProcessEnv | undefined;
 };
 
 export async function executeMutableUpdate(params: {
@@ -72,6 +76,7 @@ export async function executeMutableUpdate(params: {
 }): Promise<MutableUpdateExecutionResult | null> {
   let preManagedServiceStop: PreManagedServiceStop | undefined;
   let ownedManagedUpdateContext: OwnedManagedUpdateContext | undefined;
+  let recoveryEnv: NodeJS.ProcessEnv | undefined;
   const originalRecovery = () =>
     params.installKind === "git"
       ? readCurrentGitUpdateRecovery(params.root)
@@ -125,13 +130,18 @@ export async function executeMutableUpdate(params: {
         }
       }
     } catch (err) {
-      if (err instanceof UpdateCommandAbort) {
+      if (err instanceof ScheduledTaskAutoStartRecoveryError) {
+        recoveryEnv = err.serviceEnv;
+        params.recoveryState.triageTarget.env = err.serviceEnv;
+        throw err;
+      }
+      if (err instanceof UpdateCommandAbort || err instanceof UpdatePreMutationError) {
         throw err;
       }
       params.stop();
-      defaultRuntime.error(`Failed to stop managed gateway service before update: ${String(err)}`);
-      defaultRuntime.exit(1);
-      throw new UpdateCommandAbort();
+      throw new Error(`Failed to stop managed gateway service before update: ${String(err)}`, {
+        cause: err,
+      });
     }
 
     if (phase === "inspect" && preManagedServiceStop?.serviceUpdateVerdict?.kind === "foreign") {
@@ -144,60 +154,55 @@ export async function executeMutableUpdate(params: {
         processEnv: process.env,
         invocationCwd: params.invocationCwd,
       });
+      if (ownedManagedUpdateContext) {
+        params.recoveryState.triageTarget.env = ownedManagedUpdateContext.env;
+      }
     } catch (err) {
       params.stop();
-      defaultRuntime.error(`Failed to capture managed gateway update state: ${String(err)}`);
       await recoverStoppedService();
-
-      defaultRuntime.exit(1);
-      throw new UpdateCommandAbort();
+      throw new Error(`Failed to capture managed gateway update state: ${String(err)}`, {
+        cause: err,
+      });
     }
 
     if (shouldBlockMutableUpdateFromGatewayServiceEnv({ preManagedServiceStop })) {
       params.stop();
       const updateLabel = params.updateInstallKind === "git" ? "Git updates" : "Package updates";
-      defaultRuntime.error(
+      throw new UpdatePreMutationError(
+        "managed-service-preflight",
         [
           `${updateLabel} cannot run from inside the gateway service process.`,
           "That path replaces the active OpenClaw dist tree while the live gateway may still lazy-load old chunks.",
           `Run \`${replaceCliName(formatCliCommand("openclaw update"), CLI_NAME)}\` from a shell outside the gateway service, or stop the gateway service first and then update.`,
         ].join("\n"),
       );
-      defaultRuntime.exit(1);
-      throw new UpdateCommandAbort();
     }
 
     if (preManagedServiceStop?.blockMessage) {
       params.stop();
-      defaultRuntime.error(preManagedServiceStop.blockMessage);
-      defaultRuntime.exit(1);
-      throw new UpdateCommandAbort();
+      throw new UpdatePreMutationError(
+        "managed-service-preflight",
+        preManagedServiceStop.blockMessage,
+      );
     }
   };
 
-  if (params.updateInstallKind === "package" || params.updateInstallKind === "git") {
-    try {
+  let result: UpdateRunResult;
+  let failure: MutableUpdateExecutionResult["failure"];
+  try {
+    if (params.updateInstallKind === "package" || params.updateInstallKind === "git") {
       await stopManagedServiceBeforeMutableUpdate(
         gitMutationRoots ?? undefined,
         params.updateInstallKind === "git" ? "inspect" : "prepare",
       );
-    } catch (err) {
-      if (err instanceof UpdateCommandAbort) {
-        return null;
-      }
-      throw err;
     }
-  }
-
-  const postStopPackageSchemaPreflight =
-    params.updateInstallKind === "package"
-      ? checkTargetDatabaseSchemas(
-          params.packageTargetSchemaVersions,
-          preManagedServiceStop?.serviceEnv ?? process.env,
-        )
-      : { incompatible: [], indeterminate: [] };
-  let result: UpdateRunResult;
-  try {
+    const postStopPackageSchemaPreflight =
+      params.updateInstallKind === "package"
+        ? checkTargetDatabaseSchemas(
+            params.packageTargetSchemaVersions,
+            preManagedServiceStop?.serviceEnv ?? process.env,
+          )
+        : { incompatible: [], indeterminate: [] };
     if (hasSchemaRefusal(postStopPackageSchemaPreflight)) {
       throw new UpdatePreMutationError(
         "database-schema-preflight",
@@ -251,35 +256,41 @@ export async function executeMutableUpdate(params: {
           });
   } catch (err) {
     params.stop();
-    if (err instanceof UpdatePreMutationError) {
-      defaultRuntime.error(err.message);
-      return {
-        result: {
-          status: "error",
-          mode:
-            params.updateInstallKind === "git"
-              ? "git"
-              : (params.packageInstallTarget?.manager ?? "unknown"),
-          root: params.root,
-          reason: err.reason,
-          recovery: await originalRecovery(),
-          steps: [],
-          durationMs: Date.now() - params.startedAt,
-        },
-        preManagedServiceStop,
-        ownedManagedUpdateContext,
-      };
-    }
     if (err instanceof UpdateCommandAbort) {
       return null;
     }
-    params.recoveryState.windowsTaskAutoStartRecovery?.complete(false);
-    defaultRuntime.error(
-      "Update interrupted without a verified installation result. A Gateway stopped for this update remains stopped; inspect `openclaw doctor` and `openclaw gateway status --deep` before restarting.",
-    );
-
-    throw err;
+    const preMutationFailure = err instanceof UpdatePreMutationError;
+    const message = formatErrorMessage(err);
+    failure = { cause: err, detail: message };
+    defaultRuntime.error(message);
+    const durationMs = Date.now() - params.startedAt;
+    // Only an explicit pre-mutation refusal can recover the original runtime.
+    // An exception after entering mutable work carries an unsafe observed outcome
+    // through the same cleanup, report, and triage path as a failed update step.
+    result = {
+      status: "error",
+      mode:
+        params.updateInstallKind === "git"
+          ? "git"
+          : (params.packageInstallTarget?.manager ?? "unknown"),
+      root: params.root,
+      reason: preMutationFailure ? err.reason : "update-failed",
+      recovery: preMutationFailure
+        ? await originalRecovery()
+        : { serviceRestartSafe: false, reason: "runtime-verification-failed" },
+      steps: [
+        {
+          name: preMutationFailure ? err.reason : "update",
+          command: "openclaw update",
+          cwd: params.root,
+          durationMs,
+          exitCode: 1,
+          stderrTail: message,
+        },
+      ],
+      durationMs,
+    };
   }
 
-  return { result, preManagedServiceStop, ownedManagedUpdateContext };
+  return { result, failure, preManagedServiceStop, ownedManagedUpdateContext, recoveryEnv };
 }

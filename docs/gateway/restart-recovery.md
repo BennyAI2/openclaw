@@ -87,6 +87,29 @@ the gateway.
 
 ## Recovery after a failed update
 
+After a failed interactive update or repair, OpenClaw finishes cleanup and any
+service recovery, then opens [`openclaw triage`](/cli/triage). Triage immediately
+starts the first directly launchable coding agent in this order: Claude Code,
+Codex, OpenCode, then Pi. It passes the captured failure before fresh Doctor
+checks or archive collection and asks the agent to diagnose, repair, and verify
+the installation. The agent receives the captured installation paths and keeps
+its normal authentication, sandbox, and approval settings.
+
+For a failed Control UI or unattended update, use the installation-specific
+command printed on the Gateway host, or run triage there with the same OpenClaw
+profile and state/config paths. Use `--agent` to select a particular coding agent:
+
+```bash
+openclaw triage
+openclaw triage --agent codex
+```
+
+JSON, `--yes`, and non-interactive update invocations collect diagnostics without
+starting a coding agent. `openclaw triage --non-interactive` also prepares
+diagnostics without launching an agent; `--update-result <path>` includes an
+updater's saved failure artifact. Printed handoff commands preserve installation
+selectors and use PowerShell on Windows or POSIX shells on macOS, Linux, and WSL.
+
 Git updates may restore and verify the original source and runtime before Doctor
 starts. Once candidate Doctor starts, subsequent failures retain that candidate
 and explicitly refuse recovery: code rollback cannot reverse state migrations.
@@ -121,13 +144,13 @@ verified recovery decision and preserves the skip reason. A zero exit is retaine
 only if recovery succeeds or the child already verified it; failed foreground
 recovery is terminal and is not retried.
 
-A failed update still exits nonzero when service recovery succeeds. Error and skip
-notifications are attempted before recovery; the helper does not recreate them
-after the recovering Gateway consumes them. Check the final CLI result and the
-handoff log for the recovery outcome.
+A failed update still exits nonzero when service recovery or the repair agent
+succeeds. Error and skip notifications are attempted before recovery; the helper
+does not recreate them after the recovering Gateway consumes them. Check the
+final CLI result and the handoff log for the recovery outcome.
 
-Inspect `openclaw gateway status --deep` and the update diagnostics. Repair the
-failed Doctor or installation check before restarting. Avoid blindly installing
+Repair the failed Doctor or installation check before restarting. Triage can
+inspect `openclaw gateway status --deep` and the update diagnostics. Avoid blindly installing
 older code after a newer release has migrated configuration or databases; see
 [Updating and recovery](/install/updating). Restart sentinels report the outcome;
 copying one does not grant permission to restart a service.

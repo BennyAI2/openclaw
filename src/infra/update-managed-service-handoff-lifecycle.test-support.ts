@@ -1,3 +1,4 @@
+import type { TriageUpdateFailure } from "../commands/triage-update.js";
 import { buildUpdateRestartSentinelPayload } from "./update-restart-sentinel-payload.js";
 import type { UpdateRunResult } from "./update-runner-types.js";
 
@@ -30,13 +31,19 @@ export type ManagedServiceManagerBoundaryOptions = {
   updaterExitCode?: number;
   recoveryExitCode?: number;
   recoveryHang?: boolean;
+  recoveryClockAdvanceMs?: number;
   recoverySentinel?: "retained" | "consumed" | "replaced";
+  triageExitCode?: number;
+  triageHang?: boolean;
+  triageMissing?: boolean;
+  recordedFailure?: TriageUpdateFailure;
   helperExitCode?: number;
   updaterResult?: unknown;
-  updaterOutput?: "malformed" | "overflow" | "missing";
+  updaterOutput?: "malformed" | "overflow" | "missing" | "split-utf8";
   updaterSignal?: boolean;
   updaterNotification?: "published" | "consumed";
   gatewayHealth?: "ready" | "unready" | "wrong-version" | "wrong-build" | "exited";
+  diagnosticReadFailure?: "before-recovery" | "after-recovery";
 };
 
 export type ManagedServiceCommandTiming = {
@@ -52,6 +59,8 @@ export type ManagedServiceManagerBoundaryResult = {
   sentinel: unknown;
   log: string;
   commandTimings: ManagedServiceCommandTiming[];
+  savedFailure: { path: string; mode: number; contents: TriageUpdateFailure } | null;
+  sensitiveFilesRemoved: boolean;
 };
 
 type ManagedSystemdFailureCase = readonly [string, ManagedSystemdPostExitState];
@@ -307,6 +316,7 @@ export function createManagedServiceUpdaterFixtureScript(params: {
   root: string;
   statePath: string;
   updaterPath: string;
+  logPath: string;
   stateDatabasePath: string;
   consumeNotification: string;
   options?: ManagedServiceManagerBoundaryOptions;
@@ -351,16 +361,41 @@ export function createManagedServiceUpdaterFixtureScript(params: {
             : []),
         ]
       : []),
+    ...(options?.diagnosticReadFailure === "before-recovery"
+      ? [
+          `{ const db = new (require("node:sqlite").DatabaseSync)(${JSON.stringify(stateDatabasePath)}); db.exec("ALTER TABLE gateway_restart_sentinel RENAME COLUMN thread_id TO unreadable_thread_id"); db.close(); }`,
+        ]
+      : []),
     `const result = JSON.stringify(${JSON.stringify(updaterResult)});`,
     `const mode = ${JSON.stringify(options?.updaterOutput)};`,
     `const output = mode === "missing" ? "" : mode === "malformed" ? "diagnostic before JSON\\n" + result : mode === "overflow" ? " ".repeat(4 * 1024 * 1024) + result : result;`,
-    `process.stdout.write(output, () => { ${options?.updaterSignal ? 'process.kill(process.pid, "SIGTERM");' : `process.exit(${options?.updaterExitCode ?? 7});`} });`,
+    `let remaining = Buffer.from(output);`,
+    ...(options?.updaterOutput === "split-utf8"
+      ? [
+          `const split = remaining.findIndex((byte) => byte >= 0x80) + 1;`,
+          `if (!split) throw new Error("expected a Unicode installation root");`,
+          `const prefix = remaining.subarray(0, split);`,
+          `const logPath = ${JSON.stringify(params.logPath)};`,
+          `const logOffset = fs.statSync(logPath).size;`,
+          `fs.writeSync(1, prefix);`,
+          // The raw log acknowledges a distinct pipe read before the remaining UTF-8 bytes.
+          `const deadline = Date.now() + 5000;`,
+          `while (!fs.readFileSync(logPath).subarray(logOffset).includes(prefix)) {`,
+          `  if (Date.now() >= deadline) throw new Error("helper did not receive the UTF-8 prefix");`,
+          `  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);`,
+          `}`,
+          `remaining = remaining.subarray(split);`,
+        ]
+      : []),
+    `process.stdout.write(remaining, () => { ${options?.updaterSignal ? 'process.kill(process.pid, "SIGTERM");' : `process.exit(${options?.updaterExitCode ?? 7});`} });`,
   ].join("");
 }
 
 export function createManagedServiceLaunchdClockPreload(params: {
   commandTimingsPath: string;
   clockEachCommandMs: number;
+  recoveryClockAdvanceMs?: number;
+  recoveryCommandArgv: string[];
 }): string {
   return [
     'const fs = require("node:fs");',
@@ -384,306 +419,12 @@ export function createManagedServiceLaunchdClockPreload(params: {
     `    fs.appendFileSync(${JSON.stringify(params.commandTimingsPath)}, JSON.stringify({ action: args[0], startedAtMs, timeoutMs }) + "\\n");`,
     `    elapsed += Math.min(${params.clockEachCommandMs}, timeoutMs);`,
     "  }",
-    "  return actualSpawn(command, args, options);",
+    "  const child = actualSpawn(command, args, options);",
+    // Advance only when the exact guarded restart closes, before the helper resumes.
+    `  if (command === process.execPath && args.at(-1) === ${JSON.stringify(JSON.stringify(params.recoveryCommandArgv))}) {`,
+    `    child.once("close", () => { elapsed += ${params.recoveryClockAdvanceMs ?? 0}; });`,
+    "  }",
+    "  return child;",
     "};",
   ].join("\n");
-}
-
-export function registerManagedRecoveryOutcomeTests(
-  runManagedServiceManagerBoundary: (
-    kind: "systemd" | "launchd",
-    options?: ManagedServiceManagerBoundaryOptions,
-  ) => Promise<ManagedServiceManagerBoundaryResult>,
-  itUnix: ReturnType<typeof import("vitest").it.runIf>,
-  expect: typeof import("vitest").expect,
-): void {
-  itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
-      [false, true].map((contradictory) => ({ kind, contradictory })),
-    ),
-  )(
-    "keeps $kind parked on unsafe exit 79 (contradictory stdout=$contradictory)",
-    async ({ kind, contradictory }) => {
-      const { commands, sentinel, state } = await runManagedServiceManagerBoundary(kind, {
-        updaterExitCode: 79,
-        updaterResult: contradictory
-          ? {
-              status: "error",
-              mode: "npm",
-              recovery: { serviceRestartSafe: true, version: "1.0.0" },
-            }
-          : undefined,
-      });
-
-      expect(state.parked).toBe(true);
-      expect(state.restored).toBeUndefined();
-      expect(
-        commands.some((command) => /(?:^| )(?:start|enable|bootstrap|kickstart) /.test(command)),
-      ).toBe(false);
-      expect(sentinel).toMatchObject({
-        payload: {
-          status: "error",
-          stats: { reason: "managed-service-handoff-unsafe-recovery", steps: [] },
-        },
-      });
-    },
-  );
-
-  itUnix.each(["systemd", "launchd"] as const)(
-    "%s never overrides a rejected or missing updater recovery result",
-    async (kind) => {
-      for (const updaterResult of [
-        undefined,
-        { status: "error", mode: "git", recovery: { serviceRestartSafe: true, version: "1.0.0" } },
-        ...(["healthy", "failed"] as const).map((service) => ({
-          status: "error",
-          mode: "npm",
-          recovery: { serviceRestartSafe: true, version: "1.0.0", service },
-        })),
-        {
-          status: "error",
-          mode: "npm",
-          reason: "doctor-failed",
-          recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" },
-        },
-      ]) {
-        const { commands, state, sentinel } = await runManagedServiceManagerBoundary(kind, {
-          updaterResult,
-          updaterNotification: "published",
-        });
-        expect(
-          commands.some((command) =>
-            /(?:^| )(?:start|reset-failed|enable|bootstrap|kickstart)(?: |$)/.test(command),
-          ),
-        ).toBe(false);
-        expect(state.restored).toBeUndefined();
-        expect(sentinel).toMatchObject({ payload: { status: "error" } });
-      }
-    },
-  );
-
-  itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
-      (["error", "skipped"] as const).flatMap((status) =>
-        ([undefined, "published", "consumed"] as const).map((updaterNotification) => ({
-          kind,
-          status,
-          updaterNotification,
-        })),
-      ),
-    ),
-  )(
-    "$kind restores a verified Git $status before the child owns a service stop (notification=$updaterNotification)",
-    async ({ kind, status, updaterNotification }) => {
-      const reason = status === "skipped" ? "no-upstream" : "preflight-fetch";
-      const { commands, state, sentinel, log } = await runManagedServiceManagerBoundary(kind, {
-        updaterExitCode: status === "skipped" ? 0 : 7,
-        updaterNotification,
-        updaterResult: {
-          status,
-          reason,
-          mode: "git",
-          recovery: { serviceRestartSafe: true, version: "1.0.0", buildId: "original-git-build" },
-        },
-      });
-      expect(
-        commands.filter((command) => /(?:^| )(?:start|bootstrap|kickstart)(?: |$)/.test(command)),
-      ).toHaveLength(1);
-      expect(state).toMatchObject({
-        restored: true,
-        healthProbeCount: 1,
-        expectedVersion: "1.0.0",
-        expectedBuildId: "original-git-build",
-      });
-      expect(log).toContain(JSON.stringify(reason));
-      if (updaterNotification === "published") {
-        expect(sentinel).toMatchObject({
-          payload: {
-            status,
-            stats: {
-              reason,
-              steps: [{ name: "service-restore", log: { exitCode: 0 } }],
-            },
-          },
-        });
-      } else {
-        expect(sentinel).toBeNull();
-      }
-    },
-  );
-
-  itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
-      (["error", "skipped"] as const).flatMap((status) =>
-        [
-          undefined,
-          { serviceRestartSafe: false, reason: "state-migration-started" },
-          { serviceRestartSafe: true, version: "1.0.0" },
-          ...(["healthy", "failed"] as const).map((service) => ({
-            serviceRestartSafe: true,
-            version: "1.0.0",
-            buildId: "original-git-build",
-            service,
-          })),
-        ].map((recovery) => ({
-          kind,
-          status,
-          recovery,
-          recoveryLabel: recovery && "service" in recovery ? recovery.service : recovery,
-        })),
-      ),
-    ),
-  )(
-    "$kind preserves terminal foreground $status outcomes and rejects unverified recovery ($recoveryLabel)",
-    async ({ kind, status, recovery }) => {
-      const healthy = recovery && "service" in recovery && recovery.service === "healthy";
-      const reason = status === "skipped" ? "no-upstream" : "preflight-fetch";
-      const { commands, state, sentinel, log } = await runManagedServiceManagerBoundary(kind, {
-        updaterExitCode: status === "skipped" ? 0 : 7,
-        helperExitCode: status === "skipped" ? (healthy ? 0 : 1) : 7,
-        updaterNotification: "consumed",
-        updaterResult: { status, reason, mode: "git", recovery },
-      });
-      expect(
-        commands.some((command) =>
-          /(?:^| )(?:start|enable|bootstrap|kickstart)(?: |$)/.test(command),
-        ),
-      ).toBe(false);
-      expect(state.healthProbed).toBeUndefined();
-      expect(log).toContain("managed update recovery not attempted:");
-      if (recovery && "service" in recovery) {
-        expect(sentinel).toBeNull();
-      } else {
-        expect(sentinel).toMatchObject({
-          payload: { status: "error", stats: { reason } },
-        });
-      }
-    },
-  );
-
-  itUnix.each(["systemd", "launchd"] as const)(
-    "%s fails a zero-exit skip when restored Gateway readiness or identity fails",
-    async (kind) => {
-      for (const gatewayHealth of ["unready", "wrong-version", "wrong-build", "exited"] as const) {
-        const { state, sentinel } = await runManagedServiceManagerBoundary(kind, {
-          updaterExitCode: 0,
-          helperExitCode: 1,
-          gatewayHealth,
-          updaterNotification: "published",
-          updaterResult: {
-            status: "skipped",
-            reason: "no-upstream",
-            mode: "git",
-            recovery: { serviceRestartSafe: true, version: "1.0.0", buildId: "original-git-build" },
-          },
-        });
-        expect(state).toMatchObject({ restored: true, healthProbeCount: 1 });
-        expect(sentinel).toMatchObject({
-          payload: {
-            status: "error",
-            stats: {
-              reason: "no-upstream",
-              steps: [
-                {
-                  name: "service-restore",
-                  log: {
-                    exitCode: 1,
-                    stderrTail: "managed-service-handoff-restore-failed",
-                  },
-                },
-              ],
-            },
-          },
-        });
-      }
-    },
-  );
-
-  itUnix.each(["systemd", "launchd"] as const)(
-    "%s parks an updater with missing, malformed, oversized, interrupted, or rootless output",
-    async (kind) => {
-      for (const fault of [
-        "missing",
-        "malformed",
-        "overflow",
-        "signal",
-        "missing-root",
-        "invalid-root",
-      ] as const) {
-        const { state, sentinel } = await runManagedServiceManagerBoundary(kind, {
-          updaterExitCode: 0,
-          helperExitCode: 1,
-          updaterOutput:
-            fault === "signal" || fault === "missing-root" || fault === "invalid-root"
-              ? undefined
-              : fault,
-          updaterSignal: fault === "signal",
-          updaterResult: {
-            status: "ok",
-            mode: "npm",
-            ...(fault === "missing-root"
-              ? { root: undefined }
-              : fault === "invalid-root"
-                ? { root: 42 }
-                : {}),
-            steps: [],
-            durationMs: 100,
-            recovery: { serviceRestartSafe: true, version: "1.0.0" },
-          },
-        });
-        expect(state.restored).toBeUndefined();
-        expect(state.healthProbed).toBeUndefined();
-        expect(sentinel).toMatchObject({
-          payload: { status: "error", stats: { reason: "managed-service-handoff-failed" } },
-        });
-      }
-    },
-  );
-
-  itUnix.each(["systemd", "launchd"] as const)(
-    "%s verifies readiness and expected version before claiming restored service health",
-    async (kind) => {
-      for (const gatewayHealth of [
-        "unready",
-        "wrong-version",
-        "wrong-build",
-        "exited",
-        "ready",
-      ] as const) {
-        const { sentinel, state } = await runManagedServiceManagerBoundary(kind, {
-          updaterNotification: "published",
-          updaterResult: {
-            status: "error",
-            reason: "preflight-fetch",
-            mode: "git",
-            recovery: { serviceRestartSafe: true, version: "1.0.0", buildId: "restored-git-build" },
-          },
-          gatewayHealth,
-        });
-        expect(state).toMatchObject({
-          healthProbed: true,
-          expectedVersion: "1.0.0",
-          expectedBuildId: "restored-git-build",
-        });
-        expect(sentinel).toMatchObject({
-          payload: {
-            stats: {
-              reason: "preflight-fetch",
-              steps: expect.arrayContaining([
-                expect.objectContaining({
-                  name: "service-restore",
-                  log: {
-                    exitCode: gatewayHealth === "ready" ? 0 : 1,
-                    ...(gatewayHealth === "ready"
-                      ? {}
-                      : { stderrTail: "managed-service-handoff-restore-failed" }),
-                  },
-                }),
-              ]),
-            },
-          },
-        });
-      }
-    },
-  );
 }
