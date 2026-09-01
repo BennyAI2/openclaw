@@ -112,8 +112,6 @@ type TaskRegistryReadOnlyLoadResult = {
   snapshot: TaskRegistryStoreSnapshot;
 };
 
-let cachedDatabase: TaskRegistryDatabase | null = null;
-
 function serializeJson(value: unknown): string | null {
   return value === undefined ? null : (JSON.stringify(value) ?? null);
 }
@@ -358,25 +356,9 @@ function deleteTaskRowsWithDeliveryState(db: DatabaseSync, taskId: string): void
   deleteExecutionOwnerLifecycleMetadata({ db, ownerKind: "task", ownerIds: [taskId] });
 }
 
-function openTaskRegistryDatabase(): TaskRegistryDatabase {
-  const database = openOpenClawStateDatabase();
-  const pathname = database.path;
-  if (cachedDatabase && cachedDatabase.path === pathname && cachedDatabase.db.isOpen) {
-    return cachedDatabase;
-  }
-  if (cachedDatabase && !cachedDatabase.db.isOpen) {
-    cachedDatabase = null;
-  }
-  cachedDatabase = {
-    db: database.db,
-    path: pathname,
-  };
-  return cachedDatabase;
-}
-
 function withWriteTransaction(write: (database: OpenClawStateDatabase) => void) {
   // Open once before BEGIN; the callback receives that exact shared-state owner.
-  openTaskRegistryDatabase();
+  openOpenClawStateDatabase();
   runOpenClawStateWriteTransaction((database) => write(database));
 }
 
@@ -396,7 +378,7 @@ function readTaskRegistrySnapshot({ db, path }: TaskRegistryDatabase): TaskRegis
 }
 
 export function loadTaskRegistryStateFromSqlite(): TaskRegistryStoreSnapshot {
-  return readTaskRegistrySnapshot(openTaskRegistryDatabase());
+  return readTaskRegistrySnapshot(openOpenClawStateDatabase());
 }
 
 /** Loads task records without creating or migrating shared state. */
@@ -434,7 +416,7 @@ export function listTaskRegistryRecordsByOwnerKeyFromSqlite(ownerKey: string): T
   if (!key) {
     return [];
   }
-  const { db } = openTaskRegistryDatabase();
+  const { db } = openOpenClawStateDatabase();
   return selectTaskRowsByOwnerKey(db, key).map(rowToTaskRecord);
 }
 
@@ -584,6 +566,5 @@ export function deleteTaskDeliveryStateFromSqlite(taskId: string) {
 }
 
 export function closeTaskRegistryDatabase() {
-  cachedDatabase = null;
   closeOpenClawStateDatabase();
 }

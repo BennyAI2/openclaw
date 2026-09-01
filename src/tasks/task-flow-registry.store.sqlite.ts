@@ -51,8 +51,6 @@ type FlowRegistryDatabase = {
 };
 
 // SQLite-backed task-flow store mirrors the in-process registry into openclaw-state.db.
-let cachedDatabase: FlowRegistryDatabase | null = null;
-
 function serializeJson(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
@@ -225,31 +223,15 @@ function upsertFlowRow(db: DatabaseSync, row: Insertable<FlowRunsTable>): void {
   );
 }
 
-function openFlowRegistryDatabase(): FlowRegistryDatabase {
-  const database = openOpenClawStateDatabase();
-  const pathname = database.path;
-  if (cachedDatabase && cachedDatabase.path === pathname && cachedDatabase.db.isOpen) {
-    return cachedDatabase;
-  }
-  if (cachedDatabase && !cachedDatabase.db.isOpen) {
-    cachedDatabase = null;
-  }
-  cachedDatabase = {
-    db: database.db,
-    path: pathname,
-  };
-  return cachedDatabase;
-}
-
 function withWriteTransaction(write: (database: FlowRegistryDatabase) => void) {
-  const database = openFlowRegistryDatabase();
+  const database = openOpenClawStateDatabase();
   runOpenClawStateWriteTransaction(() => {
     write(database);
   });
 }
 
 export function loadTaskFlowRegistryStateFromSqlite(): TaskFlowRegistryStoreSnapshot {
-  const { db } = openFlowRegistryDatabase();
+  const { db } = openOpenClawStateDatabase();
   const rows = selectFlowRows(db);
   return {
     flows: new Map(rows.map((row) => [row.flow_id, rowToFlowRecord(row)])),
@@ -337,6 +319,5 @@ export function deleteTaskFlowRegistryRecordFromSqlite(flowId: string) {
 }
 
 export function closeTaskFlowRegistryDatabase() {
-  cachedDatabase = null;
   closeOpenClawStateDatabase();
 }
