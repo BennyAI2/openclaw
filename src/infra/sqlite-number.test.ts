@@ -1,7 +1,7 @@
 // Tests for SQLite number normalization.
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { normalizeSqliteNumber } from "./sqlite-number.js";
+import { coerceSqliteNumber, normalizeSqliteNumber } from "./sqlite-number.js";
 
 describe("normalizeSqliteNumber", () => {
   it("returns number value unchanged", () => {
@@ -43,12 +43,13 @@ describe("normalizeSqliteNumber", () => {
   it.each([
     BigInt(Number.MAX_SAFE_INTEGER) + BigInt(1),
     BigInt(-Number.MAX_SAFE_INTEGER) - BigInt(1),
-  ])("returns undefined for unsafe bigint row %s", (value) => {
+  ])("keeps required and safe unsafe-bigint contracts distinct for row %s", (value) => {
     const database = new DatabaseSync(":memory:");
     try {
       const statement = database.prepare("SELECT ? AS value");
       statement.setReadBigInts(true);
       const row = statement.get(value) as { value: bigint };
+      expect(coerceSqliteNumber(row.value)).toBe(Number(value));
       expect(normalizeSqliteNumber(row.value)).toBeUndefined();
     } finally {
       database.close();
