@@ -20,7 +20,7 @@ const CODEX_OAUTH_IMPORT = {
 } as const;
 const CODEX_API_KEY_IMPORT = {
   migrationProviderId: "codex",
-  itemId: "auth:openai",
+  itemId: "auth:openai:api-key",
   credentialKind: "api_key",
 } as const;
 

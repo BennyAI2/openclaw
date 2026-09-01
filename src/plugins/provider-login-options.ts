@@ -78,13 +78,20 @@ function toProviderLoginOption(
 export function listProviderLoginOptions(
   authChoices: readonly ProviderAuthChoiceMetadata[],
 ): ProviderLoginOption[] {
+  const choiceIdCounts = new Map<string, number>();
+  for (const choice of authChoices) {
+    const id = choice.choiceId.trim();
+    if (id) {
+      choiceIdCounts.set(id, (choiceIdCounts.get(id) ?? 0) + 1);
+    }
+  }
   const choices = new Map<
     string,
     { metadata: ProviderAuthChoiceMetadata; option: ProviderLoginOption }
   >();
   for (const choice of authChoices) {
     const option = toProviderLoginOption(choice);
-    if (!option || choices.has(option.id)) {
+    if (!option || choiceIdCounts.get(option.id) !== 1) {
       continue;
     }
     choices.set(option.id, { metadata: choice, option });
@@ -134,10 +141,20 @@ function toProviderSetupOption(
 export function listProviderAccessOptions(
   authChoices: readonly ProviderAuthChoiceMetadata[],
 ): ProviderAccessOption[] {
-  const loginById = new Map(
-    listProviderLoginOptions(authChoices).map((option) => [option.id, option] as const),
+  const choiceIdCounts = new Map<string, number>();
+  for (const choice of authChoices) {
+    const id = choice.choiceId.trim();
+    if (id) {
+      choiceIdCounts.set(id, (choiceIdCounts.get(id) ?? 0) + 1);
+    }
+  }
+  const unambiguousChoices = authChoices.filter(
+    (choice) => choiceIdCounts.get(choice.choiceId.trim()) === 1,
   );
-  return authChoices
+  const loginById = new Map(
+    listProviderLoginOptions(unambiguousChoices).map((option) => [option.id, option] as const),
+  );
+  return unambiguousChoices
     .flatMap((choice) => {
       const login = loginById.get(choice.choiceId);
       const option = login ? { ...login, mode: "login" as const } : toProviderSetupOption(choice);
@@ -167,8 +184,14 @@ function normalizeLoginInput(value: string | undefined): string {
   return normalizeLowercaseStringOrEmpty(value ?? "").replace(/_/gu, "-");
 }
 
+function channelLoginChoiceKey(
+  choice: Pick<ProviderChannelLoginChoice, "pluginId" | "choiceId" | "providerId" | "methodId">,
+): string {
+  return `${choice.pluginId}\0${choice.choiceId}\0${choice.providerId}\0${choice.methodId}`;
+}
+
 function uniqueChoices(choices: readonly ProviderChannelLoginChoice[]) {
-  return [...new Map(choices.map((choice) => [choice.choiceId, choice])).values()];
+  return [...new Map(choices.map((choice) => [channelLoginChoiceKey(choice), choice])).values()];
 }
 
 function readProviderChannelLoginMetadata(
@@ -231,12 +254,14 @@ export function resolveProviderChannelLoginChoice(
 ): ProviderChannelLoginResolution {
   const metadata = readProviderChannelLoginMetadata(params);
   const choices = projectProviderChannelLoginChoices(metadata);
-  const byChoiceId = new Map(choices.map((choice) => [choice.choiceId, choice]));
+  const projectedByOwner = new Map(
+    choices.map((choice) => [channelLoginChoiceKey(choice), choice]),
+  );
   const normalized = normalizeLoginInput(input);
   const select = (matches: readonly ProviderAuthChoiceMetadata[]) => {
     const resolved = uniqueChoices(
       matches.flatMap((choice) => {
-        const projected = byChoiceId.get(choice.choiceId);
+        const projected = projectedByOwner.get(channelLoginChoiceKey(choice));
         return projected ? [projected] : [];
       }),
     ).toSorted(

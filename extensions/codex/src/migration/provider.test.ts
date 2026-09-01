@@ -13,12 +13,12 @@ import {
   type TempWorkspace,
 } from "openclaw/plugin-sdk/temp-path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildMigrationProvider as buildCodexMigrationProvider } from "../../migration-provider-api.js";
 import { defaultCodexAppInventoryCache } from "../app-server/app-inventory-cache.js";
 import { codexAppInventoryResponse } from "../app-server/app-inventory.test-helpers.js";
 import { CODEX_PLUGINS_MARKETPLACE_NAME } from "../app-server/config.js";
 import { buildCodexPluginAppCacheKey } from "../app-server/plugin-app-cache-key.js";
 import type { CodexGetAccountResponse, v2 } from "../app-server/protocol.js";
-import { buildCodexMigrationProvider } from "./provider.js";
 import { discoverCodexSource } from "./source.js";
 
 const appServerRequest = vi.hoisted(() => vi.fn());
@@ -1000,6 +1000,51 @@ describe("buildCodexMigrationProvider", () => {
     );
   });
 
+  it("keeps combined Codex OAuth and API-key credentials distinct", async () => {
+    const fixture = await createCodexFixture();
+    const accessToken = fakeJwt({
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_combined" },
+      "https://api.openai.com/profile": { email: "combined@example.test" },
+    });
+    await writeFile(
+      path.join(fixture.codexHome, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        OPENAI_API_KEY: "sk-combined",
+        tokens: {
+          access_token: accessToken,
+          refresh_token: "refresh-combined-token",
+          account_id: "acct_combined",
+        },
+      }),
+    );
+    const configState: MigrationProviderContext["config"] = {
+      agents: { defaults: { workspace: fixture.workspaceDir } },
+    };
+    const provider = buildCodexMigrationProvider();
+    const ctx = makeContext({
+      source: fixture.codexHome,
+      stateDir: fixture.stateDir,
+      workspaceDir: fixture.workspaceDir,
+      config: configState,
+      runtime: createConfigRuntime(configState),
+      reportDir: path.join(fixture.root, "report"),
+      includeSecrets: true,
+    });
+
+    const plan = await provider.plan(ctx);
+    expect(findItem(plan.items, "auth:openai").details?.credentialKind).toBe("oauth");
+    expect(findItem(plan.items, "auth:openai:api-key").details?.credentialKind).toBe("api_key");
+
+    const result = await provider.apply(ctx, plan);
+    expect(findItem(result.items, "auth:openai").status).toBe("migrated");
+    expect(findItem(result.items, "auth:openai:api-key").status).toBe("migrated");
+    expect(loadTargetAuthStore(fixture).profiles).toMatchObject({
+      "openai:account-acct_combined": { type: "oauth", provider: "openai" },
+      "openai:codex-import": { type: "api_key", provider: "openai", key: "sk-combined" },
+    });
+  });
+
   it("reports late-created Codex API key config auth profile conflicts before writing", async () => {
     const fixture = await createCodexFixture();
     const reportDir = path.join(fixture.root, "report");
@@ -1036,7 +1081,7 @@ describe("buildCodexMigrationProvider", () => {
 
     const result = await provider.apply(ctx, plan);
 
-    expect(findItem(result.items, "auth:openai")).toEqual(
+    expect(findItem(result.items, "auth:openai:api-key")).toEqual(
       expect.objectContaining({
         status: "conflict",
         reason: "auth profile exists",

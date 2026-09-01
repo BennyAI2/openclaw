@@ -6,6 +6,10 @@ import { listBundledPluginMetadata } from "./bundled-plugin-metadata.js";
 import { loadPluginRegistryHandle } from "./loader.js";
 import { resolveManifestContractRuntimePluginResolution } from "./manifest-contract-runtime.js";
 import { isPluginRegistryRetired } from "./registry-lifecycle.js";
+import {
+  resolveBundledMigrationProviderPublicArtifacts,
+  type MigrationProviderArtifactPlugin,
+} from "./migration-provider-public-artifacts.js";
 import type { PluginRegistry } from "./registry-types.js";
 import { withPluginRuntimeRegistryScope } from "./runtime/gateway-request-scope.js";
 import type { MigrationProviderPlugin } from "./types.js";
@@ -13,6 +17,7 @@ import type { MigrationProviderPlugin } from "./types.js";
 type MigrationProviderPluginResolution = {
   pluginIds: string[];
   bundledCompatPluginIds: string[];
+  bundledPlugins: MigrationProviderArtifactPlugin[];
 };
 
 let standaloneMigrationRegistrySlot:
@@ -56,9 +61,17 @@ function bindMigrationProviderToRegistry(
   };
 }
 
-function resolveMigrationProviderRegistry(params: { cfg?: OpenClawConfig; pluginIds: string[] }) {
+function resolveMigrationProviderRegistry(params: {
+  cfg?: OpenClawConfig;
+  pluginIds: string[];
+  providerId?: string;
+}) {
   const active = getLoadedRuntimePluginRegistry({ requiredPluginIds: params.pluginIds });
-  if (active) {
+  if (
+    active &&
+    (!params.providerId ||
+      findMigrationProviderById(active.migrationProviders, params.providerId) !== undefined)
+  ) {
     return active;
   }
   const standalone = standaloneMigrationRegistrySlot;
@@ -81,6 +94,7 @@ function resolveMigrationProviderPluginResolution(params: {
   });
   const pluginIds = new Set(resolution.pluginIds);
   const bundledCompatPluginIds = new Set(resolution.bundledCompatPluginIds);
+  const bundledPlugins: MigrationProviderPluginResolution["bundledPlugins"] = [];
 
   // Install migration can persist a deliberately pruned bundled-plugin index.
   // Migration contracts still need manifest discovery to repair older indexes.
@@ -94,6 +108,12 @@ function resolveMigrationProviderPluginResolution(params: {
     }
     pluginIds.add(plugin.manifest.id);
     bundledCompatPluginIds.add(plugin.manifest.id);
+    bundledPlugins.push({
+      id: plugin.manifest.id,
+      origin: "bundled",
+      rootDir: plugin.rootDir,
+      contracts: { migrationProviders: providerIds },
+    });
   }
 
   return {
@@ -101,17 +121,19 @@ function resolveMigrationProviderPluginResolution(params: {
     bundledCompatPluginIds: [...bundledCompatPluginIds].toSorted((left, right) =>
       left.localeCompare(right),
     ),
+    bundledPlugins,
   };
 }
 
 function mergeMigrationProviders(
-  left: ReadonlyArray<{ provider: MigrationProviderPlugin }>,
-  right: ReadonlyArray<{ provider: MigrationProviderPlugin }>,
+  ...groups: readonly (readonly MigrationProviderPlugin[])[]
 ): MigrationProviderPlugin[] {
   const merged = new Map<string, MigrationProviderPlugin>();
-  for (const entry of [...left, ...right]) {
-    if (!merged.has(entry.provider.id)) {
-      merged.set(entry.provider.id, entry.provider);
+  for (const providers of groups) {
+    for (const provider of providers) {
+      if (!merged.has(provider.id)) {
+        merged.set(provider.id, provider);
+      }
     }
   }
   return [...merged.values()].toSorted((a, b) => a.id.localeCompare(b.id));
@@ -162,6 +184,13 @@ export function resolvePluginMigrationProvider(params: {
     cfg: params.cfg,
     providerId: params.providerId,
   });
+  const publicProviders = resolveBundledMigrationProviderPublicArtifacts({
+    plugins: resolution.bundledPlugins,
+    providerId: params.providerId,
+  });
+  if (publicProviders[0]) {
+    return publicProviders[0].provider;
+  }
   const pluginIds = resolution.pluginIds;
   if (pluginIds.length === 0) {
     return undefined;
@@ -169,6 +198,7 @@ export function resolvePluginMigrationProvider(params: {
   const registry = resolveMigrationProviderRegistry({
     cfg: params.cfg,
     pluginIds,
+    providerId: params.providerId,
   });
   const provider = findMigrationProviderById(registry?.migrationProviders ?? [], params.providerId);
   return provider && registry ? bindMigrationProviderToRegistry(provider, registry) : undefined;
@@ -182,18 +212,28 @@ export function resolvePluginMigrationProviders(
   const activeRegistry = getLoadedRuntimePluginRegistry();
   const activeProviders = activeRegistry?.migrationProviders ?? [];
   const resolution = resolveMigrationProviderPluginResolution({ cfg: params.cfg });
+  const publicProviders = resolveBundledMigrationProviderPublicArtifacts({
+    plugins: resolution.bundledPlugins,
+  }).map(({ provider }) => provider);
   const pluginIds = resolution.pluginIds;
   if (pluginIds.length === 0) {
-    return mergeMigrationProviders(activeProviders, []);
+    return mergeMigrationProviders(
+      activeProviders.map(({ provider }) => provider),
+      publicProviders,
+    );
   }
   const registry = resolveMigrationProviderRegistry({
     cfg: params.cfg,
     pluginIds,
   });
   const scopedProviders = registry
-    ? registry.migrationProviders.map(({ provider }) => ({
-        provider: bindMigrationProviderToRegistry(provider, registry),
-      }))
+    ? registry.migrationProviders.map(({ provider }) =>
+        bindMigrationProviderToRegistry(provider, registry),
+      )
     : [];
-  return mergeMigrationProviders(activeProviders, scopedProviders);
+  return mergeMigrationProviders(
+    activeProviders.map(({ provider }) => provider),
+    publicProviders,
+    scopedProviders,
+  );
 }

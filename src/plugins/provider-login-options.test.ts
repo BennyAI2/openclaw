@@ -138,6 +138,39 @@ describe("provider channel login choices", () => {
     });
   });
 
+  it("fails an equal-priority choice ID collision at the provider-login entry point", () => {
+    const snapshot = {
+      manifestRegistry: {
+        plugins: [
+          {
+            id: "alpha-auth",
+            origin: "bundled",
+            providerAuthChoices: [
+              choice({ provider: "alpha", method: "oauth", choiceId: "shared-login" }),
+            ],
+          },
+          {
+            id: "beta-auth",
+            origin: "bundled",
+            providerAuthChoices: [
+              choice({ provider: "beta", method: "device", choiceId: "shared-login" }),
+            ],
+          },
+        ],
+      },
+    } as never;
+
+    expect(
+      resolveProviderChannelLoginChoice("shared-login", { metadataSnapshot: snapshot }),
+    ).toEqual({
+      status: "ambiguous",
+      choices: [
+        expect.objectContaining({ pluginId: "alpha-auth", providerId: "alpha" }),
+        expect.objectContaining({ pluginId: "beta-auth", providerId: "beta" }),
+      ],
+    });
+  });
+
   it.each([
     {
       name: "provider id",
