@@ -1,4 +1,5 @@
 import { spawn, type SpawnOptions } from "node:child_process";
+import { registerProcessSignalHandlers } from "./lib/managed-child-process.mts";
 import { createPnpmRunnerSpawnSpec } from "./pnpm-runner.mts";
 
 const KNIP_VERSION = "6.32.2";
@@ -164,28 +165,20 @@ export async function runKnip(knipArgs: string[], params: KnipRunParams = {}) {
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const parentSignalHandlers: Array<{ signal: KnipSignal; handler: () => void }> = [];
-    const cleanupParentSignalHandlers = () => {
-      for (const { signal, handler } of parentSignalHandlers) {
-        process.off(signal, handler);
-      }
-      parentSignalHandlers.length = 0;
-    };
-    const relayParentSignal = (signal: KnipSignal) => {
-      const handler = () => {
+    let cleanupParentSignalHandlers = () => {};
+    cleanupParentSignalHandlers = registerProcessSignalHandlers({
+      signals:
+        process.platform === "win32"
+          ? []
+          : (["SIGINT", "SIGTERM", "SIGHUP"] satisfies readonly KnipSignal[]),
+      mode: "once",
+      onSignal(signal) {
         signalProcessTree(child, signal);
         signalProcessTree(child, "SIGKILL");
         cleanupParentSignalHandlers();
         process.kill(process.pid, signal);
-      };
-      parentSignalHandlers.push({ signal, handler });
-      process.once(signal, handler);
-    };
-    if (process.platform !== "win32") {
-      relayParentSignal("SIGINT");
-      relayParentSignal("SIGTERM");
-      relayParentSignal("SIGHUP");
-    }
+      },
+    });
 
     const heartbeatTimer = setInterval(() => {
       writeStatus(

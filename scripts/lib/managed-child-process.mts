@@ -73,7 +73,29 @@ type ManagedCommandOutcome =
   | { type: "signal"; signal: NodeJS.Signals };
 
 const managedChildren = new Set<(signal: NodeJS.Signals) => void>();
-const signalHandlers = new Map<NodeJS.Signals, () => void>();
+let disposeSignalHandlers: (() => void) | undefined;
+
+export function registerProcessSignalHandlers<const TSignal extends NodeJS.Signals>({
+  signals,
+  mode,
+  onSignal,
+}: {
+  signals: readonly TSignal[];
+  mode: "once" | "on";
+  onSignal: (signal: TSignal) => void;
+}): () => void {
+  const registrations: Array<readonly [TSignal, () => void]> = [];
+  for (const signal of signals) {
+    const handler = () => onSignal(signal);
+    registrations.push([signal, handler]);
+    if (mode === "once") {
+      process.once(signal, handler);
+    } else {
+      process.on(signal, handler);
+    }
+  }
+  return () => registrations.splice(0).forEach(([signal, handler]) => process.off(signal, handler));
+}
 
 /** Return the conventional shell exit code for a signal. */
 export function signalExitCode(signal: NodeJS.Signals) {
@@ -581,24 +603,19 @@ function createManagedCommandCleanupError(
 }
 
 function installSignalHandlers() {
-  for (const signal of FORWARDED_SIGNALS) {
-    if (signalHandlers.has(signal)) {
-      continue;
-    }
-    const handler = () => forwardSignalToManagedChildren(signal);
-    signalHandlers.set(signal, handler);
-    process.on(signal, handler);
-  }
+  disposeSignalHandlers ??= registerProcessSignalHandlers({
+    signals: FORWARDED_SIGNALS,
+    mode: "on",
+    onSignal: forwardSignalToManagedChildren,
+  });
 }
 
 function removeSignalHandlersIfIdle() {
   if (managedChildren.size > 0) {
     return;
   }
-  for (const [signal, handler] of signalHandlers) {
-    process.off(signal, handler);
-  }
-  signalHandlers.clear();
+  disposeSignalHandlers?.();
+  disposeSignalHandlers = undefined;
 }
 
 function forwardSignalToManagedChildren(signal: NodeJS.Signals) {

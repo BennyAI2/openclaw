@@ -24,6 +24,7 @@ import {
 import { toErrorObject } from "./lib/error-format.mts";
 import {
   inspectManagedProcessGroup,
+  registerProcessSignalHandlers,
   signalExitCode,
   terminateManagedChild,
   waitForManagedProcessGroupExit,
@@ -1657,29 +1658,15 @@ export async function runTsdownBuildInvocation(
     });
   }
 
-  const parentSignalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
-  function cleanupParentSignalHandlers() {
-    for (const { signal, handler } of parentSignalHandlers) {
-      process.off(signal, handler);
-    }
-    parentSignalHandlers.length = 0;
-  }
-
-  function relayParentSignal(signal: NodeJS.Signals) {
-    const handler = () => {
+  const cleanupParentSignalHandlers = registerProcessSignalHandlers({
+    signals: useProcessGroup ? ["SIGINT", "SIGTERM", "SIGHUP"] : [],
+    mode: "once",
+    onSignal(signal) {
       parentSignal ??= signal;
       signalChild(signal);
       signalChild("SIGKILL");
-    };
-    parentSignalHandlers.push({ signal, handler });
-    process.once(signal, handler);
-  }
-
-  if (useProcessGroup) {
-    relayParentSignal("SIGINT");
-    relayParentSignal("SIGTERM");
-    relayParentSignal("SIGHUP");
-  }
+    },
+  });
 
   const processTreeAlive = () =>
     inspectManagedProcessGroup(child, {

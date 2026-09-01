@@ -17,6 +17,7 @@ import {
 import { coerceErrorMessage } from "./lib/error-format.mts";
 import {
   inspectManagedProcessGroup,
+  registerProcessSignalHandlers,
   terminateManagedChild,
   waitForManagedProcessGroupExit,
 } from "./lib/managed-child-process.mts";
@@ -334,31 +335,21 @@ export function spawnText(command: string, args: readonly string[], options: Spa
         },
         taskkillTimeoutMs: null,
       });
-    const parentSignalHandlers: { signal: ProcessSignal; handler: () => void }[] = [];
-    const cleanupParentSignalHandlers = () => {
-      for (const { signal, handler } of parentSignalHandlers) {
-        process.off(signal, handler);
-      }
-      parentSignalHandlers.length = 0;
-    };
-    const relayParentSignal = (signal: ProcessSignal) => {
-      const handler = () => {
-        signalChild(signal);
+    let cleanupParentSignalHandlers = () => {};
+    cleanupParentSignalHandlers = registerProcessSignalHandlers({
+      signals: useProcessGroup
+        ? ["SIGINT", "SIGTERM", "SIGHUP"]
+        : process.platform === "win32"
+          ? ["SIGINT", "SIGTERM"]
+          : [],
+      mode: "once",
+      onSignal(signal) {
+        signalChild(signal as ProcessSignal);
         signalChild("SIGKILL");
         cleanupParentSignalHandlers();
-        process.kill(process.pid, signal as NodeJS.Signals);
-      };
-      parentSignalHandlers.push({ signal, handler });
-      process.once(signal, handler);
-    };
-    if (useProcessGroup) {
-      relayParentSignal("SIGINT");
-      relayParentSignal("SIGTERM");
-      relayParentSignal("SIGHUP");
-    } else if (process.platform === "win32") {
-      relayParentSignal("SIGINT");
-      relayParentSignal("SIGTERM");
-    }
+        process.kill(process.pid, signal);
+      },
+    });
     const processGroupIsAlive = () =>
       inspectManagedProcessGroup(child, { errorPolicy: "alive-on-eperm" }) === "live";
     const finishAfterProcessGroupCleanup = async (result: SpawnTextResult) => {

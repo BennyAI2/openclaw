@@ -36,6 +36,7 @@ import {
   type TranslationBatchItem,
 } from "./lib/control-ui-i18n-sync-plan.ts";
 import { toErrorObject as toLintErrorObject } from "./lib/error-format.mts";
+import { registerProcessSignalHandlers } from "./lib/managed-child-process.mts";
 import { sleep } from "./lib/sleep.mjs";
 import { resolveWindowsTaskkillPath } from "./lib/windows-taskkill.mjs";
 
@@ -558,13 +559,7 @@ export async function runProcess(
     let parentSignalPending: NodeJS.Signals | null = null;
     const parentSignalState: RunProcessParentSignalState = { done: false, signal: null };
     activeRunProcessParentSignals.add(parentSignalState);
-    const parentSignalHandlers: { handler: () => void; signal: NodeJS.Signals }[] = [];
-    const cleanupParentSignalHandlers = () => {
-      for (const { signal, handler } of parentSignalHandlers) {
-        process.off(signal, handler);
-      }
-      parentSignalHandlers.length = 0;
-    };
+    let cleanupParentSignalHandlers = () => {};
     const signalWindowsProcessTree = (force: boolean): boolean => {
       if (process.platform !== "win32" || typeof child.pid !== "number") {
         return false;
@@ -599,8 +594,11 @@ export async function runProcess(
       }
       child.kill(signal);
     };
-    const relayParentSignal = (signal: NodeJS.Signals) => {
-      const handler = () => {
+    cleanupParentSignalHandlers = registerProcessSignalHandlers({
+      signals:
+        process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"],
+      mode: "once",
+      onSignal(signal) {
         parentSignalPending = signal;
         parentSignalState.signal = signal;
         signalChild(signal);
@@ -623,15 +621,8 @@ export async function runProcess(
           parentSignalState.done = true;
           maybeReraiseRunProcessParentSignal(signal);
         }, killGraceMs);
-      };
-      parentSignalHandlers.push({ handler, signal });
-      process.once(signal, handler);
-    };
-    const relayedSignals: NodeJS.Signals[] =
-      process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
-    for (const signal of relayedSignals) {
-      relayParentSignal(signal);
-    }
+      },
+    });
     const processGroupIsAlive = () => {
       if (!useProcessGroup || typeof child.pid !== "number") {
         return false;
