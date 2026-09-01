@@ -355,7 +355,7 @@ describe("migration provider runtime", () => {
     ] as never);
     mocks.resolveBundledMigrationProviderPublicArtifacts.mockReturnValue([
       { pluginId: "codex", provider },
-    ]);
+    ] as never);
 
     expect(resolvePluginMigrationProvider({ providerId: "codex" })).toBe(provider);
     expect(mocks.loadPluginRegistryHandle).not.toHaveBeenCalled();

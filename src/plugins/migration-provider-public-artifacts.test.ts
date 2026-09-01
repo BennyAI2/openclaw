@@ -84,6 +84,7 @@ describe("migration provider public artifacts", () => {
     expect(() =>
       resolveBundledMigrationProviderPublicArtifacts({
         plugins: [createPlugin(source, "owner-a"), createPlugin(source, "owner-b")],
+        providerId: "fixture",
       }),
     ).toThrow('Multiple bundled plugins declare migration provider "fixture": owner-a, owner-b.');
   });

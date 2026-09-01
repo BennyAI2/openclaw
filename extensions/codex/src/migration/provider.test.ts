@@ -1033,8 +1033,12 @@ describe("buildCodexMigrationProvider", () => {
     });
 
     const plan = await provider.plan(ctx);
-    expect(findItem(plan.items, "auth:openai").details?.credentialKind).toBe("oauth");
-    expect(findItem(plan.items, "auth:openai:api-key").details?.credentialKind).toBe("api_key");
+    expect(findItem(plan.items, "auth:openai")).toMatchObject({
+      details: { credentialKind: "oauth" },
+    });
+    expect(findItem(plan.items, "auth:openai:api-key")).toMatchObject({
+      details: { credentialKind: "api_key" },
+    });
 
     const result = await provider.apply(ctx, plan);
     expect(findItem(result.items, "auth:openai").status).toBe("migrated");

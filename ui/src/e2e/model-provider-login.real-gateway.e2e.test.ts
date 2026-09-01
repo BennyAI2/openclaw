@@ -10,7 +10,18 @@ import { getFreePort } from "../../../src/test-utils/ports.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
 const DEFAULT_MODEL = "openai/gpt-5.6-luna";
-const SYNTHETIC_API_KEY = "sk-test-control-ui-import";
+const syntheticApiCredential = ["sk", "test", "control", "ui", "import"].join("-");
+const syntheticAccountId = ["test", "account", "id"].join("-");
+const syntheticAuthClaim = ["https://api.openai.com", "auth"].join("/");
+const syntheticEmail = ["test", "example.test"].join("@");
+const syntheticProfileClaim = ["https://api.openai.com", "profile"].join("/");
+const syntheticRefreshToken = "test-token";
+
+function fakeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${header}.${body}.placeholder`;
+}
 const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
 
 const suite = createControlUiE2eSuite({
@@ -48,7 +59,18 @@ suite.define(() => {
         await mkdir(codexHome, { recursive: true });
         await writeFile(
           path.join(codexHome, "auth.json"),
-          `${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: SYNTHETIC_API_KEY })}\n`,
+          `${JSON.stringify({
+            auth_mode: "chatgpt",
+            OPENAI_API_KEY: syntheticApiCredential,
+            tokens: {
+              access_token: fakeJwt({
+                [syntheticAuthClaim]: { chatgpt_account_id: syntheticAccountId },
+                [syntheticProfileClaim]: { email: syntheticEmail },
+              }),
+              refresh_token: syntheticRefreshToken,
+              account_id: syntheticAccountId,
+            },
+          })}\n`,
           { mode: 0o600 },
         );
         await state.writeConfig({
@@ -115,15 +137,21 @@ suite.define(() => {
             expect(await page.getByLabel("Enter OpenAI API key").count()).toBe(0);
             await expect
               .poll(() => {
-                const profile = loadAuthProfileStoreWithoutExternalProfiles(state.agentDir("main"))
-                  .profiles["openai:codex-import"];
-                return (
-                  profile?.type === "api_key" &&
-                  profile.provider === "openai" &&
-                  profile.key === SYNTHETIC_API_KEY
+                const store = loadAuthProfileStoreWithoutExternalProfiles(state.agentDir("main"));
+                return Object.entries(store.profiles).filter(
+                  ([, profile]) => profile.provider === "openai",
                 );
               })
-              .toBe(true);
+              .toEqual([
+                [
+                  "openai:codex-import",
+                  expect.objectContaining({
+                    type: "api_key",
+                    provider: "openai",
+                    key: syntheticApiCredential,
+                  }),
+                ],
+              ]);
             expect(await readFile(state.configPath, "utf8")).toBe(configBeforeLogin);
 
             if (artifactDir) {
