@@ -7,8 +7,8 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { note } from "../../packages/terminal-core/src/note.js";
-import { formatPortRangeHint } from "../cli/error-format.js";
 import { parsePort } from "../cli/shared/parse-port.js";
+import { validateGatewayPortInput } from "../cli/shared/parse-port.js";
 import { resolveGatewayPort } from "../config/config.js";
 import type { GatewayTrustedProxyConfig } from "../config/types.gateway.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -35,13 +35,6 @@ import {
 
 type GatewayAuthChoice = "token" | "password" | "trusted-proxy";
 type GatewayTokenInputMode = "plaintext" | "ref";
-
-function validateGatewayPortInput(value: unknown): string | undefined {
-  if (parsePort(value) === null) {
-    return formatPortRangeHint();
-  }
-  return undefined;
-}
 
 /** Prompt for local Gateway network/auth settings and return config plus call token. */
 export async function promptGatewayConfig(

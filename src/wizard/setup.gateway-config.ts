@@ -2,6 +2,7 @@
 import { validateDottedDecimalIPv4Input } from "@openclaw/net-policy/ipv4";
 import { formatPortRangeHint } from "../cli/error-format.js";
 import { parsePort } from "../cli/shared/parse-port.js";
+import { validateGatewayPortInput } from "../cli/shared/parse-port.js";
 import {
   normalizeGatewayTokenInput,
   randomToken,
@@ -60,13 +61,6 @@ function getLocalizedTailscaleExposureOptions() {
 
 function normalizeWizardTextInput(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function validateGatewayPortInput(value: unknown): string | undefined {
-  if (parsePort(value) === null) {
-    return formatPortRangeHint();
-  }
-  return undefined;
 }
 
 export async function configureGatewayForSetup(

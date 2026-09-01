@@ -10,8 +10,8 @@ import {
 } from "../agents/agent-scope-config.js";
 import { describeCodexNativeWebSearch } from "../agents/codex-native-web-search.shared.js";
 import { formatCliCommand } from "../cli/command-format.js";
-import { formatPortRangeHint } from "../cli/error-format.js";
 import { parsePort } from "../cli/shared/parse-port.js";
+import { validateGatewayPortInput } from "../cli/shared/parse-port.js";
 import { readConfigFileSnapshotForWrite, resolveGatewayPort } from "../config/config.js";
 import { inheritLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
 import { logConfigUpdated } from "../config/logging.js";
@@ -77,13 +77,6 @@ const GATEWAY_HINT_PROBE_TIMEOUT_MS = 300;
 const setupPluginConfigModuleLoader = createLazyImportLoader<SetupPluginConfigModule>(
   () => import("../wizard/setup.plugin-config.js"),
 );
-
-function validateGatewayPortInput(value: unknown): string | undefined {
-  if (parsePort(value) === null) {
-    return formatPortRangeHint();
-  }
-  return undefined;
-}
 
 function loadSetupPluginConfigModule(): Promise<SetupPluginConfigModule> {
   return setupPluginConfigModuleLoader.load();
