@@ -113,12 +113,15 @@ describe("AppSidebar catalog row lifecycle", () => {
       await sidebar.updateComplete;
     };
     await setLabel("A long catalog session title");
-    const oldLabel = sidebar.querySelector<HTMLElement>(".hover-marquee");
+    const row = sidebar.querySelector<HTMLElement>("[data-catalog-session-key]");
+    const oldLabel = row?.querySelector<HTMLElement>(".hover-marquee");
+    expect(oldLabel?.textContent).toBe("A long catalog session title");
     oldLabel?.classList.add("hover-marquee--scrolling");
     oldLabel?.style.setProperty("--hover-marquee-shift", "-80px");
     await setLabel("Short");
 
-    const updatedLabel = sidebar.querySelector<HTMLElement>(".hover-marquee");
+    const updatedLabel = row?.querySelector<HTMLElement>(".hover-marquee");
+    expect(updatedLabel?.textContent).toBe("Short");
     expect(updatedLabel).not.toBe(oldLabel);
     expect(updatedLabel?.classList.contains("hover-marquee--scrolling")).toBe(false);
     expect(updatedLabel?.style.getPropertyValue("--hover-marquee-shift")).toBe("");
