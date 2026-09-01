@@ -687,16 +687,7 @@ export function sanitizeConfigAuditRecord(record: ConfigAuditRecord): ConfigAudi
 }
 
 export async function appendConfigAuditRecord(params: ConfigAuditAppendParams): Promise<void> {
-  try {
-    const record = sanitizeConfigAuditRecord(resolveConfigAuditAppendRecord(params));
-    openConfigAuditStore(resolveConfigAuditStoreEnv(params)).register(
-      configAuditEntryKey(record),
-      record,
-      Date.parse(record.ts),
-    );
-  } catch {
-    // best-effort
-  }
+  appendConfigAuditRecordSync(params);
 }
 
 export function appendConfigAuditRecordSync(params: ConfigAuditAppendParams): void {

@@ -225,7 +225,7 @@ describe("config io audit helpers", () => {
     const home = await suiteRootTracker.make("append");
     const record = createRenameAuditRecord(home);
 
-    await appendConfigAuditRecord({
+    const appendPromise = appendConfigAuditRecord({
       env: {} as NodeJS.ProcessEnv,
       homedir: () => home,
       record,
@@ -240,6 +240,7 @@ describe("config io audit helpers", () => {
     expect(written.event).toBe("config.write");
     expect(written.result).toBe("rename");
     expect(written.nextHash).toBe("next-hash");
+    await expect(appendPromise).resolves.toBeUndefined();
   });
 
   it("reads a bounded newest-first audit window for Doctor provenance", async () => {
