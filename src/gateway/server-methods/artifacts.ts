@@ -41,6 +41,7 @@ import {
   type ArtifactQuery,
   resolveAuthorizedArtifactSession,
 } from "./artifacts-session-resolution.js";
+import { typedInvalidRequest } from "./typed-invalid-request.js";
 import type { GatewayClient, GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
@@ -71,15 +72,6 @@ function admitArtifactQuery<T extends ArtifactQuery>(
     return undefined;
   }
   return { ...query, agentId: owner.agentId };
-}
-
-function artifactError(type: string, message: string, details?: Record<string, unknown>) {
-  return errorShape(ErrorCodes.INVALID_REQUEST, message, {
-    details: {
-      type,
-      ...details,
-    },
-  });
 }
 
 function normalizeArtifactType(value: string): string {
@@ -367,7 +359,7 @@ function requireQueryable(params: ArtifactQuery, respond: RespondFn): boolean {
   respond(
     false,
     undefined,
-    artifactError(
+    typedInvalidRequest(
       "artifact_query_unsupported",
       "artifacts require one of sessionKey, runId, or taskId",
     ),
@@ -379,7 +371,7 @@ function respondArtifactNotFound(respond: RespondFn, requestedArtifactId: string
   respond(
     false,
     undefined,
-    artifactError("artifact_not_found", "artifact not found", {
+    typedInvalidRequest("artifact_not_found", "artifact not found", {
       artifactId: requestedArtifactId,
     }),
   );
@@ -450,7 +442,7 @@ export const artifactsHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        artifactError("artifact_scope_not_found", "no session found for artifact query"),
+        typedInvalidRequest("artifact_scope_not_found", "no session found for artifact query"),
       );
       return;
     }
@@ -554,7 +546,7 @@ export const artifactsHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        artifactError("artifact_download_unsupported", "artifact download is unsupported", {
+        typedInvalidRequest("artifact_download_unsupported", "artifact download is unsupported", {
           artifactId: artifact.id,
         }),
       );

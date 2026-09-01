@@ -78,7 +78,8 @@ describe("artifact session authorization", () => {
           throw new Error("expected incognito artifact selector to be denied");
         } catch (error) {
           expect(error).toBeInstanceOf(ArtifactSessionResolutionError);
-          expect((error as ArtifactSessionResolutionError).shape).toMatchObject({
+          expect((error as ArtifactSessionResolutionError).shape).toEqual({
+            code: "INVALID_REQUEST",
             message: "no session found for artifact query",
             details: { type: "artifact_scope_not_found" },
           });

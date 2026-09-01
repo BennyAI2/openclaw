@@ -13,6 +13,7 @@ import {
 import { listAgentIds, resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { normalizeAgentIdStrict } from "../../routing/session-key.js";
+import { typedInvalidRequest } from "./typed-invalid-request.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 import {
@@ -56,15 +57,6 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-function workspaceError(type: string, message: string, details?: Record<string, unknown>) {
-  return errorShape(ErrorCodes.INVALID_REQUEST, message, {
-    details: {
-      type,
-      ...details,
-    },
-  });
-}
-
 function resolveWorkspaceScopeOrRespond(
   params: { agentId: string; path?: string },
   cfg: OpenClawConfig,
@@ -87,7 +79,7 @@ function resolveWorkspaceScopeOrRespond(
     respond(
       false,
       undefined,
-      workspaceError("workspace_path_invalid", "path must be workspace-relative", {
+      typedInvalidRequest("workspace_path_invalid", "path must be workspace-relative", {
         path: rawPath,
       }),
     );
@@ -98,7 +90,7 @@ function resolveWorkspaceScopeOrRespond(
     respond(
       false,
       undefined,
-      workspaceError("workspace_path_invalid", "path escapes the agent workspace", {
+      typedInvalidRequest("workspace_path_invalid", "path escapes the agent workspace", {
         path: params.path ?? "",
       }),
     );
@@ -134,7 +126,7 @@ export const agentsWorkspaceHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        workspaceError("workspace_path_not_found", "workspace directory not found", {
+        typedInvalidRequest("workspace_path_not_found", "workspace directory not found", {
           path: browserPath,
         }),
       );
@@ -185,7 +177,7 @@ export const agentsWorkspaceHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        workspaceError("workspace_file_not_found", "workspace file not found", {
+        typedInvalidRequest("workspace_file_not_found", "workspace file not found", {
           path: browserPath,
         }),
       );
@@ -209,7 +201,7 @@ export const agentsWorkspaceHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        workspaceError("workspace_file_too_large", "workspace file is too large to preview", {
+        typedInvalidRequest("workspace_file_too_large", "workspace file is too large to preview", {
           maxBytes,
           path: browserPath,
           size: stat.size,
@@ -225,7 +217,7 @@ export const agentsWorkspaceHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        workspaceError(
+        typedInvalidRequest(
           "workspace_file_unsupported",
           "workspace file is not UTF-8 text or a supported image",
           { path: browserPath },

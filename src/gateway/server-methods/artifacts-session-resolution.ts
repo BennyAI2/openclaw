@@ -1,5 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
+import type { ErrorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../../config/sessions/session-store-owner.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -22,6 +22,7 @@ import {
   resolveSessionStoreAgentId,
   resolveStoredSessionKeyForAgentStore,
 } from "../session-store-key.js";
+import { typedInvalidRequest } from "./typed-invalid-request.js";
 import type { GatewayClient } from "./types.js";
 
 export type ArtifactQuery = {
@@ -157,7 +158,7 @@ function resolveQuerySession(
 }
 
 export class ArtifactSessionResolutionError extends Error {
-  constructor(readonly shape: ReturnType<typeof errorShape>) {
+  constructor(readonly shape: ErrorShape) {
     super(shape.message);
   }
 }
@@ -193,8 +194,6 @@ export function resolveAuthorizedArtifactSession(
   throw new ArtifactSessionResolutionError(
     query.sessionKey && error
       ? error
-      : errorShape(ErrorCodes.INVALID_REQUEST, "no session found for artifact query", {
-          details: { type: "artifact_scope_not_found" },
-        }),
+      : typedInvalidRequest("artifact_scope_not_found", "no session found for artifact query"),
   );
 }

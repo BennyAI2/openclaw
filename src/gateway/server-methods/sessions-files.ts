@@ -5,8 +5,6 @@ import { detectMime } from "@openclaw/media-core/mime";
 import { asOptionalObjectRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
-  ErrorCodes,
-  errorShape,
   isCloudWorkerPlacementState,
   type SessionFileBrowserEntry,
   type SessionFileBrowserResult,
@@ -42,6 +40,7 @@ import {
   resolveOpenPathCommand,
   sanitizePathForLog,
 } from "./open-path.js";
+import { typedInvalidRequest } from "./typed-invalid-request.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 import {
@@ -140,15 +139,6 @@ function writeTouchedFilesCache(key: string, entry: TouchedFilesCacheEntry): voi
   touchedFilesCache.delete(key);
   touchedFilesCache.set(key, entry);
   pruneMapToMaxSize(touchedFilesCache, TOUCHED_FILES_CACHE_LIMIT);
-}
-
-function sessionFilesError(type: string, message: string, details?: Record<string, unknown>) {
-  return errorShape(ErrorCodes.INVALID_REQUEST, message, {
-    details: {
-      type,
-      ...details,
-    },
-  });
 }
 
 function readPathArg(args: Record<string, unknown>): string | undefined {
@@ -833,7 +823,7 @@ function respondSessionFileNotFound(respond: RespondFn, filePath: string) {
   respond(
     false,
     undefined,
-    sessionFilesError("session_file_not_found", "session file not found", { path: filePath }),
+    typedInvalidRequest("session_file_not_found", "session file not found", { path: filePath }),
   );
 }
 
@@ -841,7 +831,7 @@ function respondSessionFileTooLarge(respond: RespondFn, file: SessionFileEntry, 
   respond(
     false,
     undefined,
-    sessionFilesError("session_file_too_large", "session file is too large to preview", {
+    typedInvalidRequest("session_file_too_large", "session file is too large to preview", {
       maxPreviewBytes: MAX_PREVIEW_BYTES,
       path: file.path || filePath,
       size: file.size,
@@ -853,7 +843,7 @@ function respondSessionFileUnsafe(respond: RespondFn, filePath: string) {
   respond(
     false,
     undefined,
-    sessionFilesError("session_file_unsafe", "session file could not be written safely", {
+    typedInvalidRequest("session_file_unsafe", "session file could not be written safely", {
       path: filePath,
     }),
   );
@@ -952,7 +942,7 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        sessionFilesError("session_file_too_large", "session file content is too large", {
+        typedInvalidRequest("session_file_too_large", "session file content is too large", {
           maxPreviewBytes: MAX_PREVIEW_BYTES,
           path: params.path,
           size: contentSize,
@@ -1012,7 +1002,7 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
-        sessionFilesError("session_file_conflict", "session file changed since it was read", {
+        typedInvalidRequest("session_file_conflict", "session file changed since it was read", {
           path: params.path,
           currentHash: update.currentHash,
         }),
