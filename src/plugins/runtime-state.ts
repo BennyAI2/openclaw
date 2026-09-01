@@ -1,7 +1,7 @@
 import path from "node:path";
 import { isPathInside } from "../infra/path-guards.js";
 import { getPluginCacheRoot } from "./plugin-cache.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { PLUGIN_REGISTRY_STATE } from "./runtime-state-key.js";
 // Stores plugin runtime registry state for the current process lifecycle.
 import { getActivePluginRegistryWorkspaceDirFromStateCore } from "./runtime-workspace-state.js";

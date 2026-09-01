@@ -21,7 +21,7 @@ import {
   withPluginCache,
 } from "./plugin-cache.js";
 import { capturePluginGenerationArtifact } from "./plugin-generation-artifact.js";
-import { getPluginInstance, type PluginInstance } from "./plugin-instance.js";
+import { getPluginInstance, type PluginInstanceHandle } from "./plugin-instance-scope.js";
 import { createPluginModuleHost } from "./plugin-module-host.js";
 import { installOpenClawInternalCorePackageNativeResolver } from "./plugin-sdk-native-resolver.js";
 import { resolvePluginRuntimeRecord } from "./runtime-state.js";
@@ -290,7 +290,7 @@ export function getCachedPluginModuleLoader(
 
 /** Runtime and setup instances share the same captured source and injected host modules. */
 export function bindPluginInstanceModuleLoader(params: {
-  instance: PluginInstance;
+  instance: PluginInstanceHandle;
   source: string;
   rootDir: string;
   standalone?: boolean;

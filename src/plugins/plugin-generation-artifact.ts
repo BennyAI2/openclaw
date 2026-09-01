@@ -243,7 +243,8 @@ export function capturePluginGenerationArtifact(rootDir: string, entryFile?: str
         continue;
       }
       let dependencyRoot: string | undefined;
-      for (const nodeModules of require.resolve.paths(name) ?? []) {
+      // Declared dependencies use package lookup even when their name matches a Node builtin.
+      for (const nodeModules of require.resolve.paths(`${name}/`) ?? []) {
         const candidate = path.join(nodeModules, name);
         if (fs.existsSync(path.join(candidate, "package.json"))) {
           dependencyRoot = candidate;

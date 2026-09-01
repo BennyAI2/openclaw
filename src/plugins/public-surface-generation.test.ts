@@ -14,7 +14,7 @@ import {
 } from "../plugin-sdk/facade-runtime.js";
 import { createPluginModuleLoader } from "./loader-module-runtime.js";
 import { adoptProcessPluginCache, createPluginCache, withPluginCache } from "./plugin-cache.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { loadPluginPublicArtifactModuleSync } from "./public-surface-loader.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import type { PluginRecord } from "./registry-types.js";

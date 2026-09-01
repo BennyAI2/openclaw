@@ -44,7 +44,7 @@ import {
 } from "./loader.test-fixtures.js";
 import { buildMemoryPromptSection, registerMemoryCapability } from "./memory-state.js";
 import { adoptProcessPluginCache, createPluginCache, withPluginCache } from "./plugin-cache.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { clearPluginMetadataLifecycleCaches } from "./plugin-metadata-lifecycle.js";
 import { getPluginModuleLoaderStats } from "./plugin-module-loader-cache.js";
 import { getPluginLoaderCacheState } from "./registry-lifecycle.js";

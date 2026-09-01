@@ -14,7 +14,7 @@ import type {
 import type { PluginBoardWidgetContentKind } from "./board-widget-content-kind.types.js";
 import type { CodexAppServerExtensionFactory } from "./codex-app-server-extension-types.js";
 import type { PluginCompatCode } from "./compat/registry.js";
-import type { PluginActivationSource } from "./config-state.js";
+import type { PluginActivationSource } from "./config-activation-shared.js";
 import type { EmbeddingProviderAdapter } from "./embedding-provider-types.js";
 import type {
   PluginAgentEventSubscriptionRegistration,
@@ -26,21 +26,24 @@ import type {
   PluginToolMetadataRegistration,
   PluginTrustedToolPolicyRegistration,
 } from "./host-hooks.js";
-import type { PluginManifestRecord } from "./manifest-registry.js";
+import type { PluginManifestRecord } from "./manifest-registry.types.js";
 import type {
   PluginBundleFormat,
   PluginConfigUiHint,
   PluginDiagnostic,
   PluginFormat,
-} from "./manifest-types.js";
-import type {
   PluginManifestContracts,
   PluginManifestDashboard,
   PluginManifestDashboardActionVerb,
   PluginManifestDashboardDataBinding,
   PluginManifestMcpServer,
-} from "./manifest.js";
+} from "./manifest-types.js";
 import type { PluginKind } from "./plugin-kind.types.js";
+import type {
+  OpenClawPluginGatewayRuntimeScopeSurface,
+  OpenClawPluginHttpRouteAuth,
+  OpenClawPluginHttpRouteUpgradeHandler,
+} from "./plugin-registration.types.js";
 import type {
   ContextEngineRegistration,
   MemoryCorpusSupplementRegistration,
@@ -54,10 +57,6 @@ import type {
 import type { PluginRuntime } from "./runtime/types.js";
 import type { SessionCatalogProvider } from "./session-catalog.js";
 import type { PluginDependencyStatus } from "./status-dependencies-core.js";
-import type {
-  OpenClawPluginHttpRouteAuth,
-  OpenClawPluginHttpRouteUpgradeHandler,
-} from "./types.js";
 import type { PluginMcpServerConnectionResolverRegistration } from "./types.mcp-connection.js";
 type ChannelPlugin = import("../channels/plugins/types.plugin.js").ChannelPlugin;
 type CliBackendPlugin = import("./types.js").CliBackendPlugin;
@@ -71,8 +70,6 @@ type OpenClawPluginCliRegistrar = import("./types.js").OpenClawPluginCliRegistra
 type OpenClawPluginCommandDefinition = import("./types.js").OpenClawPluginCommandDefinition;
 type PluginInteractiveHandlerRegistration =
   import("./types.js").PluginInteractiveHandlerRegistration;
-type OpenClawPluginGatewayRuntimeScopeSurface =
-  import("./types.js").OpenClawPluginGatewayRuntimeScopeSurface;
 type OpenClawGatewayDiscoveryService = import("./types.js").OpenClawGatewayDiscoveryService;
 type OpenClawPluginHttpRouteHandler = import("./types.js").OpenClawPluginHttpRouteHandler;
 type OpenClawPluginHttpRouteMatch = import("./types.js").OpenClawPluginHttpRouteMatch;

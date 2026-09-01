@@ -14,7 +14,7 @@ import {
 } from "./host-hook-runtime.js";
 import { listPluginSessionSchedulerJobs } from "./host-hook-runtime.test-fixtures.js";
 import { activatePluginRegistry } from "./loader-shared.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { projectPluginContributions } from "./registry-contributions.js";
 import {
   capturePluginLifecycleAuthority,
@@ -691,7 +691,11 @@ describe("registered generation cleanup", () => {
       const previous = builder();
       const { record, api, onDispose } = addPlugin(previous, "connection");
       const instance = getPluginInstance(record)!;
-      // SAFETY: The facade preserves the exact Node timers/promises export signatures.
+      // SAFETY: These managed facades preserve Node's public timer signatures.
+      const callbackTimers = instance.loadBuiltin(
+        "node:timers",
+        createRequire(import.meta.url),
+      ) as typeof import("node:timers");
       const timers = instance.loadBuiltin(
         "node:timers/promises",
         createRequire(import.meta.url),
@@ -707,7 +711,7 @@ describe("registered generation cleanup", () => {
         description: "Owns a test connection",
         async cleanup(context) {
           await new Promise<void>((resolve) => {
-            instance.globals.setImmediate(() => resolve());
+            callbackTimers.setImmediate(() => resolve());
           });
           expect(receipt()).toBe("receipt");
           events.push(`session:${context.reason}`);
@@ -717,7 +721,7 @@ describe("registered generation cleanup", () => {
         id: "connection",
         async cleanup(context) {
           await new Promise<void>((resolve) => {
-            instance.globals.setTimeout(() => resolve(), 1);
+            callbackTimers.setTimeout(() => resolve(), 1);
           });
           await timers.setTimeout(1);
           connectionOpen = false;

@@ -1,20 +1,19 @@
 import { types } from "node:util";
 import { isPromiseLike } from "@openclaw/normalization-core/promise-like";
-import { attachPluginApiFacades } from "./api-facades.js";
 import { PluginInstanceResources } from "./plugin-instance-resources.js";
 import {
   pluginInstanceState,
   resolvePluginInstanceOwner,
+  type PluginInstanceHandle,
   type PluginInstanceOwner,
 } from "./plugin-instance-scope.js";
-import type { PluginInstanceLifecycle } from "./plugin-registration.types.js";
+import type { PluginInstanceLifecycle } from "./plugin-instance.types.js";
 import type { PluginRecord, PluginRegistry } from "./registry-types.js";
 import {
   withPluginRuntimePluginScope,
   withPluginRuntimeRegistryScope,
 } from "./runtime/gateway-request-scope.js";
 import { getPluginRuntimeGenerationRegistry } from "./runtime/generation-scope.js";
-import type { OpenClawPluginApi } from "./types.js";
 
 const { values: valueInstances, invocation } = pluginInstanceState;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -95,7 +94,7 @@ function readPluginMember(
     : Reflect.get(object, key, object);
 }
 
-export class PluginInstance {
+export class PluginInstance implements PluginInstanceHandle {
   readonly slots = new Map<string | symbol, { runtime: unknown }>();
   readonly controller = new AbortController();
   readonly lifecycle: PluginInstanceLifecycle;
@@ -382,8 +381,8 @@ export class PluginInstance {
       terminal = settlePluginCall(terminal, settle);
       void terminal.catch(() => {});
     }
-    const iterators = new WeakMap<object, AsyncIterator<unknown>>();
-    const wrapIterator = (iterator: AsyncIterator<unknown>) => {
+    const iterators = new WeakMap<object, object>();
+    const wrapIterator = (iterator: AsyncIterator<unknown> | AsyncIterable<unknown>) => {
       const cached = iterators.get(iterator);
       if (cached) {
         return cached;
@@ -400,39 +399,36 @@ export class PluginInstance {
         }
         return undefined;
       };
-      const view: AsyncIterator<unknown> = new Proxy(
-        Object.create(Object.getPrototypeOf(iterator)),
-        {
-          get: (_item, method) => {
-            if (method === Symbol.asyncIterator) {
-              return () => view;
-            }
-            const value = readPluginMember(iterator, method, invoke);
-            if (typeof value !== "function") {
-              return this.wrap(value, String(method));
-            }
-            // Helper results keep their own return shape; only protocol methods finish iteration.
-            if (method !== "next" && method !== "return" && method !== "throw") {
-              return (...args: unknown[]) =>
-                invoke(() => this.wrapResult(Reflect.apply(value, iterator, args)));
-            }
-            return async (...args: unknown[]) => {
-              try {
-                const next: IteratorResult<unknown> = await invoke(() =>
-                  this.wrapResult(Reflect.apply(value, iterator, args)),
-                );
-                if (invoke(() => next?.done)) {
-                  await settle();
-                }
-                return next;
-              } catch (error) {
-                await settle()?.catch(() => {});
-                throw error;
+      const view: object = new Proxy(Object.create(Object.getPrototypeOf(iterator)), {
+        get: (_item, method) => {
+          if (method === Symbol.asyncIterator) {
+            return () => view;
+          }
+          const value = readPluginMember(iterator, method, invoke);
+          if (typeof value !== "function") {
+            return this.wrap(value, String(method));
+          }
+          // Helper results keep their own return shape; only protocol methods finish iteration.
+          if (method !== "next" && method !== "return" && method !== "throw") {
+            return (...args: unknown[]) =>
+              invoke(() => this.wrapResult(Reflect.apply(value, iterator, args)));
+          }
+          return async (...args: unknown[]) => {
+            try {
+              const next: IteratorResult<unknown> = await invoke(() =>
+                this.wrapResult(Reflect.apply(value, iterator, args)),
+              );
+              if (invoke(() => next?.done)) {
+                await settle();
               }
-            };
-          },
+              return next;
+            } catch (error) {
+              await settle()?.catch(() => {});
+              throw error;
+            }
+          };
         },
-      );
+      });
       iterators.set(iterator, view);
       valueInstances.set(view, this);
       return view;
@@ -457,8 +453,7 @@ export class PluginInstance {
           return this.wrap(value, String(key));
         }
         if (key === "next" || key === "return" || key === "throw") {
-          // SAFETY: A stream exposing a callable iterator method also serves as its own iterator.
-          return Reflect.get(wrapIterator(source as unknown as AsyncIterator<unknown>), key);
+          return Reflect.get(wrapIterator(source), key);
         }
         return (...args: unknown[]) =>
           invoke(() => this.wrapResult(Reflect.apply(value, source, args)));
@@ -492,34 +487,6 @@ export class PluginInstance {
 
   hasModuleSource(source: string): boolean | undefined {
     return this.moduleSourceExists?.(source);
-  }
-
-  instrumentApi(api: OpenClawPluginApi): OpenClawPluginApi {
-    api.lifecycle = { ...api.lifecycle, ...this.lifecycle };
-    const instrumented = attachPluginApiFacades(
-      new Proxy(api, {
-        get: (target, key, receiver) => {
-          const value = Reflect.get(target, key, receiver);
-          if (
-            typeof value !== "function" ||
-            typeof key !== "string" ||
-            (!key.startsWith("register") && key !== "on" && key !== "onConversationBindingResolved")
-          ) {
-            return value;
-          }
-          return (...args: unknown[]) =>
-            this.run(() =>
-              Reflect.apply(
-                value,
-                target,
-                args.map((arg) => this.wrap(arg)),
-              ),
-            );
-        },
-      }),
-    );
-    valueInstances.set(instrumented, this);
-    return instrumented;
   }
 
   private bindCallback(callback: Function): (...args: unknown[]) => unknown {
@@ -666,13 +633,4 @@ export class PluginInstance {
       throw new AggregateError(failures, `Plugin ${this.pluginId} cleanup failed`);
     }
   }
-}
-
-export function getPluginInstance(record: PluginRecord): PluginInstance | undefined {
-  return pluginInstanceState.records.get(record)?.instance;
-}
-
-/** Exact owner of a callable public view; never inferred from a plugin id or path. */
-export function getPluginValueInstance(value: object): PluginInstance | undefined {
-  return valueInstances.get(value);
 }

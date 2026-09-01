@@ -2,7 +2,8 @@ import { toSafeImportPath } from "../shared/import-specifier.js";
 import { VERSION } from "../version.js";
 import { runPluginRegistration } from "./api-lifecycle.js";
 import { getPluginCache, withPluginCache } from "./plugin-cache.js";
-import { PluginInstance, getPluginInstance, getPluginValueInstance } from "./plugin-instance.js";
+import { getPluginInstance, getPluginValueInstance } from "./plugin-instance-scope.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { withProfile } from "./plugin-load-profile.js";
 import {
   bindPluginInstanceModuleLoader,

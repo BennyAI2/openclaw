@@ -11,11 +11,12 @@ import {
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { buildPluginApi, createUnavailableRuntime } from "./api-builder.js";
+import { instrumentPluginInstanceApi } from "./api-facades.js";
 import { runPluginRegistration } from "./api-lifecycle.js";
 import { hasPluginConfigMigrationSource } from "./config-contract-matches.js";
 import type { PluginManifestRecord, PluginManifestRegistry } from "./manifest-registry.js";
 import { resolvePluginModuleExport } from "./module-export.js";
-import { createPluginCacheKey, PluginLruCache } from "./plugin-cache-primitives.js";
+import { createPluginCacheKey } from "./plugin-cache-primitives.js";
 import {
   getPluginCache,
   getPluginCacheRoot,
@@ -24,7 +25,9 @@ import {
   type PluginCache,
 } from "./plugin-cache.js";
 import { resolvePluginControlPlaneFingerprint } from "./plugin-control-plane-context.js";
-import { PluginInstance, getPluginValueInstance } from "./plugin-instance.js";
+import { getPluginValueInstance, type PluginInstanceHandle } from "./plugin-instance-scope.js";
+import { PluginInstance } from "./plugin-instance.js";
+import { PluginLruCache } from "./plugin-lru-cache.js";
 import { resolvePluginMetadataEnvFingerprint } from "./plugin-metadata-snapshot.js";
 import {
   bindPluginInstanceModuleLoader,
@@ -269,7 +272,7 @@ function resolveSetupRegistration(
   diagnostics: PluginSetupRegistryDiagnostic[],
 ): {
   setupSource: string;
-  instance?: PluginInstance;
+  instance?: PluginInstanceHandle;
   register: Parameters<typeof runPluginRegistration>[0];
 } | null {
   if (record.setup?.requiresRuntime === false) {
@@ -674,7 +677,7 @@ export const resolvePluginSetupRegistry = withPluginSetupCache(function (params?
       // The shared guard closes registration before any continuation can contribute.
       runPluginRegistration(
         setupRegistration.register,
-        setupRegistration.instance?.instrumentApi(api) ?? api,
+        instrumentPluginInstanceApi(api, setupRegistration.instance),
         "ignore",
       );
     } catch (error) {

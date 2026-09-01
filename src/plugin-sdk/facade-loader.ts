@@ -8,7 +8,7 @@ import {
   getPluginCacheSource,
   resetPluginCache,
 } from "../plugins/plugin-cache.js";
-import { getPluginInstance, getPluginValueInstance } from "../plugins/plugin-instance.js";
+import { getPluginInstance, getPluginValueInstance } from "../plugins/plugin-instance-scope.js";
 import {
   getCachedPluginModuleLoader,
   loadPluginPublicSurfaceModule,

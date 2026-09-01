@@ -13,7 +13,7 @@ import type { AssistantMessage, Model } from "../../../llm/types.js";
 import type { AgentHarnessTaskRuntimeScope } from "../../../tasks/agent-harness-task-runtime-scope.js";
 import type { AcceptedSessionSpawn } from "../../accepted-session-spawn.js";
 import type { AgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
-import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.js";
+import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.types.js";
 import type { AuthProfileStore } from "../../auth-profiles/types.js";
 import type { DelegationCapability } from "../../delegation-capability.js";
 import type {

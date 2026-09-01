@@ -4,7 +4,7 @@ import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { createPluginRecord } from "./loader-records.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { createRuntimeTestRegistry } from "./registry-runtime.test-helpers.js";
 import { disposePluginRegistryInstances } from "./runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";

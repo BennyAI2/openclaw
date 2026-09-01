@@ -26,7 +26,7 @@ import { SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS } from "../sessions/session-lif
 import { createDeferredCore } from "../shared/deferred.js";
 import { inspectSkillProposal } from "../skills/workshop/service.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
-import type { ChatAbortControllerEntry } from "./chat-abort.js";
+import type { ChatAbortControllerEntry } from "./chat-abort.types.js";
 import { createChatRunState } from "./server-chat-state.js";
 import {
   controlUiClient,

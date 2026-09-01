@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { areBundledPluginsDisabled, resolveBundledPluginsDir } from "../plugins/bundled-dir.js";
 import { getPluginCacheRoot, getPluginCacheSource } from "../plugins/plugin-cache.js";
-import { getPluginInstance } from "../plugins/plugin-instance.js";
+import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { getCachedPluginSourceModuleLoader } from "../plugins/plugin-module-loader-cache.js";
 import { getPluginRegistryForContext } from "../plugins/runtime-state.js";
 import { resolveLoaderPackageRoot } from "../plugins/sdk-alias.js";

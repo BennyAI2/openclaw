@@ -4,7 +4,7 @@ import { EventStream } from "@openclaw/llm-core/event-stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPluginRuntimeStore } from "../plugin-sdk/runtime-store.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { attachPluginApiFacades } from "./api-facades.js";
+import { attachPluginApiFacades, instrumentPluginInstanceApi } from "./api-facades.js";
 import { registerPluginCommandInRegistry } from "./command-registration.js";
 import type {
   PluginAgentEventSubscriptionRegistration,
@@ -558,11 +558,14 @@ describe("managed plugin instances", () => {
       vi.fn<(entry: PluginAgentEventSubscriptionRegistration) => void>();
     const registerRuntimeLifecycle = vi.fn<(entry: PluginRuntimeLifecycleRegistration) => void>();
     const api = attachPluginApiFacades(
-      instance.instrumentApi({
-        registerSessionAction,
-        registerAgentEventSubscription,
-        registerRuntimeLifecycle,
-      } as unknown as OpenClawPluginApi),
+      instrumentPluginInstanceApi(
+        {
+          registerSessionAction,
+          registerAgentEventSubscription,
+          registerRuntimeLifecycle,
+        } as unknown as OpenClawPluginApi,
+        instance,
+      ),
     );
     const handler = vi.fn<() => void>();
     api.registerSessionAction({ id: "flat", handler });

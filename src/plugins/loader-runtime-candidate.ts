@@ -49,7 +49,7 @@ import {
 } from "./manifest-owner-policy.js";
 import type { PluginManifestRecord } from "./manifest-registry.js";
 import { resolvePluginModuleExport } from "./module-export.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { withProfile } from "./plugin-load-profile.js";
 import { normalizePluginPolicyId } from "./plugin-policy-id.js";
 import {

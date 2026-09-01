@@ -1,22 +1,22 @@
 /** In-memory plugin registry builder and mutation API for plugin runtime registration. */
-import { PluginInstance, getPluginInstance } from "./plugin-instance.js";
+import { instrumentPluginInstanceApi } from "./api-facades.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { createPluginApiFactory } from "./registry-api.js";
 import { projectPluginContributions } from "./registry-contributions.js";
 import { createPluginRegistrars } from "./registry-registrars.js";
 import { createPluginRuntimeResolver } from "./registry-runtime.js";
 import { createPluginRegistryState } from "./registry-state.js";
 import type {
-  PluginHttpRouteRegistration as RegistryTypesPluginHttpRouteRegistration,
   PluginRecord as RegistryPluginRecord,
   PluginRegistryParams,
 } from "./registry-types.js";
-import type { OpenClawPluginGatewayRuntimeScopeSurface } from "./types.js";
 
-export type PluginHttpRouteRegistration = RegistryTypesPluginHttpRouteRegistration & {
-  gatewayRuntimeScopeSurface?: OpenClawPluginGatewayRuntimeScopeSurface;
-};
-
-export type { PluginRecord, PluginRegistry } from "./registry-types.js";
+export type {
+  PluginHttpRouteRegistration,
+  PluginRecord,
+  PluginRegistry,
+} from "./registry-types.js";
 export { createEmptyPluginRegistry } from "./registry-empty.js";
 
 function clonePluginRecord(record: RegistryPluginRecord): RegistryPluginRecord {
@@ -43,11 +43,11 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
   const createApi: typeof createPluginApi = (record, params) => {
     registrationRecordSnapshots.set(record, clonePluginRecord(record));
     const api = createPluginApi(record, params);
-    let instance = getPluginInstance(record);
-    if (!instance) {
-      instance = new PluginInstance(record.id, { record, registry: state.registry });
-    }
-    return instance.instrumentApi(api);
+    return instrumentPluginInstanceApi(
+      api,
+      getPluginInstance(record) ??
+        new PluginInstance(record.id, { record, registry: state.registry }),
+    );
   };
 
   const rollbackPluginGlobalSideEffects = (pluginId: string, record: RegistryPluginRecord) => {

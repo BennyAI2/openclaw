@@ -1,21 +1,43 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import type { PluginInstance } from "./plugin-instance.js";
+import type { PluginInstanceAdmission } from "./plugin-instance.types.js";
 import type { PluginRecord, PluginRegistry } from "./registry-types.js";
+
+/** Runtime consumers retain capabilities, never the concrete loader implementation. */
+export interface PluginInstanceHandle extends PluginInstanceAdmission {
+  readonly pluginId: string;
+  readonly slots: Map<string | symbol, { runtime: unknown }>;
+  readonly owner?: PluginInstanceOwner;
+  sourceDigest?: string;
+  runCleanup<T>(run: () => T): T;
+  wrap<T>(value: T, field?: string): T;
+  bindModuleLoader(
+    load: (source: string) => unknown,
+    hasSource?: (source: string) => boolean,
+  ): void;
+  loadModule(source: string): unknown;
+  hasModuleSource(source: string): boolean | undefined;
+  loadBuiltin(specifier: string, load: (specifier: string) => unknown): unknown;
+  prepareGlobals(load: (specifier: string) => unknown): Record<string, unknown>;
+  quiesce(): void;
+  drain(): Promise<void>;
+  resume(): void;
+  dispose(beforeCleanup?: () => void | Promise<void>): Promise<void>;
+}
 
 export type PluginInstanceOwner = {
   record: PluginRecord;
   registry: PluginRegistry;
   revoked: boolean;
-  instance?: PluginInstance;
+  instance?: PluginInstanceHandle;
 };
 // SDK source transforms and native core chunks must observe the same exact owner.
 export const pluginInstanceState = resolveGlobalSingleton(
   Symbol.for("openclaw.pluginInstanceState"),
   () => ({
     records: new WeakMap<PluginRecord, PluginInstanceOwner>(),
-    values: new WeakMap<object, PluginInstance>(),
-    invocation: new AsyncLocalStorage<{ instance: PluginInstance; token: object }>(),
+    values: new WeakMap<object, PluginInstanceHandle>(),
+    invocation: new AsyncLocalStorage<{ instance: PluginInstanceHandle; token: object }>(),
   }),
 );
 
@@ -53,4 +75,13 @@ export function getPluginInstanceRuntimeSlot(
     owner.slots.set(key, (slot = { runtime: null }));
   }
   return slot;
+}
+
+export function getPluginInstance(record: PluginRecord): PluginInstanceHandle | undefined {
+  return pluginInstanceState.records.get(record)?.instance;
+}
+
+/** Exact owner of a callable public view; never inferred from a plugin id or path. */
+export function getPluginValueInstance(value: object): PluginInstanceHandle | undefined {
+  return pluginInstanceState.values.get(value);
 }

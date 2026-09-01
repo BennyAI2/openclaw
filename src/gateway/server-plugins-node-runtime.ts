@@ -1,6 +1,6 @@
 import { NODE_DUPLEX_INVOKE_IDLE_TIMEOUT_MS } from "../infra/node-commands.js";
 import { createNodeDuplexEndpoint } from "../infra/node-duplex-framing.js";
-import { getPluginInstance } from "../plugins/plugin-instance.js";
+import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { capturePluginLifecycleAuthority } from "../plugins/registry-lifecycle.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";

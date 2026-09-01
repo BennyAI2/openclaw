@@ -167,7 +167,7 @@ type OpenClawPluginRunContextApi = {
 };
 
 type OpenClawPluginLifecycleApi = Partial<
-  import("./plugin-registration.types.js").PluginInstanceLifecycle
+  import("./plugin-instance.types.js").PluginInstanceLifecycle
 > & {
   /** Register cleanup hooks for plugin-owned host state and background work. */
   registerRuntimeLifecycle: (lifecycle: PluginRuntimeLifecycleRegistration) => void;

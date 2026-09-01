@@ -14,8 +14,7 @@ import {
   makePluginSessionSchedulerJobKey,
 } from "./host-hook-runtime.js";
 import type { PluginHostCleanupReason } from "./host-hooks.js";
-import { runPluginCleanup } from "./plugin-instance-scope.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance, runPluginCleanup } from "./plugin-instance-scope.js";
 import { getPluginRecordRegistry } from "./registry-lifecycle.js";
 import type { PluginRegistry } from "./registry-types.js";
 import { getActivePluginRegistry } from "./runtime.js";

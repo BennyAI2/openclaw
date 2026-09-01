@@ -1,10 +1,79 @@
 // Provides the empty plugin registry used before discovery completes.
-import { createEmptyPluginContributions } from "./registry-contributions.js";
 import type { PluginRegistry } from "./registry-types.js";
 
+// Array and Map contributions share one inventory for initialization and projection.
+export const pluginArrays = [
+  "tools",
+  "hooks",
+  "typedHooks",
+  "channels",
+  "channelSetups",
+  "providers",
+  "modelCatalogProviders",
+  "sessionCatalogs",
+  "cliBackends",
+  "textTransforms",
+  "embeddingProviders",
+  "speechProviders",
+  "realtimeTranscriptionProviders",
+  "realtimeVoiceProviders",
+  "mediaUnderstandingProviders",
+  "transcriptSourceProviders",
+  "imageGenerationProviders",
+  "videoGenerationProviders",
+  "musicGenerationProviders",
+  "webFetchProviders",
+  "webSearchProviders",
+  "migrationProviders",
+  "codexAppServerExtensionFactories",
+  "agentToolResultMiddlewareOwners",
+  "agentToolResultMiddlewares",
+  "agentHarnesses",
+  "detachedTaskRuntimes",
+  "legacyInternalHooks",
+  "memoryCapabilities",
+  "memoryCorpusSupplements",
+  "memoryPromptPreparations",
+  "memoryPromptSupplements",
+  "hostedMediaResolvers",
+  "widgetPresenters",
+  "mcpServerConnectionResolvers",
+  "cliRegistrars",
+  "reloads",
+  "nodeHostCommands",
+  "nodeInvokePolicies",
+  "securityAuditCollectors",
+  "services",
+  "gatewayDiscoveryServices",
+  "commands",
+  "interactiveHandlers",
+  "sessionExtensions",
+  "trustedToolPolicies",
+  "toolMetadata",
+  "controlUiDescriptors",
+  "runtimeLifecycles",
+  "agentEventSubscriptions",
+  "sessionSchedulerJobs",
+  "sessionActions",
+  "conversationBindingResolvedHandlers",
+] as const satisfies ReadonlyArray<keyof PluginRegistry>;
+export const pluginMaps = [
+  "workerProviders",
+  "sessionDiscussionProviders",
+  "dashboardDataBindings",
+  "dashboardActionVerbs",
+  "boardWidgetContentKinds",
+] as const satisfies ReadonlyArray<keyof PluginRegistry>;
+
 export function createEmptyPluginRegistry(): PluginRegistry {
+  // SAFETY: The inventories contain only array and Map fields, initialized with empty values.
+  const contributions = Object.fromEntries([
+    ...pluginArrays.map((key) => [key, []]),
+    ...pluginMaps.map((key) => [key, new Map()]),
+  ]) as Pick<PluginRegistry, (typeof pluginArrays)[number] | (typeof pluginMaps)[number]>;
   return {
-    ...createEmptyPluginContributions(),
+    ...contributions,
+    httpRoutes: [],
     plugins: [],
     pluginRuntimeArtifacts: new Map(),
     compactionProviders: [],

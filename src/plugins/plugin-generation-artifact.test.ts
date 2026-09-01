@@ -73,12 +73,23 @@ it("captures a standalone file's imports and assets without owning its parent wo
   }
 });
 
-it("captures TypeScript helpers and lazy assets for each reload and releases its build files", async () => {
+it("captures helpers, assets and npm packages with builtin names for each reload and releases its build files", async () => {
   const source = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-source-"));
   cleanups.push(() => fs.rmSync(source, { recursive: true, force: true }));
+  const dependency = path.join(source, "node_modules", "punycode");
+  fs.mkdirSync(dependency, { recursive: true });
+  fs.writeFileSync(
+    path.join(source, "package.json"),
+    JSON.stringify({ dependencies: { punycode: "1.0.0" } }),
+  );
+  fs.writeFileSync(
+    path.join(dependency, "package.json"),
+    JSON.stringify({ name: "punycode", exports: { "./fixture": "./value.js" } }),
+  );
   fs.writeFileSync(
     path.join(source, "index.ts"),
-    `import { value } from './helper.js'; export const read = async () => [value, (await import('./lazy.js')).read()];`,
+    `import { value } from './helper.js'; import { dependency } from 'punycode/fixture';
+     export const read = async () => [value, (await import('./lazy.js')).read(), dependency];`,
   );
   fs.writeFileSync(path.join(source, "helper.js"), `export const value = 'stale build';`);
   fs.writeFileSync(
@@ -88,6 +99,7 @@ it("captures TypeScript helpers and lazy assets for each reload and releases its
   const load = (value: string) => {
     fs.writeFileSync(path.join(source, "helper.ts"), `export const value = '${value}';`);
     fs.writeFileSync(path.join(source, "asset.txt"), value);
+    fs.writeFileSync(path.join(dependency, "value.js"), `exports.dependency = '${value}';`);
     const artifact = capturePluginGenerationArtifact(source);
     cleanups.push(artifact.dispose);
     const host = createPluginModuleHost({
@@ -103,8 +115,8 @@ it("captures TypeScript helpers and lazy assets for each reload and releases its
   };
   const a = load("A");
   const b = load("B");
-  await expect(a.plugin.read()).resolves.toEqual(["A", "A"]);
-  await expect(b.plugin.read()).resolves.toEqual(["B", "B"]);
+  await expect(a.plugin.read()).resolves.toEqual(["A", "A", "A"]);
+  await expect(b.plugin.read()).resolves.toEqual(["B", "B", "B"]);
   expect(a.artifact.sourceDigest).not.toBe(b.artifact.sourceDigest);
   fs.rmSync(source, { recursive: true });
   expect(b.artifact.resolve(path.join(source, "lazy.ts"))).toBe(
@@ -113,5 +125,5 @@ it("captures TypeScript helpers and lazy assets for each reload and releases its
   a.host.dispose();
   a.artifact.dispose();
   expect(fs.existsSync(a.artifact.boundaryRoot)).toBe(false);
-  await expect(b.plugin.read()).resolves.toEqual(["B", "B"]);
+  await expect(b.plugin.read()).resolves.toEqual(["B", "B", "B"]);
 });

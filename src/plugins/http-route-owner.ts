@@ -1,11 +1,10 @@
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import { pluginInstanceState } from "./plugin-instance-scope.js";
-import type { PluginInstance } from "./plugin-instance.js";
+import { pluginInstanceState, type PluginInstanceHandle } from "./plugin-instance-scope.js";
 import { isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginHttpRouteRegistration, PluginRegistry } from "./registry-types.js";
 
 type RouteViews = Set<WeakRef<PluginRegistry>>;
-type RouteOwner = PluginInstance | string | undefined;
+type RouteOwner = PluginInstanceHandle | string | undefined;
 const registryViews = resolveGlobalSingleton(
   Symbol.for("openclaw.pluginHttpRouteOwners"),
   () => new WeakMap<PluginRegistry, Map<RouteOwner, RouteViews>>(),
@@ -15,7 +14,11 @@ const entryViews = resolveGlobalSingleton(
   () => new WeakMap<PluginHttpRouteRegistration, RouteViews>(),
 );
 
-function resolveOwner(registry: PluginRegistry, pluginId?: string, instance?: PluginInstance) {
+function resolveOwner(
+  registry: PluginRegistry,
+  pluginId?: string,
+  instance?: PluginInstanceHandle,
+) {
   const record = registry.plugins.find((entry) => entry.id === pluginId);
   return instance ?? (record && pluginInstanceState.records.get(record)?.instance) ?? pluginId;
 }

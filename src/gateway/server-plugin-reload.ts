@@ -20,7 +20,7 @@ import {
   transferPluginCacheSetupModules,
   withPluginCache,
 } from "../plugins/plugin-cache.js";
-import { getPluginInstance } from "../plugins/plugin-instance.js";
+import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { loadPluginLookUpTable } from "../plugins/plugin-lookup-table.js";
 import { loadPluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { withPluginRegistryPreparationScope } from "../plugins/registry-lifecycle.js";

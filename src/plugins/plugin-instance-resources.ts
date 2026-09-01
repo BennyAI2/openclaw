@@ -1,4 +1,4 @@
-import type { PluginInstance } from "./plugin-instance.js";
+import type { PluginInstanceAdmission } from "./plugin-instance.types.js";
 
 /** Host resources share their instance's admission and disposal authority. */
 export class PluginInstanceResources {
@@ -8,7 +8,7 @@ export class PluginInstanceResources {
   private readonly emitters = new WeakMap<object, object>();
 
   constructor(
-    private readonly instance: Pick<PluginInstance, "run" | "controller" | "lifecycle">,
+    private readonly instance: PluginInstanceAdmission,
     private readonly bindCallback: (callback: Function) => (...args: unknown[]) => unknown,
   ) {}
 
@@ -135,8 +135,8 @@ export class PluginInstanceResources {
           args[index] = {
             ...options,
             signal: options?.signal
-              ? AbortSignal.any([options.signal, this.instance.controller.signal])
-              : this.instance.controller.signal,
+              ? AbortSignal.any([options.signal, this.instance.lifecycle.signal])
+              : this.instance.lifecycle.signal,
           };
           return Reflect.apply(method, loaded, args);
         };
@@ -195,12 +195,12 @@ export class PluginInstanceResources {
         result[key] = new Proxy(value, {
           apply: (target, receiver, args) =>
             this.instance.run(() => {
-              this.instance.controller.signal.throwIfAborted();
+              this.instance.lifecycle.signal.throwIfAborted();
               return retain(Reflect.apply(target, receiver, argsWithCallbacks(args)));
             }),
           construct: (target, args) =>
             this.instance.run(() => {
-              this.instance.controller.signal.throwIfAborted();
+              this.instance.lifecycle.signal.throwIfAborted();
               return retain(Reflect.construct(target, argsWithCallbacks(args)));
             }),
         });

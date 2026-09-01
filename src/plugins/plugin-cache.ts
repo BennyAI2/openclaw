@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import type { PluginLoaderCacheState } from "./loader-cache-state.js";
 import {
   createPluginCacheArtifacts,
   createPluginRootArtifacts,
@@ -20,7 +19,6 @@ import {
 } from "./plugin-cache-management.js";
 import { createPluginCacheMetadata, type PluginCacheMetadata } from "./plugin-cache-metadata.js";
 import { createPluginCacheSdk, type PluginCacheSdk } from "./plugin-cache-sdk.js";
-import type { PluginRegistry } from "./registry-types.js";
 
 export type PluginRootCacheRecord = ReturnType<typeof createPluginRootArtifacts> & {
   rootDir: string;
@@ -39,7 +37,7 @@ export interface PluginCache
   roots: Map<string, PluginRootCacheRecord>;
   rootAliases: Map<string, string>;
   sdk: PluginCacheSdk;
-  registryLoads?: PluginLoaderCacheState<PluginRegistry>;
+  clearRegistryLoads?: () => void;
   setupModules: Map<
     string,
     {
@@ -129,7 +127,7 @@ export function resetPluginCache(): void {
 /** Stop new setup calls immediately; the owner awaits in-flight calls and graph cleanup. */
 export function retirePluginCache(cache: PluginCache): Promise<void> {
   // Retained instances keep their captured facts, not cached registries from a retired inventory.
-  cache.registryLoads?.clearCachedRegistries();
+  cache.clearRegistryLoads?.();
   for (const resource of cache.setupModules.values()) {
     resource.quiesce();
   }

@@ -2,31 +2,42 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { PluginLoaderCacheState } from "./loader-cache-state.js";
-import { getPluginCache } from "./plugin-cache.js";
+import { getPluginCache, type PluginCache } from "./plugin-cache.js";
 import { pluginInstanceState, resolvePluginInstanceOwner } from "./plugin-instance-scope.js";
 import type { PluginRecord, PluginRegistry } from "./registry-types.js";
 
-const { retiredRegistries, activatedRegistries, registryEpochs, preparation, loaderCaches } =
-  resolveGlobalSingleton(Symbol.for("openclaw.pluginRegistryLifecycle"), () => ({
-    retiredRegistries: new WeakSet<PluginRegistry>(),
-    activatedRegistries: new WeakSet<PluginRegistry>(),
-    registryEpochs: new WeakMap<PluginRegistry, object>(),
-    preparation: new AsyncLocalStorage<{ registry: PluginRegistry; active: boolean }>(),
-    loaderCaches: new WeakMap<PluginRegistry, Set<PluginLoaderCacheState<PluginRegistry>>>(),
-  }));
+const {
+  retiredRegistries,
+  activatedRegistries,
+  registryEpochs,
+  preparation,
+  loaderCaches,
+  registryLoads,
+} = resolveGlobalSingleton(Symbol.for("openclaw.pluginRegistryLifecycle"), () => ({
+  retiredRegistries: new WeakSet<PluginRegistry>(),
+  activatedRegistries: new WeakSet<PluginRegistry>(),
+  registryEpochs: new WeakMap<PluginRegistry, object>(),
+  preparation: new AsyncLocalStorage<{ registry: PluginRegistry; active: boolean }>(),
+  loaderCaches: new WeakMap<PluginRegistry, Set<PluginLoaderCacheState<PluginRegistry>>>(),
+  registryLoads: new WeakMap<PluginCache, PluginLoaderCacheState<PluginRegistry>>(),
+}));
 
 export function getPluginLoaderCacheState(cache = getPluginCache()) {
-  if (!cache.registryLoads) {
-    const loads = new PluginLoaderCacheState<PluginRegistry>(128, (registry) => {
-      let owners = loaderCaches.get(registry);
-      if (!owners) {
-        loaderCaches.set(registry, (owners = new Set()));
-      }
-      owners.add(loads);
-    });
-    cache.registryLoads = loads;
+  const cached = registryLoads.get(cache);
+  if (cached) {
+    return cached;
   }
-  return cache.registryLoads;
+  const loads = new PluginLoaderCacheState<PluginRegistry>(128, (registry) => {
+    let owners = loaderCaches.get(registry);
+    if (!owners) {
+      loaderCaches.set(registry, (owners = new Set()));
+    }
+    owners.add(loads);
+  });
+  registryLoads.set(cache, loads);
+  // Metadata owns retirement without importing the registry's runtime contracts.
+  cache.clearRegistryLoads = () => loads.clearCachedRegistries();
+  return loads;
 }
 
 export type PluginRegistryLifecycleEpoch = object;

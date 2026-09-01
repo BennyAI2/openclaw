@@ -4,7 +4,7 @@ import { isPathInside } from "../infra/path-guards.js";
 import { resolveUserPath } from "../utils.js";
 import { areBundledPluginsDisabled, resolveBundledPluginsDir } from "./bundled-dir.js";
 import { pluginCacheExistsSync, pluginCacheRealpathSync } from "./plugin-cache-files.js";
-import { getPluginInstance } from "./plugin-instance.js";
+import { getPluginInstance } from "./plugin-instance-scope.js";
 import { resolvePluginRuntimeRecord } from "./runtime-state.js";
 
 export const PUBLIC_SURFACE_SOURCE_EXTENSIONS = [

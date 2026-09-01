@@ -1,82 +1,6 @@
 import { projectPluginHttpRoutes } from "./http-route-owner.js";
+import { pluginArrays, pluginMaps } from "./registry-empty.js";
 import type { PluginRegistry } from "./registry-types.js";
-
-// One inventory initializes, rolls back, and carries contributions between generations.
-const pluginArrays = [
-  "tools",
-  "hooks",
-  "typedHooks",
-  "channels",
-  "channelSetups",
-  "providers",
-  "modelCatalogProviders",
-  "sessionCatalogs",
-  "cliBackends",
-  "textTransforms",
-  "embeddingProviders",
-  "speechProviders",
-  "realtimeTranscriptionProviders",
-  "realtimeVoiceProviders",
-  "mediaUnderstandingProviders",
-  "transcriptSourceProviders",
-  "imageGenerationProviders",
-  "videoGenerationProviders",
-  "musicGenerationProviders",
-  "webFetchProviders",
-  "webSearchProviders",
-  "migrationProviders",
-  "codexAppServerExtensionFactories",
-  "agentToolResultMiddlewareOwners",
-  "agentToolResultMiddlewares",
-  "agentHarnesses",
-  "detachedTaskRuntimes",
-  "legacyInternalHooks",
-  "memoryCapabilities",
-  "memoryCorpusSupplements",
-  "memoryPromptPreparations",
-  "memoryPromptSupplements",
-  "httpRoutes",
-  "hostedMediaResolvers",
-  "widgetPresenters",
-  "mcpServerConnectionResolvers",
-  "cliRegistrars",
-  "reloads",
-  "nodeHostCommands",
-  "nodeInvokePolicies",
-  "securityAuditCollectors",
-  "services",
-  "gatewayDiscoveryServices",
-  "commands",
-  "interactiveHandlers",
-  "sessionExtensions",
-  "trustedToolPolicies",
-  "toolMetadata",
-  "controlUiDescriptors",
-  "runtimeLifecycles",
-  "agentEventSubscriptions",
-  "sessionSchedulerJobs",
-  "sessionActions",
-  "conversationBindingResolvedHandlers",
-] as const satisfies ReadonlyArray<keyof PluginRegistry>;
-const pluginMaps = [
-  "workerProviders",
-  "sessionDiscussionProviders",
-  "dashboardDataBindings",
-  "dashboardActionVerbs",
-  "boardWidgetContentKinds",
-] as const satisfies ReadonlyArray<keyof PluginRegistry>;
-
-export function createEmptyPluginContributions() {
-  const contributions = Object.fromEntries([
-    ...pluginArrays.map((key) => [key, []]),
-    ...pluginMaps.map((key) => [key, new Map()]),
-  ]);
-  // SAFETY: The inventories enumerate array and Map fields, initialized with their empty values.
-  return contributions as Pick<
-    PluginRegistry,
-    (typeof pluginArrays)[number] | (typeof pluginMaps)[number]
-  >;
-}
 
 function projectArray<T>(source: T[], target: T[] | undefined, owns: (entry: T) => boolean): void {
   if (target) {
@@ -114,22 +38,12 @@ export function projectPluginContributions(
   target?: PluginRegistry,
 ): void {
   projectPluginHttpRoutes(source, pluginId, target);
+  const owns = (entry: { pluginId?: string }) => entry.pluginId === pluginId;
   for (const key of pluginArrays) {
-    if (key === "httpRoutes") {
-      continue;
-    }
-    projectArray<{ pluginId?: string }>(
-      source[key],
-      target?.[key],
-      (entry) => entry.pluginId === pluginId,
-    );
+    projectArray<{ pluginId?: string }>(source[key], target?.[key], owns);
   }
   for (const key of pluginMaps) {
-    projectMap<string, { pluginId: string }>(
-      source[key],
-      target?.[key],
-      (entry) => entry.pluginId === pluginId,
-    );
+    projectMap<string, { pluginId: string }>(source[key], target?.[key], owns);
   }
   projectArray(
     source.compactionProviders,
