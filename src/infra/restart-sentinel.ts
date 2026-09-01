@@ -14,26 +14,28 @@ import { gitCommitPrefixesMatch } from "./git-commit.js";
 import { resolveOpenClawPackageRoot } from "./openclaw-root.js";
 import {
   deleteRestartSentinelRowSync,
-  finalizeUpdateFailureReportReceiptRowSync,
   readRestartSentinelRowSync,
   readRestartSentinelSnapshotSync,
   readUpdateInstallReceiptRowSync,
-  reserveUpdateFailureReportReceiptRowSync,
   writeRestartSentinelRowIfRevisionSync,
   writeRestartSentinelRowSync,
   writeUpdateInstallReceiptRowSync,
   type RestartSentinel,
   type RestartSentinelContinuation,
   type RestartSentinelPayload,
-  type UpdateFailureReportReceipt,
 } from "./restart-sentinel-store.js";
+import {
+  finalizeUpdateFailureReportReceiptRowSync,
+  reserveUpdateFailureReportReceiptRowSync,
+  type UpdateFailureReportReceipt,
+} from "./update-failure-report-receipt-store.js";
 import { resolveUpdateInstallRoot } from "./update-install-root.js";
 
 export type {
   RestartSentinelContinuation,
   RestartSentinelPayload,
-  UpdateFailureReportReceipt,
 } from "./restart-sentinel-store.js";
+export type { UpdateFailureReportReceipt } from "./update-failure-report-receipt-store.js";
 
 export type VerifiedGitUpdateReceipt = {
   root: string;

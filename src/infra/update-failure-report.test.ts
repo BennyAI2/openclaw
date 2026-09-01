@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
-import { readUpdateFailureReportReceiptRowSync } from "./restart-sentinel-store.js";
 import { prepareUpdateFailureReport, submitUpdateFailureReport } from "./update-failure-report.js";
 import type { UpdateRunResult } from "./update-runner.js";
 
@@ -94,12 +92,15 @@ describe("update failure report", () => {
       submitUpdateFailureReport(prepared, prepared.previewDigest, { createIssue, stateDir }),
       submitUpdateFailureReport(prepared, prepared.previewDigest, { createIssue, stateDir }),
     ]);
+    const third = await submitUpdateFailureReport(prepared, prepared.previewDigest, {
+      createIssue,
+      stateDir,
+    });
 
     expect(createIssue).toHaveBeenCalledOnce();
     expect([first.status, second.status].toSorted()).toEqual(["created", "duplicate"]);
-    const state = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: stateDir } });
-    expect(readUpdateFailureReportReceiptRowSync(state.db, "attempt-once")).toMatchObject({
-      status: "created",
+    expect(third).toMatchObject({
+      status: "duplicate",
       url: "https://github.com/openclaw/openclaw/issues/123",
     });
     expect((await fs.readdir(path.dirname(prepared.savedReportPath))).toSorted()).toEqual([
