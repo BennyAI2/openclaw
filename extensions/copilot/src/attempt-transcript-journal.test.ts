@@ -250,6 +250,23 @@ describe("Copilot attempt transcript journal", () => {
     expect(journal.snapshot().replayInvalid).toBe(true);
   });
 
+  it("validates an initial SDK string against a persisted single text block", async () => {
+    const { journal, recorder, session } = await createFixture();
+    recorder.resolveMessage.mockResolvedValue({
+      role: "user",
+      content: [{ type: "text", text: "inspect both files" }],
+      timestamp: 1,
+    });
+    await journal.persistInitialUser();
+    session.emit(event("user.message", "initial-user", { content: "inspect both files" }));
+    await journal.barrier("equivalent initial user");
+
+    expect(journal.snapshot()).toMatchObject({
+      initialSdkUserValidated: true,
+      replayInvalid: false,
+    });
+  });
+
   it("marks non-interactive SDK user modes replay-incomplete", async () => {
     const { journal, session } = await createFixture();
     await journal.persistInitialUser();
