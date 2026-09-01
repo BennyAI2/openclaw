@@ -1,3 +1,6 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +11,7 @@ import { resolveCliExecutableIdentity } from "./cli-executable-identity.js";
 const tempDirs: string[] = [];
 
 function makePackage(): { root: string; entrypoint: string; implementation: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-cli-artifact-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-cli-artifact-")));
   tempDirs.push(root);
   const entrypoint = path.join(root, "bin", "cli.js");
   const implementation = path.join(root, "dist", "main.js");
@@ -63,12 +66,15 @@ describe("CLI executable implementation identity", () => {
   it.runIf(process.platform === "win32")(
     "rejects mixed-case relative PATH entries and accepts mixed-case absolute entries",
     async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-cli-path-case-"));
+      // Keep the relative PATH fixture on the same Windows drive as cwd.
+      const root = fs.realpathSync(
+        fs.mkdtempSync(path.join(process.cwd(), "openclaw-cli-path-case-")),
+      );
       tempDirs.push(root);
       const binDir = path.join(root, "bin");
       const executable = path.join(binDir, "mixed-identity.exe");
       fs.mkdirSync(binDir);
-      fs.linkSync(process.execPath, executable);
+      fs.copyFileSync(process.execPath, executable);
       const relativeBinDir = path.relative(process.cwd(), binDir);
       const runtimeArtifact: CliBackendRuntimeArtifactPolicy = {
         ...commandPackagePolicy,
@@ -83,6 +89,21 @@ describe("CLI executable implementation identity", () => {
           runtimeArtifact,
         }),
       ).resolves.toBeUndefined();
+      await expect(
+        resolveCliExecutableIdentity({
+          command: ".\\mixed-identity.exe",
+          cwd: binDir,
+          env: { pAtH: binDir, pAtHeXt: ".EXE" },
+          runtimeArtifact,
+        }),
+      ).resolves.toBeUndefined();
+
+      const absoluteIdentity = await resolveCliExecutableIdentity({
+        command: executable,
+        env: { pAtH: binDir, pAtHeXt: ".CMD" },
+        runtimeArtifact,
+      });
+      expect(absoluteIdentity?.resolvedPath).toBe(fs.realpathSync(executable));
 
       const identity = await resolveCliExecutableIdentity({
         command: "mixed-identity",
@@ -93,6 +114,118 @@ describe("CLI executable implementation identity", () => {
       expect(identity?.runtimeArtifact).toEqual({ kind: "self-contained-executable" });
     },
   );
+
+  describe.runIf(process.platform === "win32")("Windows npm shim identity", () => {
+    it.each([
+      { artifact: "native", command: "explicit" },
+      { artifact: "native", command: "bare" },
+      { artifact: "package", command: "explicit" },
+      { artifact: "package", command: "bare" },
+    ] as const)("executes the bound $artifact owner for a $command command", async (scenario) => {
+      const fixture = makePackage();
+      const wrapperDir = path.join(fixture.root, "wrappers");
+      fs.mkdirSync(wrapperDir);
+      const entrypoint =
+        scenario.artifact === "native"
+          ? path.join(fixture.root, "bin", "verified-cli.exe")
+          : fixture.entrypoint;
+      if (scenario.artifact === "native") {
+        fs.copyFileSync(process.execPath, entrypoint);
+      } else {
+        fs.writeFileSync(fixture.implementation, 'process.stdout.write("identity-ok");\n');
+      }
+      const posixShim = path.join(wrapperDir, "verified-cli");
+      const cmdShim = `${posixShim}.cmd`;
+      const relativeEntrypoint = path.relative(wrapperDir, entrypoint);
+      fs.writeFileSync(
+        posixShim,
+        `#!/bin/sh\nexec "$basedir/${relativeEntrypoint.replaceAll("\\", "/")}" "$@"\n`,
+      );
+      fs.writeFileSync(cmdShim, `@ECHO off\r\n"%~dp0\\${relativeEntrypoint}" %*\r\n`);
+      const env = {
+        pAtH: `${wrapperDir};${path.dirname(process.execPath)}`,
+        pAtHeXt: ".CMD;.EXE",
+      };
+      const identity = await resolveCliExecutableIdentity({
+        command: scenario.command === "bare" ? "verified-cli" : cmdShim,
+        env,
+        runtimeArtifact: {
+          ...commandPackagePolicy,
+          nativeExecutableNames: ["verified-cli.exe"],
+        },
+      });
+
+      assert.ok(identity, "The Windows command must bind to its executable owner.");
+      expect(identity.resolvedPath).toBe(cmdShim);
+      expect(identity.invocation).toEqual({
+        command: scenario.artifact === "native" ? entrypoint : fs.realpathSync(process.execPath),
+        leadingArgv: scenario.artifact === "native" ? [] : [entrypoint],
+        resolution: scenario.artifact === "native" ? "exe-entrypoint" : "node-entrypoint",
+      });
+      expect(identity.runtimeArtifact.kind).toBe(
+        scenario.artifact === "native" ? "self-contained-executable" : "package-tree",
+      );
+      expect(identity.files.map((file) => file.path)).toEqual(
+        expect.arrayContaining([cmdShim, entrypoint]),
+      );
+      expect(identity.files.some((file) => file.path === posixShim)).toBe(false);
+      const args =
+        scenario.artifact === "native" ? ["-e", 'process.stdout.write("identity-ok")'] : [];
+      const child = spawnSync(
+        identity.invocation.command,
+        [...identity.invocation.leadingArgv, ...args],
+        {
+          env,
+          encoding: "utf8",
+          windowsHide: true,
+        },
+      );
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(0);
+      expect(child.stdout).toBe("identity-ok");
+    });
+
+    it("does not bind a missing PATH command to an executable in the current directory", async () => {
+      const fixture = makePackage();
+      const emptyPath = path.join(fixture.root, "empty-path");
+      const command = `openclaw-cli-missing-owner-${randomUUID()}.exe`;
+      const executable = path.join(process.cwd(), command);
+      fs.mkdirSync(emptyPath);
+      // Workers cannot chdir; this uniquely owned file exercises implicit cwd lookup.
+      fs.copyFileSync(process.execPath, executable, fs.constants.COPYFILE_EXCL);
+      try {
+        await expect(
+          resolveCliExecutableIdentity({
+            command,
+            env: { PATH: emptyPath, PATHEXT: ".EXE" },
+            runtimeArtifact: {
+              ...commandPackagePolicy,
+              nativeExecutableNames: [command],
+            },
+          }),
+        ).resolves.toBeUndefined();
+      } finally {
+        fs.rmSync(executable);
+      }
+    });
+
+    it("keeps explicitly selected POSIX shims and arbitrary batch wrappers unverified", async () => {
+      const fixture = makePackage();
+      const posixShim = path.join(fixture.root, "unsafe-cli");
+      const cmdShim = `${posixShim}.cmd`;
+      fs.writeFileSync(posixShim, '#!/bin/sh\nexec "$basedir/bin/cli.js" "$@"\n');
+      fs.writeFileSync(cmdShim, '@ECHO off\r\nSET WRAPPER_FLAG=1\r\n"%~dp0\\bin\\cli.js" %*\r\n');
+      for (const command of [posixShim, cmdShim, "unsafe-cli"]) {
+        await expect(
+          resolveCliExecutableIdentity({
+            command,
+            env: { PATH: fixture.root, PATHEXT: ".CMD;.EXE" },
+            runtimeArtifact: commandPackagePolicy,
+          }),
+        ).resolves.toBeUndefined();
+      }
+    });
+  });
 
   it("does not depend on host locale collation when ordering package files", async () => {
     const fixture = makePackage();
