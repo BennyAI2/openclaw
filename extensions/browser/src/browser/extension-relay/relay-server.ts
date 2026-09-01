@@ -12,6 +12,7 @@ import {
 import { WebSocketServer, type WebSocket } from "ws";
 import { isLoopbackHost } from "../../gateway/net.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { firstHeaderValue } from "../request-header.js";
 import { randomRelayId } from "./auth-v2-crypto.js";
 import { authenticateExtensionWebSocket } from "./auth-v2-websocket.js";
 import {
@@ -34,7 +35,6 @@ import { readExtensionRelayToken } from "./relay-auth.js";
 import { ExtensionRelayBridge } from "./relay-bridge.js";
 import { parseExtensionMessage } from "./relay-protocol.js";
 import {
-  firstHeader,
   isAllowedExtensionOrigin,
   requestExtensionProtocolToken,
   requestProtocols,
@@ -80,7 +80,7 @@ export type ExtensionRelayHandle = {
 };
 
 function decodeBasic(req: IncomingMessage): { username: string; password: string } | null {
-  const auth = firstHeader(req.headers.authorization);
+  const auth = firstHeaderValue(req.headers.authorization);
   if (!auth.startsWith("Basic ")) {
     return null;
   }
@@ -110,7 +110,7 @@ function isAuthorizedLegacy(
   if (!allowLegacyAuth) {
     return false;
   }
-  const auth = firstHeader(req.headers.authorization);
+  const auth = firstHeaderValue(req.headers.authorization);
   if (auth.startsWith("Bearer ") && safeEqualSecret(token, auth.slice("Bearer ".length).trim())) {
     return true;
   }
@@ -123,7 +123,7 @@ function isAuthorizedLegacy(
 }
 
 function hasLoopbackHostHeader(req: IncomingMessage): boolean {
-  const host = firstHeader(req.headers.host);
+  const host = firstHeaderValue(req.headers.host);
   if (!host) {
     return true;
   }

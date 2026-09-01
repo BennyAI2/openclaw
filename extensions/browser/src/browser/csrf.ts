@@ -7,10 +7,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { isLoopbackHost } from "../gateway/net.js";
-
-function firstHeader(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
+import { firstHeaderValue } from "./request-header.js";
 
 function isMutatingMethod(method: string): boolean {
   const m = (method || "").trim().toUpperCase();
@@ -75,9 +72,9 @@ export function browserMutationGuardMiddleware(): (
       return next();
     }
 
-    const origin = firstHeader(req.headers.origin);
-    const referer = firstHeader(req.headers.referer);
-    const secFetchSite = firstHeader(req.headers["sec-fetch-site"]);
+    const origin = firstHeaderValue(req.headers.origin);
+    const referer = firstHeaderValue(req.headers.referer);
+    const secFetchSite = firstHeaderValue(req.headers["sec-fetch-site"]);
 
     if (
       shouldRejectBrowserMutation({

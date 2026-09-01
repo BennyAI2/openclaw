@@ -7,10 +7,7 @@
 import type { IncomingMessage } from "node:http";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
-
-function firstHeaderValue(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
+import { firstHeaderValue } from "./request-header.js";
 
 function parseBearerToken(authorization: string): string | undefined {
   if (!normalizeLowercaseStringOrEmpty(authorization).startsWith("bearer ")) {
