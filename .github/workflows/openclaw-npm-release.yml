@@ -1,5 +1,5 @@
 name: Release advisory retrieval diagnostic
-run-name: Release advisory retrieval diagnostic 2026.8.2
+run-name: Fixed release advisory scanner diagnostic 2026.8.2
 on:
   workflow_dispatch:
 permissions:
@@ -7,61 +7,42 @@ permissions:
 jobs:
   advisory_diagnostic:
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/setup-pnpm-store-cache
+            .github/release/advisory-diagnostic
+            scripts/lib
+            scripts/pre-commit
+            src/utils
+            packages/normalization-core
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.19.0
-      - name: Read thirteen public advisories with the preflight token policy
+      - uses: ./.github/actions/setup-pnpm-store-cache
+        with:
+          node-version: 24.19.0
+          cache-mode: off
+      - name: Install the frozen scanner runtime in an isolated prefix
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/advisory-scanner-runtime"
+          mkdir -p "$runtime_dir"
+          cp .github/release/advisory-diagnostic/package.json .github/release/advisory-diagnostic/pnpm-lock.yaml "$runtime_dir/"
+          pnpm --dir "$runtime_dir" install --frozen-lockfile --ignore-scripts
+          ln -s "$runtime_dir/node_modules" node_modules
+      - name: Run the fixed scanner through real registry and GitHub requests
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { writeFile } from 'node:fs/promises';
-          const ids = ["GHSA-p7fg-763f-g4gf", "GHSA-crvj-82cr-hjcx", "GHSA-g6gw-c38x-mqfc", "GHSA-gqvv-2mrq-wpjv", "GHSA-m732-5p4w-x69g", "GHSA-xh87-mx6m-69f3", "GHSA-2vr4-cq9g-pvrc", "GHSA-rpw4-54j3-4h4q", "GHSA-2883-xcg3-v3hh", "GHSA-4mjr-xmp4-gh2g", "GHSA-x5fp-wj9c-mxmx", "GHSA-45c6-75p6-83cc", "GHSA-8r6m-32jq-jx6q"];
-          const headerNames = ['x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'x-ratelimit-resource', 'x-ratelimit-used', 'retry-after', 'x-github-request-id', 'x-github-api-version-selected'];
-          const results = [];
-          for (const id of ids) {
-            const started = Date.now();
-            const result = { id };
-            try {
-              const response = await fetch(`https://api.github.com/advisories/${id}`, {
-                headers: { accept: 'application/json', 'x-github-api-version': '2022-11-28', authorization: `Bearer ${process.env.GH_TOKEN}` },
-                signal: AbortSignal.timeout(15000),
-                redirect: 'manual',
-              });
-              result.status = response.status;
-              const location = response.headers.get('location');
-              if (location) {
-                const destination = new URL(location, response.url);
-                result.redirectLocation = destination.origin + destination.pathname;
-              }
-              result.headers = Object.fromEntries(headerNames.map(name => [name, response.headers.get(name)]));
-              const chunks = [];
-              let length = 0;
-              for await (const chunk of response.body) {
-                length += chunk.byteLength;
-                if (length > 2 * 1024 * 1024) throw new RangeError('response-bound');
-                chunks.push(chunk);
-              }
-              const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-              // Keep only public advisory fields and the bounded error category, never request headers.
-              result.advisory = Object.fromEntries(['ghsa_id', 'type', 'published_at', 'github_reviewed_at', 'withdrawn_at'].map(key => [key, body[key] ?? null]));
-              result.advisory.vulnerabilities = (Array.isArray(body.vulnerabilities) ? body.vulnerabilities : []).slice(0, 20).map(item => ({ package: item.package, vulnerable_version_range: item.vulnerable_version_range }));
-              result.errorMessage = typeof body.message === 'string' ? body.message.replaceAll(process.env.GH_TOKEN, '[redacted]').slice(0, 500) : null;
-            } catch (error) {
-              result.error = { name: error.name, code: typeof error.cause?.code === 'string' ? error.cause.code : null };
-            }
-            result.elapsedMs = Date.now() - started;
-            results.push(result);
-          }
-          await writeFile('advisory-diagnostic.json', JSON.stringify({ diagnosticOnly: true, runId: process.env.GITHUB_RUN_ID, workflowSha: process.env.GITHUB_SHA, node: process.version, results }, null, 2) + '\n');
-          console.log(JSON.stringify(results.map(({id, status, error}) => ({id, status, error}))));
-          NODE
+        run: node --import tsx .github/release/advisory-diagnostic/scanner-proof.mts
       - name: Retain sanitized diagnostic evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: release-advisory-retrieval-diagnostic-${{ github.run_id }}
-          path: advisory-diagnostic.json
+          name: fixed-release-advisory-scanner-diagnostic-${{ github.run_id }}
+          path: scanner-diagnostic.json
           if-no-files-found: error
           retention-days: 14
