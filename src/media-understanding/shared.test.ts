@@ -38,6 +38,7 @@ import {
   fetchWithTimeoutGuarded,
   pollProviderOperationJson,
   postJsonRequest,
+  postMultipartRequest,
   postTranscriptionRequest,
   resolveProviderHttpRequestConfig,
   resolveProviderHttpRequestConfigWithOriginTrust,
@@ -686,6 +687,16 @@ describe("resolveProviderHttpRequestConfig", () => {
 });
 
 describe("fetchWithTimeoutGuarded", () => {
+  it.each([postTranscriptionRequest, postJsonRequest, postMultipartRequest])(
+    "rejects aborted POSTs",
+    async (request) => {
+      const signal = AbortSignal.abort("request cancelled");
+      const args = { url: "x", headers: new Headers(), body: "x", fetchFn: fetch, signal };
+      await expect(request(args)).rejects.toBe(signal.reason);
+      expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("applies a default timeout when callers omit one", async () => {
     fetchWithSsrFGuardMock.mockResolvedValue({
       response: new Response(null, { status: 200 }),

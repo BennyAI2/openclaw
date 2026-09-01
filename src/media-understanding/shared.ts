@@ -651,39 +651,28 @@ type GuardedPostRequestParams<TBody> = GuardedProviderRequestParams &
   };
 
 export async function postTranscriptionRequest(params: GuardedPostRequestParams<BodyInit>) {
-  return await postGuardedRequest({
-    url: params.url,
-    init: {
-      method: "POST",
-      headers: params.headers,
-      body: params.body,
-      ...(params.signal ? { signal: params.signal } : {}),
-    },
-    timeoutMs: params.timeoutMs,
-    fetchFn: params.fetchFn,
-    guardedOptions: resolveGuardedRequestOptions(params),
-    retryStage: params.retryStage,
-    retry: params.retry,
-  });
+  return await postGuardedRequest(params, params.body);
 }
 
-async function postGuardedRequest(params: {
-  url: string;
-  init: RequestInit;
-  timeoutMs?: number;
-  fetchFn: typeof fetch;
-  guardedOptions?: GuardedProviderRequestOptions;
-  retryStage?: ProviderOperationRetryStage;
-  retry?: TransientProviderRetryConfig;
-}) {
+async function postGuardedRequest<TBody>(
+  params: GuardedPostRequestParams<TBody>,
+  requestBody: BodyInit | undefined,
+) {
+  const init: RequestInit = {
+    method: "POST",
+    headers: params.headers,
+    body: requestBody,
+    ...(params.signal ? { signal: params.signal } : {}),
+  };
+  const guardedOptions = resolveGuardedRequestOptions(params);
   const operation = async () => {
-    params.init.signal?.throwIfAborted();
+    init.signal?.throwIfAborted();
     const result = await fetchWithTimeoutGuarded(
       params.url,
-      params.init,
+      init,
       params.timeoutMs,
       params.fetchFn,
-      params.guardedOptions,
+      guardedOptions,
     );
     if (params.retryStage && isTransientProviderHttpStatus(result.response.status)) {
       try {
@@ -703,43 +692,17 @@ async function postGuardedRequest(params: {
     provider: "provider-http",
     stage: params.retryStage,
     retry: params.retry,
-    signal: params.init.signal ?? undefined,
+    signal: init.signal ?? undefined,
     operation,
   });
 }
 
 export async function postJsonRequest(params: GuardedPostRequestParams<unknown>) {
-  return await postGuardedRequest({
-    url: params.url,
-    init: {
-      method: "POST",
-      headers: params.headers,
-      body: JSON.stringify(params.body),
-      ...(params.signal ? { signal: params.signal } : {}),
-    },
-    timeoutMs: params.timeoutMs,
-    fetchFn: params.fetchFn,
-    guardedOptions: resolveGuardedRequestOptions(params),
-    retryStage: params.retryStage,
-    retry: params.retry,
-  });
+  return await postGuardedRequest(params, JSON.stringify(params.body));
 }
 
 export async function postMultipartRequest(params: GuardedPostRequestParams<BodyInit>) {
-  return await postGuardedRequest({
-    url: params.url,
-    init: {
-      method: "POST",
-      headers: params.headers,
-      body: params.body,
-      ...(params.signal ? { signal: params.signal } : {}),
-    },
-    timeoutMs: params.timeoutMs,
-    fetchFn: params.fetchFn,
-    guardedOptions: resolveGuardedRequestOptions(params),
-    retryStage: params.retryStage,
-    retry: params.retry,
-  });
+  return await postGuardedRequest(params, params.body);
 }
 
 export function requireTranscriptionText(
