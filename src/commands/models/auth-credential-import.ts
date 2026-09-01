@@ -43,7 +43,10 @@ export async function tryImportProviderCredential(params: {
     itemKinds: ["auth"],
     includeSecrets: true,
     configOverride: params.config,
-    providerOptions: params.credentialOnly ? { configPatchMode: "return" } : undefined,
+    providerOptions: {
+      credentialKind: spec.credentialKind,
+      ...(params.credentialOnly ? { configPatchMode: "none" } : {}),
+    },
     runtime: params.runtime,
   });
   if (params.signal) {

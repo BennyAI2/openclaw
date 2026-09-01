@@ -47,7 +47,10 @@ describe("tryImportProviderCredential", () => {
       plan: async (ctx) => {
         expect(ctx.itemKinds).toEqual(["auth"]);
         expect(ctx.includeSecrets).toBe(true);
-        expect(ctx.providerOptions).toEqual({ configPatchMode: "return" });
+        expect(ctx.providerOptions).toEqual({
+          configPatchMode: "none",
+          credentialKind: "oauth",
+        });
         return {
           providerId: "codex",
           source: "/tmp/codex",

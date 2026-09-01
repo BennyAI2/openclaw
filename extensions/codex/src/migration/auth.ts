@@ -42,7 +42,7 @@ const CODEX_REASON_AUTH_PROFILE_EXISTS = "auth profile exists";
 const CODEX_REASON_AUTH_PROFILE_WRITE_FAILED = "failed to write auth profile";
 const CODEX_REASON_AUTH_NO_LONGER_PRESENT = "auth credential no longer present";
 const CODEX_REASON_MISSING_AUTH_METADATA = "missing auth metadata";
-const CODEX_CONFIG_PATCH_MODE_RETURN = "return";
+type CodexConfigPatchMode = "apply" | "none" | "return";
 
 type CodexMigrationTargets = ReturnType<typeof resolveCodexMigrationTargets>;
 export type CodexAuthSource = Pick<CodexSource, "codexHome" | "authPath" | "modelsCachePath">;
@@ -100,6 +100,7 @@ async function readModelRefs(source: CodexAuthSource): Promise<string[]> {
 
 async function buildCodexOAuthCredential(
   source: CodexAuthSource,
+  includeConfigPatch: boolean,
 ): Promise<CodexAuthCredential | null> {
   const credential = readCodexCliCredentialsCached({
     codexHome: source.codexHome,
@@ -113,14 +114,17 @@ async function buildCodexOAuthCredential(
     access: credential.access,
     accountId: credential.accountId,
   });
-  const modelRefs = await readModelRefs(source);
-  const configPatch = {
-    agents: {
-      defaults: {
-        models: Object.fromEntries(modelRefs.map((modelRef) => [modelRef, {}])),
-      },
-    },
-  } satisfies Partial<OpenClawConfig>;
+  const configPatch = includeConfigPatch
+    ? {
+        agents: {
+          defaults: {
+            models: Object.fromEntries(
+              (await readModelRefs(source)).map((modelRef) => [modelRef, {}]),
+            ),
+          },
+        },
+      }
+    : {};
   const result = buildOauthProviderAuthResult({
     providerId: OPENAI_PROVIDER_ID,
     defaultModel: OPENAI_CODEX_DEFAULT_MODEL,
@@ -166,9 +170,16 @@ async function buildCodexApiKeyCredential(
   };
 }
 
-async function readCodexAuthCredentials(source: CodexAuthSource): Promise<CodexAuthCredential[]> {
-  const oauth = await buildCodexOAuthCredential(source);
-  const apiKey = await buildCodexApiKeyCredential(source);
+async function readCodexAuthCredentials(
+  source: CodexAuthSource,
+  options: { credentialKind?: CodexAuthCredential["kind"]; includeConfigPatch: boolean },
+): Promise<CodexAuthCredential[]> {
+  const oauth =
+    options.credentialKind === "api_key"
+      ? null
+      : await buildCodexOAuthCredential(source, options.includeConfigPatch);
+  const apiKey =
+    options.credentialKind === "oauth" ? null : await buildCodexApiKeyCredential(source);
   return [oauth, apiKey].filter((entry): entry is CodexAuthCredential => entry !== null);
 }
 
@@ -330,8 +341,16 @@ function applyApiKeyConfigToConfig(
   });
 }
 
-function shouldReturnAuthConfigPatch(ctx: MigrationProviderContext): boolean {
-  return ctx.providerOptions?.configPatchMode === CODEX_CONFIG_PATCH_MODE_RETURN;
+export function resolveCodexConfigPatchMode(ctx: MigrationProviderContext): CodexConfigPatchMode {
+  const mode = ctx.providerOptions?.configPatchMode;
+  return mode === "none" || mode === "return" ? mode : "apply";
+}
+
+function resolveRequestedCredentialKind(
+  ctx: MigrationProviderContext,
+): CodexAuthCredential["kind"] | undefined {
+  const kind = ctx.providerOptions?.credentialKind;
+  return kind === "oauth" || kind === "api_key" ? kind : undefined;
 }
 
 function authProfileConfigForCredential(
@@ -416,7 +435,11 @@ export async function buildCodexAuthItems(params: {
   source: CodexAuthSource;
   targets: CodexMigrationTargets;
 }): Promise<MigrationItem[]> {
-  const credentials = await readCodexAuthCredentials(params.source);
+  const configPatchMode = resolveCodexConfigPatchMode(params.ctx);
+  const credentials = await readCodexAuthCredentials(params.source, {
+    credentialKind: resolveRequestedCredentialKind(params.ctx),
+    includeConfigPatch: configPatchMode !== "none",
+  });
   if (credentials.length === 0) {
     return [];
   }
@@ -483,7 +506,13 @@ export async function applyCodexAuthItems(params: {
   if (!profileId || !provider || (credentialKind !== "oauth" && credentialKind !== "api_key")) {
     return [markMigrationItemError(item, CODEX_REASON_MISSING_AUTH_METADATA)];
   }
-  const credential = (await readCodexAuthCredentials(source)).find(
+  const configPatchMode = resolveCodexConfigPatchMode(ctx);
+  const credential = (
+    await readCodexAuthCredentials(source, {
+      credentialKind,
+      includeConfigPatch: configPatchMode !== "none",
+    })
+  ).find(
     (candidate) =>
       candidate.provider === provider &&
       candidate.kind === credentialKind &&
@@ -543,9 +572,10 @@ export async function applyCodexAuthItems(params: {
   if (!store?.profiles[profileId]) {
     return [markMigrationItemError(item, CODEX_REASON_AUTH_PROFILE_WRITE_FAILED)];
   }
-  const configResult = shouldReturnAuthConfigPatch(ctx)
-    ? "unavailable"
-    : await applyCodexAuthConfig(ctx, credential, profileId);
+  const configResult =
+    configPatchMode !== "apply"
+      ? "unavailable"
+      : await applyCodexAuthConfig(ctx, credential, profileId);
   if (configResult === "conflict") {
     return [markMigrationItemConflict(item, CODEX_REASON_AUTH_PROFILE_EXISTS)];
   }
@@ -556,12 +586,12 @@ export async function applyCodexAuthItems(params: {
       ...item.details,
       wroteAuthProfile: wrote,
       configUpdated: configResult === "configured",
-      ...(shouldReturnAuthConfigPatch(ctx) ? { configPatchReturned: true } : {}),
+      ...(configPatchMode === "return" ? { configPatchReturned: true } : {}),
     },
   };
   return [
     migratedItem,
-    ...(shouldReturnAuthConfigPatch(ctx)
+    ...(configPatchMode === "return"
       ? buildCodexAuthConfigPatchItems(ctx, migratedItem, credential, profileId)
       : []),
   ];

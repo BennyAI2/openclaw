@@ -1459,6 +1459,58 @@ describe("buildCodexMigrationProvider", () => {
     expect(configState.agents?.defaults?.model).toBeUndefined();
   });
 
+  it("imports only the selected OAuth credential without probing API-key or model config", async () => {
+    const fixture = await createCodexFixture();
+    const accessToken = fakeJwt({
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_selected" },
+      "https://api.openai.com/profile": { email: "selected@example.test" },
+    });
+    await writeFile(
+      path.join(fixture.codexHome, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: accessToken,
+          refresh_token: "refresh-selected-token",
+          account_id: "acct_selected",
+        },
+      }),
+    );
+    const configState: MigrationProviderContext["config"] = {
+      agents: { defaults: { workspace: fixture.workspaceDir } },
+    };
+    const mutateConfigFile = vi.fn(async () => {
+      throw new Error("credential-only import must not mutate config");
+    });
+    const provider = buildCodexMigrationProvider({
+      runtime: { config: { current: () => configState, mutateConfigFile } } as never,
+    });
+    const ctx = makeContext({
+      source: fixture.codexHome,
+      stateDir: fixture.stateDir,
+      workspaceDir: fixture.workspaceDir,
+      config: configState,
+      includeSecrets: true,
+      providerOptions: { configPatchMode: "none", credentialKind: "oauth" },
+    });
+
+    const plan = await provider.plan(ctx);
+    const result = await provider.apply(ctx, plan);
+
+    expect(plan.items.filter((item) => item.kind === "auth").map((item) => item.id)).toEqual([
+      "auth:openai",
+    ]);
+    expect(readCodexCliActiveApiKey).not.toHaveBeenCalled();
+    expect(result.items.some((item) => item.id.startsWith("auth:openai:config:"))).toBe(false);
+    expect(findItem(result.items, "auth:openai")).toEqual(
+      expect.objectContaining({
+        status: "migrated",
+        details: expect.objectContaining({ configUpdated: false }),
+      }),
+    );
+    expect(mutateConfigFile).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       name: "skips source-installed plugins whose owned apps are inaccessible",
