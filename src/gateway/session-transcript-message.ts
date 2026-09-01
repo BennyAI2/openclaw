@@ -1,4 +1,5 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { readNonBlankString } from "@openclaw/normalization-core/string-coerce";
 import type { TranscriptDisplayPosition } from "../chat/transcript-display-position.js";
 import {
   createCurrentUserProfileMessageProjector,
@@ -36,14 +37,6 @@ export function attachOpenClawTranscriptMeta(
   };
 }
 
-function readTranscriptMessageIdempotencyKey(message: unknown): string | undefined {
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    return undefined;
-  }
-  const value = (message as Record<string, unknown>).idempotencyKey;
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
 function readTranscriptMessageSenderIsOwner(message: unknown): boolean | undefined {
   const openclaw = asOptionalRecord(asOptionalRecord(message)?.["__openclaw"]);
   const value = openclaw?.senderIsOwner;
@@ -63,7 +56,7 @@ export function projectSessionMessagePayload(params: {
   sessionKey: string;
   sessionSnapshot?: Record<string, unknown>;
 }): { payload?: Record<string, unknown>; projectionState: SessionMessageProjectionState } {
-  const idempotencyKey = readTranscriptMessageIdempotencyKey(params.message);
+  const idempotencyKey = readNonBlankString(asOptionalRecord(params.message)?.idempotencyKey);
   const senderIsOwner = readTranscriptMessageSenderIsOwner(params.message);
   const rawMessage = attachOpenClawTranscriptMeta(params.message, {
     // Placement comes from the selected reader snapshot, never persisted/imported metadata.
@@ -125,7 +118,7 @@ export function projectTranscriptEntryMessage(
         : typeof record.timestamp === "number"
           ? record.timestamp
           : Number.NaN;
-    const idempotencyKey = readTranscriptMessageIdempotencyKey(record.message);
+    const idempotencyKey = readNonBlankString(asOptionalRecord(record.message)?.idempotencyKey);
     return attachOpenClawTranscriptMeta(record.message, {
       ...(typeof record.id === "string" ? { id: record.id } : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),

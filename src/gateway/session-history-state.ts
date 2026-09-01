@@ -3,6 +3,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { expectDefined } from "@openclaw/normalization-core";
 import { asPositiveSafeInteger } from "@openclaw/normalization-core/number-coercion";
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { readNonBlankString } from "@openclaw/normalization-core/string-coerce";
 import type { SessionEntry } from "../config/sessions.js";
 import {
   DEFAULT_CHAT_HISTORY_TEXT_MAX_CHARS,
@@ -77,14 +79,6 @@ type SessionHistoryStateSnapshot = SessionHistoryRawSnapshot & {
   limit?: number;
   cursor?: string;
 };
-
-function readMessageIdempotencyKey(message: unknown): string | undefined {
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    return undefined;
-  }
-  const value = (message as Record<string, unknown>).idempotencyKey;
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
 
 /** Owns both complete history snapshots and bounded visible-message pages. */
 export async function readSessionHistoryRawSnapshotAsync(
@@ -325,7 +319,7 @@ export class SessionHistorySseState {
     } else {
       this.rawTranscriptSeq += 1;
     }
-    const idempotencyKey = readMessageIdempotencyKey(update.message);
+    const idempotencyKey = readNonBlankString(asOptionalRecord(update.message)?.idempotencyKey);
     const nextMessage = attachOpenClawTranscriptMeta(update.message, {
       ...(typeof update.messageId === "string" ? { id: update.messageId } : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),
