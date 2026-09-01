@@ -1962,7 +1962,6 @@ src/agents/session-tool-result-guard.ts	24
 src/agents/session-transcript-repair.ts	14
 src/agents/sessions/agent-session-base.ts	3
 src/agents/sessions/agent-session-extensions.ts	1
-src/agents/sessions/agent-session-inspection.ts	2
 src/agents/sessions/agent-session-models.ts	2
 src/agents/sessions/agent-session-tree.ts	2
 src/agents/sessions/agent-session-utils.ts	1
@@ -4093,7 +4092,6 @@ ui/src/pages/labs/labs-registry.ts	6
 ui/src/pages/logs/log-lines.ts	1
 ui/src/pages/logs/view.ts	2
 ui/src/pages/memory-import/view.ts	3
-ui/src/pages/model-providers/default-models-view.ts	1
 ui/src/pages/model-providers/view.ts	3
 ui/src/pages/model-setup/provider-picker.ts	3
 ui/src/pages/model-setup/view.ts	2
