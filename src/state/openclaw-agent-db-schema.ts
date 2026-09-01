@@ -29,6 +29,7 @@ import {
 import * as maintenanceAuthority from "./openclaw-agent-db-lease.js";
 import { ensureOpenClawAgentDatabasePermissions } from "./openclaw-agent-db-permissions.js";
 import { registerOpenClawAgentDatabase } from "./openclaw-agent-db-registry.js";
+import { pruneCompletedAgentMigrationBackups } from "./openclaw-agent-db-schema-backup.js";
 import {
   assertExistingAgentSchemaOwner,
   assertOpenClawAgentCurrentRuntimeSchema,
@@ -73,8 +74,6 @@ import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 import {
   createPreMigrationAgentBackup,
   describePreMigrationSnapshot,
-  PRE_MIGRATION_BACKUP_RETENTION,
-  prunePreMigrationAgentBackups,
 } from "./openclaw-state-pre-migration-backup.js";
 
 type MigratedSessionEntry = Record<string, unknown>;
@@ -701,12 +700,7 @@ function ensureAgentSchema(
       }
     });
     if (preMigrationBackup.status === "created") {
-      const prunedPaths = prunePreMigrationAgentBackups(pathname);
-      if (prunedPaths.length > 0) {
-        agentDbLog.info(
-          `Pruned ${prunedPaths.length} older pre-migration backup(s), keeping the newest ${PRE_MIGRATION_BACKUP_RETENTION}`,
-        );
-      }
+      pruneCompletedAgentMigrationBackups(pathname);
     }
   } finally {
     db.exec("PRAGMA foreign_keys = ON;");
