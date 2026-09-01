@@ -12,13 +12,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.19.0
-      - name: Read five public advisories with the preflight token policy
+      - name: Read thirteen public advisories with the preflight token policy
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           node --input-type=module <<'NODE'
           import { writeFile } from 'node:fs/promises';
-          const ids = ['GHSA-45c6-75p6-83cc', 'GHSA-8r6m-32jq-jx6q', 'GHSA-m732-5p4w-x69g', 'GHSA-xh87-mx6m-69f3', 'GHSA-p7fg-763f-g4gf'];
+          const ids = ["GHSA-p7fg-763f-g4gf", "GHSA-crvj-82cr-hjcx", "GHSA-g6gw-c38x-mqfc", "GHSA-gqvv-2mrq-wpjv", "GHSA-m732-5p4w-x69g", "GHSA-xh87-mx6m-69f3", "GHSA-2vr4-cq9g-pvrc", "GHSA-rpw4-54j3-4h4q", "GHSA-2883-xcg3-v3hh", "GHSA-4mjr-xmp4-gh2g", "GHSA-x5fp-wj9c-mxmx", "GHSA-45c6-75p6-83cc", "GHSA-8r6m-32jq-jx6q"];
           const headerNames = ['x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'x-ratelimit-resource', 'x-ratelimit-used', 'retry-after', 'x-github-request-id', 'x-github-api-version-selected'];
           const results = [];
           for (const id of ids) {
