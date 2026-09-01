@@ -1,5 +1,6 @@
 // Event-loop health monitor samples delay, utilization, and CPU pressure for gateway readiness snapshots.
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { roundDiagnosticMetric } from "../../infra/diagnostic-metrics.js";
 
 const EVENT_LOOP_MONITOR_RESOLUTION_MS = 20;
 const EVENT_LOOP_DELAY_WARN_MS = 1_000;
@@ -50,16 +51,8 @@ type GatewayEventLoopHealthMetrics = Pick<
   "intervalMs" | "delayP99Ms" | "delayMaxMs" | "utilization" | "cpuCoreRatio"
 >;
 
-function roundMetric(value: number, digits = 3): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
-
 function nanosecondsToMilliseconds(value: number): number {
-  return roundMetric(value / 1_000_000, 1);
+  return roundDiagnosticMetric(value / 1_000_000, 1);
 }
 
 function classifyGatewayEventLoopHealthReasons(
@@ -138,11 +131,12 @@ export function createGatewayEventLoopHealthMonitor(
 
     const cpuUsage = readCpuUsage(lastCpuUsage);
     const currentEventLoopUtilization = readEventLoopUtilization();
-    const utilization = roundMetric(
+    const utilization = roundDiagnosticMetric(
       readEventLoopUtilization(currentEventLoopUtilization, lastEventLoopUtilization).utilization,
+      3,
     );
-    const cpuTotalMs = roundMetric((cpuUsage.user + cpuUsage.system) / 1_000, 1);
-    const cpuCoreRatio = roundMetric(cpuTotalMs / intervalMs);
+    const cpuTotalMs = roundDiagnosticMetric((cpuUsage.user + cpuUsage.system) / 1_000, 1);
+    const cpuCoreRatio = roundDiagnosticMetric(cpuTotalMs / intervalMs, 3);
     const reasons = classifyGatewayEventLoopHealthReasons({
       intervalMs,
       delayP99Ms,

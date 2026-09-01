@@ -6,6 +6,7 @@ import {
   type DiagnosticPhaseDetails,
   type DiagnosticPhaseSnapshot,
 } from "../infra/diagnostic-events.js";
+import { roundDiagnosticMetric } from "../infra/diagnostic-metrics.js";
 
 // Tracks nested diagnostic phases for recent-phase snapshots and optional event emission.
 const RECENT_PHASE_CAPACITY = 40;
@@ -20,14 +21,6 @@ type ActiveDiagnosticPhase = {
 
 let activePhaseStack: ActiveDiagnosticPhase[] = [];
 let recentPhases: DiagnosticPhaseSnapshot[] = [];
-
-function roundMetric(value: number, digits = 1): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
 
 function pushRecentPhase(snapshot: DiagnosticPhaseSnapshot): void {
   recentPhases.push(snapshot);
@@ -96,11 +89,11 @@ export async function withDiagnosticPhase<T>(
   } finally {
     // Remove by identity so nested or overlapping phases do not corrupt the active stack.
     const endedAt = Date.now();
-    const durationMs = roundMetric(performance.now() - active.startedWallMs, 1);
+    const durationMs = roundDiagnosticMetric(performance.now() - active.startedWallMs, 1);
     const cpu = process.cpuUsage(active.cpuStarted);
-    const cpuUserMs = roundMetric(cpu.user / 1_000, 1);
-    const cpuSystemMs = roundMetric(cpu.system / 1_000, 1);
-    const cpuTotalMs = roundMetric(cpuUserMs + cpuSystemMs, 1);
+    const cpuUserMs = roundDiagnosticMetric(cpu.user / 1_000, 1);
+    const cpuSystemMs = roundDiagnosticMetric(cpu.system / 1_000, 1);
+    const cpuTotalMs = roundDiagnosticMetric(cpuUserMs + cpuSystemMs, 1);
     activePhaseStack = activePhaseStack.filter((entry) => entry !== active);
     recordDiagnosticPhase({
       name,
@@ -110,7 +103,7 @@ export async function withDiagnosticPhase<T>(
       cpuUserMs,
       cpuSystemMs,
       cpuTotalMs,
-      cpuCoreRatio: roundMetric(cpuTotalMs / Math.max(1, durationMs), 3),
+      cpuCoreRatio: roundDiagnosticMetric(cpuTotalMs / Math.max(1, durationMs), 3),
       details: active.details,
     });
   }
