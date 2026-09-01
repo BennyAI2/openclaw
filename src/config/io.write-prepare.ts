@@ -15,6 +15,7 @@ import { isRecord } from "../utils.js";
 import { configIncludeOwnsAgentRosterValues } from "./agent-roster-provenance.js";
 import { containsEnvVarReference } from "./env-substitution.js";
 import { coerceConfig } from "./io.read-helpers.js";
+import { parseLegacyAgentRoster } from "./legacy.roster.js";
 import { applyMergePatch, createMergePatch } from "./merge-patch.js";
 import { normalizeAgentModelMapForConfig, normalizeAgentModelRefForConfig } from "./model-input.js";
 import { isSecretRefShape } from "./redact-snapshot.secret-ref.js";
@@ -666,18 +667,6 @@ function preserveUntouchedIncludes(params: {
   return next;
 }
 
-export function preserveIncludeOwnedConfigForWrite(params: {
-  runtimeConfig: unknown;
-  sourceConfig: unknown;
-  nextConfig: unknown;
-  rootAuthoredConfig: unknown;
-}): unknown {
-  return preserveUntouchedIncludes({
-    ...params,
-    persistedCandidate: params.nextConfig,
-  });
-}
-
 function hasPathValue(value: unknown, path: readonly string[]): boolean {
   if (path.length === 0) {
     return true;
@@ -836,6 +825,7 @@ function shouldPersistCanonicalAgentRoster(params: {
   runtimeConfig: unknown;
   sourceConfig: unknown;
   nextConfig: unknown;
+  persistCanonicalAgentRoster?: boolean;
   explicitSetPaths?: readonly (readonly string[])[];
   unsetPaths?: readonly (readonly string[])[];
 }): boolean {
@@ -843,6 +833,7 @@ function shouldPersistCanonicalAgentRoster(params: {
     return false;
   }
   if (
+    params.persistCanonicalAgentRoster === true ||
     params.explicitSetPaths?.some(pathTouchesAgentRoster) ||
     params.unsetPaths?.some(pathTouchesAgentRoster)
   ) {
@@ -875,6 +866,10 @@ function assertCanonicalAgentRosterRetainsEntries(params: {
   );
   const droppedIds = listAgentEntries(params.currentConfig as OpenClawConfig)
     .filter((entry) => {
+      // Doctor assigns missing legacy ids; they do not identify an existing main agent.
+      if (typeof entry.id !== "string" || !entry.id.trim()) {
+        return false;
+      }
       const agentId = normalizeAgentId(entry.id);
       return !canonicalIds.has(agentId) && !allowedRemovals.has(agentId);
     })
@@ -1476,6 +1471,15 @@ export function projectAuthoredAgentRosterForWrite(params: {
     preMigrationRoster?.kind === "list" && Array.isArray(preMigrationRoster.value)
       ? preMigrationRoster.value
       : undefined;
+  // Doctor may rename malformed or duplicate ids; includes must keep an unambiguous owner.
+  if (
+    collectIncludeOwnedPaths(authoredRoster.value).length > 0 &&
+    !parseLegacyAgentRoster(resolvedLegacyList ?? authoredRoster.value)
+  ) {
+    throw new Error(
+      "Config write cannot safely match $include-owned legacy agent entries; repair their ids in the authored config first.",
+    );
+  }
   const entries = Object.fromEntries(
     authoredRoster.value.flatMap((entry, index) => {
       if (!isRecord(entry)) {
@@ -1501,6 +1505,7 @@ export function projectAuthoredAgentRosterForWrite(params: {
 export function resolvePersistCandidateForWrite(params: {
   runtimeConfig: unknown;
   sourceConfig: unknown;
+  sourceConfigValid?: boolean;
   sourceConfigBeforeMigrations?: unknown;
   nextConfig: unknown;
   rootAuthoredConfig?: unknown;
@@ -1508,6 +1513,7 @@ export function resolvePersistCandidateForWrite(params: {
   unsetPaths?: readonly string[][];
   explicitSetPaths?: readonly (readonly string[])[];
   explicitSetValueSource?: unknown;
+  persistCanonicalAgentRoster?: boolean;
   allowedAgentRosterRemovals?: readonly string[];
   allowIncludeAncestorExplicitSetPaths?: boolean;
   preserveLegacyAgentRoster?: boolean;
@@ -1617,14 +1623,16 @@ export function resolvePersistCandidateForWrite(params: {
     nextConfig: params.nextConfig,
     persistedCandidate: withAuthoredRoster,
   });
-  const withAuthoredParams = preserveAuthoredAgentParams({
-    sourceConfig: params.sourceConfig,
-    nextConfig: params.nextConfig,
-    rootAuthoredConfig,
-    persistedCandidate: withSchema,
-    unsetPaths: params.unsetPaths,
-  });
-  return withAuthoredParams;
+  // Invalid snapshots are complete repairs; omitted params must stay omitted.
+  return params.sourceConfigValid === false
+    ? withSchema
+    : preserveAuthoredAgentParams({
+        sourceConfig: params.sourceConfig,
+        nextConfig: params.nextConfig,
+        rootAuthoredConfig,
+        persistedCandidate: withSchema,
+        unsetPaths: params.unsetPaths,
+      });
 }
 
 function readRootSchemaUri(value: unknown): string | undefined {

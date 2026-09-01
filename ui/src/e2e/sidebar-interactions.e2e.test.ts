@@ -183,41 +183,82 @@ suite.define(() => {
 
     const sidebar = page.locator("openclaw-app-sidebar");
     await sidebar.locator(".sidebar-agent-card__main").click();
-    await sidebar
-      .locator('wa-dropdown.sidebar-agent-menu wa-dropdown-item[value="command:capabilities"]')
-      .click();
-
+    // Capture the brief cue in Chromium before the click; a loaded runner can
+    // resume after its timer has already removed the class.
+    const cue = await page.evaluateHandle(() => {
+      const state = {
+        active: false,
+        background: "",
+        boxShadow: "",
+        duration: "",
+        focused: false,
+        name: "",
+        value: "",
+      };
+      const observer = new MutationObserver(() => {
+        const element = document.querySelector(".agent-chat__composer-combobox > textarea");
+        if (!(element instanceof HTMLTextAreaElement) || !element.isConnected) {
+          return;
+        }
+        const inputElement = element.closest<HTMLElement>(".agent-chat__input");
+        if (
+          !inputElement?.classList.contains("agent-chat__input--prefill-attention") ||
+          element !== document.activeElement ||
+          element.value !== "What can you do?"
+        ) {
+          return;
+        }
+        const style = getComputedStyle(inputElement);
+        Object.assign(state, {
+          active: true,
+          background: style.backgroundColor,
+          boxShadow: style.boxShadow,
+          duration: style.animationDuration,
+          focused: true,
+          name: style.animationName,
+          value: element.value,
+        });
+        observer.disconnect();
+      });
+      observer.observe(document, {
+        attributes: true,
+        attributeFilter: ["class"],
+        childList: true,
+        subtree: true,
+      });
+      return { state, observer };
+    });
     const textarea = page.locator(".agent-chat__composer-combobox > textarea");
     const input = textarea.locator("xpath=ancestor::*[contains(@class, 'agent-chat__input')][1]");
     let cueStyle = { background: "", boxShadow: "", duration: "", name: "" };
-    await expect
-      .poll(async () => {
-        const state = await textarea.evaluate((element) => {
-          if (!(element instanceof HTMLTextAreaElement)) {
-            throw new TypeError("capabilities prompt target must be a textarea");
-          }
-          const inputElement = element.closest<HTMLElement>(".agent-chat__input");
-          const style = inputElement ? getComputedStyle(inputElement) : null;
-          return {
-            active:
-              inputElement?.classList.contains("agent-chat__input--prefill-attention") ?? false,
-            background: style?.backgroundColor ?? "",
-            boxShadow: style?.boxShadow ?? "",
-            duration: style?.animationDuration ?? "",
-            focused: element === document.activeElement,
-            name: style?.animationName ?? "",
-            value: element.value,
+    try {
+      await sidebar
+        .locator('wa-dropdown.sidebar-agent-menu wa-dropdown-item[value="command:capabilities"]')
+        .click();
+      await expect
+        .poll(async () => {
+          const state = await cue.evaluate((capture) => capture.state);
+          cueStyle = {
+            background: state.background,
+            boxShadow: state.boxShadow,
+            duration: state.duration,
+            name: state.name,
           };
-        });
-        cueStyle = {
-          background: state.background,
-          boxShadow: state.boxShadow,
-          duration: state.duration,
-          name: state.name,
-        };
-        return { active: state.active, focused: state.focused, value: state.value };
-      })
-      .toEqual({ active: true, focused: true, value: "What can you do?" });
+          return { active: state.active, focused: state.focused, value: state.value };
+        })
+        .toEqual({ active: true, focused: true, value: "What can you do?" });
+      await expect
+        .poll(() =>
+          textarea.evaluate((element: HTMLTextAreaElement) => ({
+            focused: element === document.activeElement,
+            value: element.value,
+          })),
+        )
+        .toEqual({ focused: true, value: "What can you do?" });
+    } finally {
+      await cue.evaluate((capture) => capture.observer.disconnect());
+      await cue.dispose();
+    }
     return { context, cueStyle, input, page };
   }
 
