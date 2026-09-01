@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { rejectUnauthorizedUpgrade } from "../http-upgrade-rejection.js";
 import { startWebSocketKeepalive } from "../websocket-keepalive.js";
 import { connectRfbAttachment, type DesktopRfbAttachment } from "./attachment.js";
 import {
@@ -98,11 +99,6 @@ function consumeDesktopObserverToken(
   return entry.expiresAt > nowMs ? entry : undefined;
 }
 
-function writeUnauthorized(socket: Duplex): void {
-  socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-  socket.destroy();
-}
-
 function rawDataBuffer(data: RawData): Buffer {
   if (Buffer.isBuffer(data)) {
     return data;
@@ -190,7 +186,7 @@ export function handleDesktopObserveUpgrade(
   const token = resource.searchParams.get("token") ?? "";
   const entry = consumeDesktopObserverToken(token);
   if (!entry) {
-    writeUnauthorized(socket);
+    rejectUnauthorizedUpgrade(socket);
     return true;
   }
   desktopObserverWss.handleUpgrade(req, socket, head, (ws) => {

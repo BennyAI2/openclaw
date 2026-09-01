@@ -11,6 +11,7 @@ import type { PluginHttpRouteRegistration, PluginRegistry } from "../../plugins/
 import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { respondControlUiPluginAuthCookieProbe } from "../control-ui-plugin-auth-cookie.js";
 import { finishFailedGatewayHttpResponse } from "../http-common.js";
+import { rejectUnauthorizedUpgrade } from "../http-upgrade-rejection.js";
 import type { AuthorizedGatewayHttpRequest } from "../http-utils.js";
 import type { GatewayRequestContext, GatewayRequestOptions } from "../server-methods/types.js";
 import {
@@ -80,11 +81,6 @@ function createPluginRouteRuntimeClient(
       scopes: [...scopes],
     },
   };
-}
-
-function writeUpgradeUnauthorized(socket: Duplex) {
-  socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-  socket.destroy();
 }
 
 type PluginRouteRuntimeDispatchContext = {
@@ -320,7 +316,7 @@ export function createGatewayPluginUpgradeHandler(params: {
     const requiresGatewayAuth = matchedPluginRoutesRequireGatewayAuth(matchedRoutes);
     if (requiresGatewayAuth && dispatchContext?.gatewayAuthSatisfied !== true) {
       log.warn(`plugin http upgrade blocked without gateway auth (${pathContext.canonicalPath})`);
-      writeUpgradeUnauthorized(socket);
+      rejectUnauthorizedUpgrade(socket);
       return true;
     }
     const gatewayRequestAuth = dispatchContext?.gatewayRequestAuth;
@@ -335,7 +331,7 @@ export function createGatewayPluginUpgradeHandler(params: {
         log.warn(
           `plugin http upgrade blocked without ${missingRuntimeContext} (${pathContext.canonicalPath})`,
         );
-        writeUpgradeUnauthorized(socket);
+        rejectUnauthorizedUpgrade(socket);
         return true;
       }
     }

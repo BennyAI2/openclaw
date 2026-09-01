@@ -8,6 +8,7 @@ import {
   NODE_DESKTOP_ATTACH_PATH,
   NODE_PORTAL_ATTACH_PATH,
 } from "../../shared/node-desktop-stream.js";
+import { rejectUnauthorizedUpgrade } from "../http-upgrade-rejection.js";
 import type { NodeRegistry } from "../node-registry.js";
 import { startWebSocketKeepalive } from "../websocket-keepalive.js";
 
@@ -98,11 +99,6 @@ function parseStreamMetadata(
     registerSecretValueForRedaction(vncPassword);
   }
   return { auth: value.auth, ...(vncPassword ? { vncPassword } : {}) };
-}
-
-function writeUnauthorized(socket: Duplex): void {
-  socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-  socket.destroy();
 }
 
 function readAttachedStream(
@@ -285,12 +281,12 @@ export function createNodeDesktopStreamBroker(deps: { ttlMs?: number; now?: () =
     }
     const ticket = (resource.searchParams.get("ticket") ?? "").trim();
     if (!TICKET_PATTERN.test(ticket)) {
-      writeUnauthorized(socket);
+      rejectUnauthorizedUpgrade(socket);
       return true;
     }
     const entry = tickets.get(ticket);
     if (!entry || entry.kind !== kind || entry.redeemed || entry.expiresAtMs <= now()) {
-      writeUnauthorized(socket);
+      rejectUnauthorizedUpgrade(socket);
       if (entry && entry.kind === kind && !entry.redeemed) {
         rejectTicket(ticket, new Error(`node ${kind} stream ticket expired`));
       }
@@ -317,7 +313,7 @@ export function createNodeDesktopStreamBroker(deps: { ttlMs?: number; now?: () =
       socket.off("error", onSocketError);
       socket.off("end", onSocketClose);
       socket.off("close", onSocketClose);
-      writeUnauthorized(socket);
+      rejectUnauthorizedUpgrade(socket);
       rejectTicket(ticket, new Error(`node ${kind} stream ticket binding is stale`));
       return true;
     }
