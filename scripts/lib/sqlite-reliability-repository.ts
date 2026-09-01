@@ -10,6 +10,7 @@ import {
 } from "../../src/snapshot/snapshot-provider.js";
 import {
   assertSameCompactionPayload,
+  assertSameReliabilityState,
   formatReliabilityStderr,
   type CompactionPayloadProof,
   type ReliabilityReport,
@@ -34,22 +35,6 @@ const REPOSITORY_WORKER_PATH = fileURLToPath(
   new URL("./sqlite-reliability-repository-worker.ts", import.meta.url),
 );
 const REPOSITORY_TIMEOUT_MS = 120_000;
-
-function assertSameState(
-  actual: ReliabilityStateProof,
-  expected: ReliabilityStateProof,
-  label: string,
-): void {
-  if (
-    actual.batches !== expected.batches ||
-    actual.rows !== expected.rows ||
-    actual.sha256 !== expected.sha256
-  ) {
-    throw new Error(
-      `${label} changed reliability state: expected batches=${expected.batches} rows=${expected.rows} sha256=${expected.sha256}, got batches=${actual.batches} rows=${actual.rows} sha256=${actual.sha256}`,
-    );
-  }
-}
 
 async function waitForCrashPoint(params: {
   child: ChildProcess;
@@ -150,7 +135,7 @@ async function verifySnapshot(params: {
 }): Promise<void> {
   await params.provider.verify(params.snapshot.ref);
   const artifactPath = path.join(params.snapshot.ref.path, SNAPSHOT_SQLITE_FILENAME);
-  assertSameState(params.verifyState(artifactPath), params.expectedState, artifactPath);
+  assertSameReliabilityState(params.verifyState(artifactPath), params.expectedState, artifactPath);
   assertSameCompactionPayload(
     params.verifyPayload(artifactPath),
     params.expectedPayload,
@@ -233,7 +218,7 @@ async function runCrashPoint(params: {
     }
 
     const sourceState = params.verifyState(params.sourcePath);
-    assertSameState(sourceState, params.expectedState, `${params.crashPoint} source`);
+    assertSameReliabilityState(sourceState, params.expectedState, `${params.crashPoint} source`);
     const sourcePayload = params.verifyPayload(params.sourcePath);
     assertSameCompactionPayload(
       sourcePayload,

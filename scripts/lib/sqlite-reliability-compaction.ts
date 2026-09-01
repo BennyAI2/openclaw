@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { SnapshotDatabaseIdentity } from "../../src/snapshot/snapshot-provider.js";
 import {
   assertSameCompactionPayload,
+  assertSameReliabilityState,
   formatReliabilityStderr,
   type CompactionPayloadProof,
   type ReliabilityReport,
@@ -32,22 +33,6 @@ function fileSize(filePath: string): number {
       return 0;
     }
     throw error;
-  }
-}
-
-function assertSameState(
-  actual: ReliabilityStateProof,
-  expected: ReliabilityStateProof,
-  label: string,
-): void {
-  if (
-    actual.batches !== expected.batches ||
-    actual.rows !== expected.rows ||
-    actual.sha256 !== expected.sha256
-  ) {
-    throw new Error(
-      `${label} changed reliability state: expected batches=${expected.batches} rows=${expected.rows} sha256=${expected.sha256}, got batches=${actual.batches} rows=${actual.rows} sha256=${actual.sha256}`,
-    );
   }
 }
 
@@ -212,7 +197,7 @@ export async function runVacuumInterruptionProof(params: {
     assertForcedExit(exit);
 
     const stateAfterRecovery = params.recoverAndVerifyDatabase();
-    assertSameState(stateAfterRecovery, params.expectedState, "vacuum crash recovery");
+    assertSameReliabilityState(stateAfterRecovery, params.expectedState, "vacuum crash recovery");
     const autoVacuumAfterRecovery = params.readAutoVacuum();
     if (autoVacuumAfterRecovery !== params.expectedAutoVacuum) {
       throw new Error(

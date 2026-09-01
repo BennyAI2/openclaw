@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createLocalSqliteSnapshotProvider } from "../../src/snapshot/local-repository.js";
 import {
   assertSameCompactionPayload,
+  assertSameReliabilityState,
   formatReliabilityStderr,
   type CompactionPayloadProof,
   type ReliabilityReport,
@@ -36,22 +37,6 @@ const MIN_STAGED_RESTORE_BYTES = 1024 * 1024;
 
 function hashFile(filePath: string): string {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
-}
-
-function assertSameState(
-  actual: ReliabilityStateProof,
-  expected: ReliabilityStateProof,
-  label: string,
-): void {
-  if (
-    actual.batches !== expected.batches ||
-    actual.rows !== expected.rows ||
-    actual.sha256 !== expected.sha256
-  ) {
-    throw new Error(
-      `${label} changed reliability state: expected batches=${expected.batches} rows=${expected.rows} sha256=${expected.sha256}, got batches=${actual.batches} rows=${actual.rows} sha256=${actual.sha256}`,
-    );
-  }
 }
 
 function assertNoSqliteSidecars(targetPath: string): void {
@@ -351,7 +336,11 @@ async function runCrashPoint(params: {
 
     assertNoSqliteSidecars(targetPath);
     const stateAfterRecovery = params.verifyState(targetPath);
-    assertSameState(stateAfterRecovery, params.expectedState, `${params.crashPoint} restore`);
+    assertSameReliabilityState(
+      stateAfterRecovery,
+      params.expectedState,
+      `${params.crashPoint} restore`,
+    );
     const payloadAfterRecovery = params.verifyPayload(targetPath);
     assertSameCompactionPayload(
       payloadAfterRecovery,

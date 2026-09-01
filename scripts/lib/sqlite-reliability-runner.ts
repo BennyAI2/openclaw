@@ -20,6 +20,7 @@ import {
 } from "../../src/state/openclaw-state-db.js";
 import { runVacuumInterruptionProof } from "./sqlite-reliability-compaction.js";
 import {
+  assertSameReliabilityState,
   COMMITTED_WAL_SENTINEL,
   PROFILES,
   STRESS_TABLE_SQL,
@@ -204,22 +205,6 @@ function readReliabilityState(database: DatabaseSync, rowsPerBatch: number): Rel
     rows,
     sha256: hash.digest("hex"),
   };
-}
-
-function assertSameReliabilityState(
-  actual: ReliabilityStateProof,
-  expected: ReliabilityStateProof,
-  label: string,
-): void {
-  if (
-    actual.batches !== expected.batches ||
-    actual.rows !== expected.rows ||
-    actual.sha256 !== expected.sha256
-  ) {
-    throw new Error(
-      `${label} changed reliability state: expected batches=${expected.batches} rows=${expected.rows} sha256=${expected.sha256}, got batches=${actual.batches} rows=${actual.rows} sha256=${actual.sha256}`,
-    );
-  }
 }
 
 function verifyRestoredDatabase(params: {
