@@ -126,6 +126,7 @@ export function createBeforeGitMutation(params: {
   shouldRestart: boolean;
   stopManagedService: (roots: readonly string[]) => Promise<void>;
   getPreManagedServiceStop: () => PreManagedServiceStop | undefined;
+  getDatabaseSchemaContext: () => Parameters<typeof checkTargetDatabaseSchemas>[1];
   switchToGit: boolean;
 }): BeforeGitMutation {
   return async (target) => {
@@ -135,7 +136,10 @@ export function createBeforeGitMutation(params: {
         `Update refused: could not inspect the target's schema support (${target.metadataUnreadable}). Retry, or see ${OPENCLAW_DATABASE_SCHEMA_DOCS_URL}.`,
       );
     }
-    const preStopSchemas = checkTargetDatabaseSchemas(target?.schemaVersions);
+    const preStopSchemas = checkTargetDatabaseSchemas(
+      target?.schemaVersions,
+      params.getDatabaseSchemaContext(),
+    );
     if (hasSchemaRefusal(preStopSchemas)) {
       throw new UpdatePreMutationError(
         "database-schema-preflight",
@@ -146,7 +150,7 @@ export function createBeforeGitMutation(params: {
     const preManagedServiceStop = params.getPreManagedServiceStop();
     const postStopSchemas = checkTargetDatabaseSchemas(
       target?.schemaVersions,
-      preManagedServiceStop?.serviceEnv ?? process.env,
+      params.getDatabaseSchemaContext(),
     );
     if (hasSchemaRefusal(postStopSchemas)) {
       throw new UpdatePreMutationError(

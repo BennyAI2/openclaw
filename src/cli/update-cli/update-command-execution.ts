@@ -1,3 +1,4 @@
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { DevUpdateTarget } from "../../infra/update-dev-target.js";
 import type { ResolvedGlobalInstallTarget } from "../../infra/update-global.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
@@ -67,9 +68,17 @@ export async function executeMutableUpdate(params: {
   managedServiceRootRedirect: ManagedServiceRootRedirect | null;
   invocationCwd?: string;
   recoveryState: UpdateCommandRecoveryState;
+  config: OpenClawConfig;
 }): Promise<MutableUpdateExecutionResult | null> {
   let preManagedServiceStop: PreManagedServiceStop | undefined;
   let ownedManagedUpdateContext: OwnedManagedUpdateContext | undefined;
+  const getTargetDatabaseSchemaContext = () => ({
+    config:
+      ownedManagedUpdateContext?.configSnapshot.sourceConfig ??
+      ownedManagedUpdateContext?.configSnapshot.config ??
+      params.config,
+    env: ownedManagedUpdateContext?.env ?? process.env,
+  });
   const recoverStoppedService = () =>
     maybeRestartServiceAfterFailedMutableUpdate({
       preManagedServiceStop,
@@ -188,7 +197,7 @@ export async function executeMutableUpdate(params: {
     params.updateInstallKind === "package"
       ? checkTargetDatabaseSchemas(
           params.packageTargetSchemaVersions,
-          preManagedServiceStop?.serviceEnv ?? process.env,
+          getTargetDatabaseSchemaContext(),
         )
       : { incompatible: [], indeterminate: [] };
   let result: UpdateRunResult;
@@ -237,6 +246,7 @@ export async function executeMutableUpdate(params: {
                     shouldRestart: params.shouldRestart,
                     stopManagedService: stopManagedServiceBeforeMutableUpdate,
                     getPreManagedServiceStop: () => preManagedServiceStop,
+                    getDatabaseSchemaContext: getTargetDatabaseSchemaContext,
                     switchToGit: params.switchToGit,
                   })
                 : undefined,

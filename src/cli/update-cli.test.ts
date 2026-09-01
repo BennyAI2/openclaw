@@ -4390,10 +4390,14 @@ describe("update-cli", () => {
 
     await updateCommand({ yes: true });
 
-    expect(databasePreflightMocks.preflightOpenClawDatabaseSchemas).toHaveBeenCalledWith({
-      env: process.env,
-      supportedVersions: { state: 3, agent: 9 },
-    });
+    expect(databasePreflightMocks.preflightOpenClawDatabaseSchemas).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: process.env,
+        supportedVersions: { state: 3, agent: 9 },
+        configuredAgentDatabaseTargets: expect.any(Function),
+        configuredAgentDatabaseCandidatePaths: expect.any(Array),
+      }),
+    );
     expect(serviceStop).not.toHaveBeenCalled();
     expect(packageInstallCommandCall()).toBeUndefined();
     expect(defaultRuntime.error).toHaveBeenCalledWith(

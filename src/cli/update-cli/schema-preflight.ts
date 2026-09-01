@@ -1,4 +1,9 @@
 import {
+  resolveConfiguredAgentDatabaseCandidatePaths,
+  resolveConfiguredAgentDatabaseTargets,
+} from "../../config/sessions/targets.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import {
   OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
   preflightOpenClawDatabaseSchemas,
   type IncompatibleOpenClawDatabase,
@@ -31,10 +36,22 @@ export function formatSchemaRefusalLines(
 
 export function checkTargetDatabaseSchemas(
   supportedVersions: OpenClawSchemaVersions | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  context: { config: OpenClawConfig; env: NodeJS.ProcessEnv },
 ): OpenClawDatabaseSchemaPreflight {
   return supportedVersions
-    ? preflightOpenClawDatabaseSchemas({ env, supportedVersions })
+    ? preflightOpenClawDatabaseSchemas({
+        env: context.env,
+        supportedVersions,
+        configuredAgentDatabaseTargets: (registeredDatabases) =>
+          resolveConfiguredAgentDatabaseTargets(context.config, {
+            env: context.env,
+            registeredDatabases,
+          }),
+        configuredAgentDatabaseCandidatePaths: resolveConfiguredAgentDatabaseCandidatePaths(
+          context.config,
+          { env: context.env },
+        ),
+      })
     : { incompatible: [], indeterminate: [] };
 }
 

@@ -528,7 +528,11 @@ async function updateCommandInternal(
     }
   }
 
-  const packageSchemaPreflight = checkTargetDatabaseSchemas(packageTargetSchemaVersions);
+  const preflightConfig = configSnapshot.sourceConfig ?? configSnapshot.config;
+  const packageSchemaPreflight = checkTargetDatabaseSchemas(packageTargetSchemaVersions, {
+    config: preflightConfig,
+    env: process.env,
+  });
   if (!opts.dryRun && hasSchemaRefusal(packageSchemaPreflight)) {
     await refuseUpdate(
       "database-schema-preflight",
@@ -677,6 +681,7 @@ async function updateCommandInternal(
     managedServiceRootRedirect,
     invocationCwd,
     recoveryState,
+    config: preflightConfig,
   });
   if (!execution) {
     return;

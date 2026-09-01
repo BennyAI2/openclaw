@@ -21,6 +21,7 @@ import {
 import { discoverAgentDatabaseMigrationTargets } from "../infra/state-migrations.media-persistence-targets.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { assertOpenClawAgentDatabaseForMaintenance } from "./openclaw-agent-db-maintenance.js";
+import { isPersistentOpenClawAgentDatabasePath } from "./openclaw-agent-db-registry.js";
 import type { OpenClawSchemaVersions } from "./openclaw-schema-versions.js";
 import {
   OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
@@ -416,6 +417,13 @@ export function preflightOpenClawDatabaseSchemas(options: {
   // Check its version without promoting it into an owned migration target.
   const inspectionTargets: Array<{ agentId?: string; path: string }> = [
     ...agentTargets,
+    // Migration discovery intentionally declines ownership of foreign registry
+    // paths. Preflight remains read-only, so preserve their downgrade guard.
+    ...(options.configuredAgentDatabaseTargets !== undefined
+      ? registeredDatabases.filter((database) =>
+          isPersistentOpenClawAgentDatabasePath(database.path, options.env),
+        )
+      : []),
     ...(options.configuredAgentDatabaseCandidatePaths ?? []).map((candidatePath) => ({
       path: candidatePath,
     })),
