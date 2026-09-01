@@ -28,6 +28,7 @@ import {
 } from "../state/openclaw-agent-db.js";
 import { resolveTargetSqliteOptions } from "./doctor-session-sqlite-readers.js";
 import { ReadOnlySqliteTranscriptReader } from "./doctor-session-sqlite-transcript-readers.js";
+import { countLabel as formatCount } from "./doctor/shared/count-label.js";
 
 const NOTE_TITLE = "Session transcript headers";
 
@@ -185,10 +186,6 @@ function assertRepairPreservedEvents(params: {
       throw new Error(`header repair changed event identity for ${params.sessionId}`);
     }
   }
-}
-
-function formatCount(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 /** Reports or repairs canonical SQLite transcripts whose first header was never persisted. */

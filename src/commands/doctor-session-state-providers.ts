@@ -23,7 +23,7 @@ import { listPluginDoctorSessionRouteStateOwners } from "../plugins/doctor-contr
 import type { DoctorSessionRouteStateOwner } from "../plugins/doctor-session-route-state-owner-types.js";
 import { isValidAgentHarnessSessionStoreEntry } from "../sessions/agent-harness-session-key.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
-import { countLabel } from "./doctor-state-integrity-format.js";
+import { countLabel } from "./doctor/shared/count-label.js";
 
 type DoctorPrompterLike = {
   confirmRuntimeRepair: (params: {

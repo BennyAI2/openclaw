@@ -66,7 +66,7 @@ import {
   createPluginSessionStateDoctorScanner,
   runPluginSessionStateDoctorRepairs,
 } from "./doctor-session-state-providers.js";
-import { countLabel } from "./doctor-state-integrity-format.js";
+import { countLabel } from "./doctor/shared/count-label.js";
 
 const STATE_INTEGRITY_CHECK_ID = "core/doctor/state-integrity";
 

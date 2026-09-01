@@ -14,7 +14,7 @@ import type { SessionEntry } from "../config/sessions/types.js";
 import { updateLegacySessionStore } from "../infra/state-migrations.legacy-session-store.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { clearTuiLastSessionPointers } from "../tui/tui-last-session.js";
-import { countLabel } from "./doctor-state-integrity-format.js";
+import { countLabel } from "./doctor/shared/count-label.js";
 
 /** Chunk size for sync transcript scans. */
 const TRANSCRIPT_SCAN_CHUNK_BYTES = 64 * 1024;

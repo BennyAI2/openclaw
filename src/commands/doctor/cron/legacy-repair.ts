@@ -25,6 +25,7 @@ import { formatErrorMessage as errorMessage } from "../../../infra/errors.js";
 import { parseAgentSessionKey } from "../../../routing/session-key.js";
 import { shortenHomePath } from "../../../utils.js";
 import type { LegacyCodexModelIdentity } from "../shared/codex-route-model-ref.js";
+import { countLabel as pluralize } from "../shared/count-label.js";
 import { migrateLegacyDreamingPayloadShape } from "./dreaming-payload-migration.js";
 import { migrateLegacyNotifyFallback } from "./legacy-notify.js";
 import {
@@ -88,10 +89,6 @@ export type LegacyCronRepairResult = {
   warnings: string[];
   codexRuntimePolicyTargets?: CronCodexRuntimePolicyTarget[];
 };
-
-function pluralize(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 function formatRunLogMigrationNote(importedFiles: number): string {
   return importedFiles > 0

@@ -15,6 +15,7 @@ import { formatErrorMessage as errorMessage } from "../../../infra/errors.js";
 import { resolveOpenClawStateSqlitePath } from "../../../state/openclaw-state-db.paths.js";
 import { shortenHomePath } from "../../../utils.js";
 import type { DoctorPrompter, DoctorOptions } from "../../doctor-prompter.js";
+import { countLabel as pluralize } from "../shared/count-label.js";
 import { countStaleDreamingJobs } from "./dreaming-payload-migration.js";
 import {
   applyLegacyCronStoreRepair,
@@ -38,10 +39,6 @@ export {
   collectLegacyWhatsAppCrontabHealthWarning,
   noteLegacyWhatsAppCrontabHealthCheck,
 } from "./warnings.js";
-
-function pluralize(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 function readLegacyCronStorePath(cfg: OpenClawConfig): string | undefined {
   return (cfg.cron as (NonNullable<OpenClawConfig["cron"]> & { store?: string }) | undefined)

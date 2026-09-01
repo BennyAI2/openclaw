@@ -7,6 +7,7 @@ import { isRecord as hasRecord } from "@openclaw/normalization-core/record-coerc
 import { normalizeOptionalLowercaseString as normalizeString } from "@openclaw/normalization-core/string-coerce";
 import { collectConfiguredAgentHarnessRuntimes } from "../../../agents/harness-runtimes.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import { countLabel as plural } from "./count-label.js";
 
 type CodexNativeAssetHit = {
   /** Native Codex asset category discovered under Codex or personal agent homes. */
@@ -174,10 +175,6 @@ function countKind(
   kind: CodexNativeAssetHit["kind"],
 ): number {
   return hits.filter((hit) => hit.kind === kind).length;
-}
-
-function plural(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 /** Build an informational doctor note when personal Codex CLI assets need migration review. */

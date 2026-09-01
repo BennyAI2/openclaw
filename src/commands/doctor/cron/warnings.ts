@@ -10,6 +10,7 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { resolveCronDeliveryPlan } from "../../../cron/delivery-plan.js";
 import type { CronJob } from "../../../cron/types.js";
 import { runExec } from "../../../process/exec.js";
+import { countLabel as pluralize } from "../shared/count-label.js";
 
 type CrontabReader = () => Promise<{ stdout?: unknown; stderr?: unknown }>;
 
@@ -18,10 +19,6 @@ const LEGACY_WHATSAPP_HEALTH_SCRIPT_RE =
 const CRON_MODEL_OVERRIDE_EXAMPLE_LIMIT = 3;
 const CRON_DELIVERY_TARGET_ADVISORY_EXAMPLE_LIMIT = 3;
 const CRONTAB_READ_TIMEOUT_MS = 5_000;
-
-function pluralize(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 function normalizeModelProvider(value: unknown): string | undefined {
   const raw = normalizeOptionalString(value);
