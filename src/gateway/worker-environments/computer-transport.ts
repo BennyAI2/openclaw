@@ -7,7 +7,7 @@ import {
 } from "../../infra/agent-run-registry.js";
 import { NODE_WORKER_DESKTOP_COMPUTER_COMMAND } from "../../infra/node-commands.js";
 import { parseComputerUseCapabilityDescriptor } from "../../plugins/computer-use-contract.js";
-import { getActivePluginGatewayNodePolicyRegistry } from "../../plugins/runtime.js";
+import { getActivePluginRegistry } from "../../plugins/runtime.js";
 import type { WorkerComputerLaunchDescriptor } from "../../worker/launch-descriptor.js";
 import { parseNodeWorkerComputerInput } from "../../worker/node-computer-protocol.js";
 import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
@@ -145,7 +145,7 @@ export function createWorkerComputerTransportOwner(options: {
     if (!computerUse) {
       return undefined;
     }
-    const registry = getActivePluginGatewayNodePolicyRegistry();
+    const registry = getActivePluginRegistry();
     if (
       privateNode &&
       !registry?.nodeInvokePolicies.some((entry) => entry.policy.commands.includes("computer.act"))
@@ -177,7 +177,7 @@ export function createWorkerComputerTransportOwner(options: {
       environmentIsCurrent() && (!privateNode || nodeTransport.isCurrent(privateNode));
     const bindingIsCurrent = () =>
       resourceBindingIsCurrent() &&
-      getActivePluginGatewayNodePolicyRegistry() === registry &&
+      getActivePluginRegistry() === registry &&
       policyOwners.every((isCurrent) => isCurrent()) &&
       (privateNode !== undefined ||
         context.nodeRegistry.get(node.nodeId)?.computerUse?.provider.generation ===

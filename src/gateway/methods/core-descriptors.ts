@@ -415,6 +415,7 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["plugins.setEnabled", "plugins", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
   ["plugins.uninstall", "plugins", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
   ["plugins.refresh", "plugins", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
+  ["plugins.reload", "plugins", "operator.admin", "2026.8", { controlPlaneWrite: true }],
   // Session PR chips read the session's own checkout metadata, matching the
   // sessions.files.* trusted-operator read domain.
   ["controlUi.sessionPullRequests.subscribe", "control-ui", "operator.read", "2026.7"],

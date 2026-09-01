@@ -16,7 +16,7 @@ import {
   NODE_WORKER_PRIVATE_COMMANDS,
   isPrivateNodeInvokeCommand,
 } from "../infra/node-commands.js";
-import { getActivePluginGatewayNodePolicyRegistry } from "../plugins/runtime.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import { NODE_DESKTOP_STREAM_COMMAND } from "../shared/node-desktop-stream.js";
 import { normalizeDeviceMetadataForPolicy } from "./device-metadata-normalization.js";
 import { MOBILE_NODE_COMMANDS } from "./node-command-policy-mobile.js";
@@ -269,7 +269,7 @@ function normalizePlatformId(platform?: string, deviceFamily?: string): Platform
 }
 
 export function listDangerousPluginNodeCommands(): string[] {
-  const registry = getActivePluginGatewayNodePolicyRegistry();
+  const registry = getActivePluginRegistry();
   if (!registry) {
     return [];
   }
@@ -290,7 +290,7 @@ function listDefaultPluginNodeCommands(platformId: PlatformId): string[] {
   if (platformId === "watchos") {
     return [];
   }
-  const registry = getActivePluginGatewayNodePolicyRegistry();
+  const registry = getActivePluginRegistry();
   if (!registry) {
     return [];
   }
@@ -314,7 +314,7 @@ function listDefaultPluginNodeCommands(platformId: PlatformId): string[] {
 }
 
 export function isForegroundRestrictedPluginNodeCommand(command: string): boolean {
-  const registry = getActivePluginGatewayNodePolicyRegistry();
+  const registry = getActivePluginRegistry();
   if (!registry) {
     return false;
   }

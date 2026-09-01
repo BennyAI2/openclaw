@@ -47,6 +47,8 @@ export type RunEmbeddedAgentInternalParams = RunEmbeddedAgentParams & {
   systemAgentTool?: SystemAgentToolOptions;
   /** Gateway-private lifecycle generation selected before command admission. */
   pluginGeneration?: PreparedModelRuntimePluginGeneration;
+  /** Internal re-admission continues the committed transcript without replaying ingress. */
+  pluginRuntimeRefreshContinuation?: true;
   /** Host-only transfer of attempt terminal resources to the logical turn. */
   onDeferredLifecycleOwner?: (owner: DeferredEmbeddedRunLifecycleOwner) => void;
   /** Aborts the logical turn when its retained embedded handle is cancelled. */

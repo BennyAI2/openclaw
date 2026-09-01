@@ -18,7 +18,7 @@ describe("plugin runtime hook dispatch ownership", () => {
   it.each([
     { origin: "bundled" as const, trustedOfficialInstall: undefined },
     { origin: "global" as const, trustedOfficialInstall: true },
-  ])("binds $origin hook dispatch to its host-owned plugin identity", async (ownership) => {
+  ])("binds $origin hook dispatch to its exact host-owned plugin instance", async (ownership) => {
     let observedPluginId: string | undefined;
     const dispatchHookAgentTurn = vi.fn(async () => {
       observedPluginId = getPluginRuntimeGatewayRequestScope()?.pluginId;
@@ -39,6 +39,18 @@ describe("plugin runtime hook dispatch ownership", () => {
     });
     expect(observedPluginId).toBe("trusted-mail");
     expect(dispatchHookAgentTurn).toHaveBeenCalledWith(hookTurn);
+
+    const retained = api.runtime.hooks.dispatchHookAgentTurn;
+    builder.rollbackPluginGlobalSideEffects(record.id, record);
+    const replacement = createPluginRecord({ id: record.id, ...ownership });
+    builder.registry.plugins.splice(0, 1, replacement);
+    const replacementApi = builder.createApi(replacement, { config: {} });
+    await expect(replacementApi.runtime.hooks.dispatchHookAgentTurn(hookTurn)).resolves.toEqual({
+      ok: true,
+      runId: "hook-run",
+    });
+    await expect(retained(hookTurn)).rejects.toThrow("no longer active");
+    expect(dispatchHookAgentTurn).toHaveBeenCalledTimes(2);
   });
 
   it("rejects an untrusted hook dispatch before reaching the Gateway owner", async () => {

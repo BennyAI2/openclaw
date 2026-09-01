@@ -228,7 +228,7 @@ export async function prepareGatewayKernelRequestRuntime(params: {
       broadcastVoiceWakeChanged,
       unavailableGatewayMethods,
       broadcastVoiceWakeRoutingChanged,
-      notifyPluginMetadataChanged: kernel.notifyPluginMetadataChanged,
+      applyPluginLifecycleChange: kernel.applyPluginLifecycleChange,
       getConfigReloaderHotReloadStatus: kernel.getConfigReloaderHotReloadStatus,
     });
   });

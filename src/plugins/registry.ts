@@ -1,6 +1,7 @@
 /** In-memory plugin registry builder and mutation API for plugin runtime registration. */
-import { cleanupPluginSessionSchedulerJobs } from "./host-hook-runtime.js";
+import { PluginInstance, getPluginInstance } from "./plugin-instance.js";
 import { createPluginApiFactory } from "./registry-api.js";
+import { projectPluginContributions } from "./registry-contributions.js";
 import { createPluginRegistrars } from "./registry-registrars.js";
 import { createPluginRuntimeResolver } from "./registry-runtime.js";
 import { createPluginRegistryState } from "./registry-state.js";
@@ -37,132 +38,33 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
   const state = createPluginRegistryState(registryParams);
   const registrars = createPluginRegistrars(state);
   const runtimeResolver = createPluginRuntimeResolver(state);
-  const { createApi: createPluginApi, deactivatePluginSideEffectGuards } = createPluginApiFactory(
-    state,
-    registrars,
-    runtimeResolver,
-  );
+  const createPluginApi = createPluginApiFactory(state, registrars, runtimeResolver);
   const registrationRecordSnapshots = new WeakMap<RegistryPluginRecord, RegistryPluginRecord>();
   const createApi: typeof createPluginApi = (record, params) => {
     registrationRecordSnapshots.set(record, clonePluginRecord(record));
-    return createPluginApi(record, params);
+    const api = createPluginApi(record, params);
+    let instance = getPluginInstance(record);
+    if (!instance) {
+      instance = new PluginInstance(record.id, { record, registry: state.registry });
+    }
+    return instance.instrumentApi(api);
   };
 
-  const rollbackPluginGlobalSideEffects = (pluginId: string, record?: RegistryPluginRecord) => {
-    deactivatePluginSideEffectGuards(pluginId);
+  const rollbackPluginGlobalSideEffects = (pluginId: string, record: RegistryPluginRecord) => {
     runtimeResolver.revokePluginRuntimeRecord(pluginId, record);
-    const schedulerRecords = state.registry.sessionSchedulerJobs.filter(
-      (r) => r.pluginId === pluginId,
-    );
-    const gatewayMethods = state.registry.gatewayMethodDescriptors
-      .filter((entry) => entry.owner.kind === "plugin" && entry.owner.pluginId === pluginId)
-      .map((entry) => entry.name);
-    for (const [registryKey, value] of Object.entries(state.registry)) {
-      // Plugin records and diagnostics are operator-visible load outcomes, not registrations.
-      if (registryKey === "plugins" || registryKey === "diagnostics") {
-        continue;
-      }
-      if (Array.isArray(value)) {
-        for (let index = value.length - 1; index >= 0; index -= 1) {
-          const entry = value[index] as
-            | { pluginId?: string; ownerPluginId?: string; owner?: { pluginId?: string } }
-            | undefined;
-          if (
-            entry?.pluginId === pluginId ||
-            entry?.ownerPluginId === pluginId ||
-            entry?.owner?.pluginId === pluginId
-          ) {
-            value.splice(index, 1);
-          }
-        }
-      } else if (value instanceof Map) {
-        for (const [key, entry] of value) {
-          const owner = entry as { pluginId?: string; owner?: string } | undefined;
-          if (owner?.pluginId === pluginId || owner?.owner === `plugin:${pluginId}`) {
-            value.delete(key);
-          }
-        }
-      }
-    }
-    for (const method of gatewayMethods) {
-      delete state.registry.gatewayHandlers[method];
-    }
-    for (const key of state.registry.pluginRuntimeArtifacts.keys()) {
-      if ((JSON.parse(key) as unknown[])[0] === pluginId) {
-        state.registry.pluginRuntimeArtifacts.delete(key);
-      }
-    }
-    const recordSnapshot = record ? registrationRecordSnapshots.get(record) : undefined;
-    if (record && recordSnapshot) {
+    projectPluginContributions(state.registry, pluginId);
+    const recordSnapshot = registrationRecordSnapshots.get(record);
+    if (recordSnapshot) {
       restorePluginRecord(record, recordSnapshot);
       registrationRecordSnapshots.delete(record);
-    }
-
-    // Scheduler jobs still have a live process registration; contribution rollback
-    // drops registry rows above, then cancels external work created before register threw.
-    if (registryParams.activateGlobalSideEffects !== false && schedulerRecords.length > 0) {
-      void cleanupPluginSessionSchedulerJobs({
-        pluginId,
-        reason: "disable",
-        records: schedulerRecords,
-        cleanupOwnerRegistry: state.registry,
-      }).then((failures) => {
-        for (const failure of failures) {
-          state.pushDiagnostic({
-            level: "warn",
-            pluginId: failure.pluginId,
-            message: `scheduler job cleanup failed during rollback: ${failure.hookId}`,
-          });
-        }
-      });
     }
   };
 
   return {
+    ...registrars,
     registry: state.registry,
     createApi,
     rollbackPluginGlobalSideEffects,
     pushDiagnostic: state.pushDiagnostic,
-    registerTool: registrars.registerTool,
-    registerChannel: registrars.registerChannel,
-    registerHostedMediaResolver: registrars.registerHostedMediaResolver,
-    registerWidgetPresenter: registrars.registerWidgetPresenter,
-    registerMcpServerConnectionResolver: registrars.registerMcpServerConnectionResolver,
-    registerProvider: registrars.registerProvider,
-    registerWorkerProvider: registrars.registerWorkerProvider,
-    registerModelCatalogProvider: registrars.registerModelCatalogProvider,
-    registerAgentHarness: registrars.registerAgentHarness,
-    registerCliBackend: registrars.registerCliBackend,
-    registerTextTransforms: registrars.registerTextTransforms,
-    registerEmbeddingProvider: registrars.registerEmbeddingProvider,
-    registerSpeechProvider: registrars.registerSpeechProvider,
-    registerRealtimeTranscriptionProvider: registrars.registerRealtimeTranscriptionProvider,
-    registerRealtimeVoiceProvider: registrars.registerRealtimeVoiceProvider,
-    registerMediaUnderstandingProvider: registrars.registerMediaUnderstandingProvider,
-    registerTranscriptSourceProvider: registrars.registerTranscriptSourceProvider,
-    registerImageGenerationProvider: registrars.registerImageGenerationProvider,
-    registerVideoGenerationProvider: registrars.registerVideoGenerationProvider,
-    registerMusicGenerationProvider: registrars.registerMusicGenerationProvider,
-    registerWebSearchProvider: registrars.registerWebSearchProvider,
-    registerMigrationProvider: registrars.registerMigrationProvider,
-    registerGatewayMethod: registrars.registerGatewayMethod,
-    registerSessionCatalog: registrars.registerSessionCatalog,
-    registerCli: registrars.registerCli,
-    registerReload: registrars.registerReload,
-    registerNodeHostCommand: registrars.registerNodeHostCommand,
-    registerSecurityAuditCollector: registrars.registerSecurityAuditCollector,
-    registerService: registrars.registerService,
-    registerCommand: registrars.registerCommand,
-    registerSessionExtension: registrars.registerSessionExtension,
-    registerTrustedToolPolicy: registrars.registerTrustedToolPolicy,
-    registerToolMetadata: registrars.registerToolMetadata,
-    registerControlUiDescriptor: registrars.registerControlUiDescriptor,
-    registerBoardWidgetContentKind: registrars.registerBoardWidgetContentKind,
-    registerRuntimeLifecycle: registrars.registerRuntimeLifecycle,
-    registerAgentEventSubscription: registrars.registerAgentEventSubscription,
-    registerSessionSchedulerJob: registrars.registerSessionSchedulerJob,
-    registerSessionAction: registrars.registerSessionAction,
-    registerHook: registrars.registerHook,
-    registerTypedHook: registrars.registerTypedHook,
   };
 }

@@ -23,6 +23,11 @@ type DiagnosticTracePropagationBridge = DiagnosticTracePropagationBridgeContract
   DiagnosticEventMetadata
 >;
 
+export type PluginInstanceLifecycle = {
+  readonly signal: AbortSignal;
+  onDispose: (dispose: () => void | Promise<void>) => () => void;
+};
+
 type PluginInteractiveHandlerResult = {
   handled?: boolean;
 } | void;

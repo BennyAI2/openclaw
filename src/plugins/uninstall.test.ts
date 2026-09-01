@@ -7,7 +7,6 @@ import type { runCommandWithTimeout } from "../process/exec.js";
 import { toRepoRelativePath } from "../test-utils/repo-files.js";
 import {
   resolvePluginNpmGenerationProjectDir,
-  resolvePluginNpmGenerationProjectDirPrefix,
   resolvePluginNpmProjectDir,
 } from "./install-paths.js";
 import { resolvePluginInstallDir } from "./install.js";
@@ -1317,6 +1316,13 @@ describe("uninstallPlugin", () => {
     await expectPathAccessState(npmRoot, "missing");
   });
 
+  const generationProjectPrefix = `${path.basename(
+    resolvePluginNpmProjectDir({
+      npmDir: "/managed/npm",
+      packageName: "@openclaw/kitchen-sink",
+    }),
+  )}__openclaw-generation__`;
+
   it.each([
     ["unrelated sibling", "noncanonical-sibling"],
     [
@@ -1337,18 +1343,9 @@ describe("uninstallPlugin", () => {
         }),
       )}__openclaw-generation_g-0123456789abcdef`,
     ],
-    [
-      "short generation suffix",
-      `${resolvePluginNpmGenerationProjectDirPrefix("@openclaw/kitchen-sink")}g-0123456789abcde`,
-    ],
-    [
-      "uppercase generation suffix",
-      `${resolvePluginNpmGenerationProjectDirPrefix("@openclaw/kitchen-sink")}g-0123456789abcdeF`,
-    ],
-    [
-      "generation suffix lookalike",
-      `${resolvePluginNpmGenerationProjectDirPrefix("@openclaw/kitchen-sink")}g-0123456789abcdef-extra`,
-    ],
+    ["short generation suffix", `${generationProjectPrefix}g-0123456789abcde`],
+    ["uppercase generation suffix", `${generationProjectPrefix}g-0123456789abcdeF`],
+    ["generation suffix lookalike", `${generationProjectPrefix}g-0123456789abcdef-extra`],
   ])("preserves a noncanonical npm project root ($name)", async (_name, projectName) => {
     const stateDir = path.join(tempDir, "state");
     const extensionsDir = path.join(stateDir, "extensions");

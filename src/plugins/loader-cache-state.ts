@@ -18,7 +18,10 @@ export class PluginLoaderCacheState<T> {
   readonly #inFlightLoads = new Set<string>();
   readonly #openAllowlistWarningCache: PluginLruCache<true>;
 
-  constructor(defaultMaxEntries: number) {
+  constructor(
+    defaultMaxEntries: number,
+    private readonly onCache?: (state: T) => void,
+  ) {
     this.#registryCache = new PluginLruCache<T>(defaultMaxEntries);
     this.#openAllowlistWarningCache = new PluginLruCache<true>(defaultMaxEntries);
   }
@@ -40,6 +43,7 @@ export class PluginLoaderCacheState<T> {
 
   set(cacheKey: string, state: T): void {
     this.#registryCache.set(cacheKey, state);
+    this.onCache?.(state);
   }
 
   deleteValue(state: T): void {

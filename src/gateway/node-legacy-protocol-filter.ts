@@ -5,7 +5,7 @@ import {
   GATEWAY_CLIENT_MODES,
 } from "../../packages/gateway-protocol/src/client-info.js";
 import type { ConnectParams } from "../../packages/gateway-protocol/src/index.js";
-import { getActivePluginGatewayNodePolicyRegistry } from "../plugins/runtime.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import {
   DEFAULT_DANGEROUS_NODE_COMMANDS,
   IOS_WATCH_RELAY_COMMANDS,
@@ -65,7 +65,7 @@ export function filterLegacyNodeProtocolFeatures(params: {
 }): { caps: string[]; commands: string[] } {
   // N-1 nodes predate plugin-hosted surfaces. Preserve their durable pairing
   // declarations elsewhere, but hide unusable plugin features from this session.
-  const registry = getActivePluginGatewayNodePolicyRegistry();
+  const registry = getActivePluginRegistry();
   if (!registry) {
     return { caps: [...params.caps], commands: [...params.commands] };
   }

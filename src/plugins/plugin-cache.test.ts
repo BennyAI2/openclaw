@@ -12,10 +12,36 @@ import {
   readPluginCacheFile,
   readPluginCacheJsonFile,
 } from "./plugin-cache-files.js";
-import { createPluginCache, getPluginCacheRoot, withPluginCache } from "./plugin-cache.js";
+import {
+  createPluginCache,
+  getPluginCacheRoot,
+  retirePluginCache,
+  transferPluginCacheSetupModules,
+  withPluginCache,
+} from "./plugin-cache.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { clearPluginMetadataLifecycleCaches } from "./plugin-metadata-lifecycle.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+it("retires changed setup graphs while preserving unchanged callbacks and immutable runtime facts", async () => {
+  const previous = createPluginCache();
+  const next = createPluginCache();
+  const changed = new PluginInstance("changed");
+  const unchanged = new PluginInstance("unchanged");
+  const changedCall = changed.wrap(() => "old");
+  const unchangedCall = unchanged.wrap(() => "same");
+  previous.setupModules.set("changed", changed);
+  previous.setupModules.set("unchanged", unchanged);
+  previous.moduleLoaders.set("native-sdk", () => "shared SDK");
+  transferPluginCacheSetupModules(previous, next, new Set(["changed"]));
+  await retirePluginCache(previous);
+  expect(() => changedCall()).toThrow();
+  expect(unchangedCall()).toBe("same");
+  expect(previous.moduleLoaders.get("native-sdk")?.("entry")).toBe("shared SDK");
+  await retirePluginCache(next);
+  expect(() => unchangedCall()).toThrow();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

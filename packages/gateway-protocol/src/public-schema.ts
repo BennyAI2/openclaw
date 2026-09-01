@@ -1,6 +1,7 @@
 // Explicit schema exports keep public protocol changes reviewable.
 export * from "./schema/sessions-goal.js";
 export * from "./public-schema-push.js";
+export * from "./public-schema-plugins.js";
 export * from "./public-schema-users.js";
 export {
   isCloudWorkerPlacementState,
@@ -456,35 +457,6 @@ export {
   AgentsListResultSchema,
   CommandsListParamsSchema,
   CommandsListResultSchema,
-  CapabilityConsentErrorDetailsSchema,
-  PluginCatalogEntrySchema,
-  PluginCatalogInstallActionSchema,
-  PluginDeclaredSurfaceSchema,
-  PluginDeclaredSurfaceWideningSchema,
-  PluginHookGrantSchema,
-  PluginInspectSourceSchema,
-  PluginInstallTrustSchema,
-  PluginOperatorGrantsSchema,
-  PluginSearchPackageSchema,
-  PluginSearchResultEntrySchema,
-  PluginsInspectParamsSchema,
-  PluginsInspectResultSchema,
-  PluginsInstallParamsSchema,
-  PluginsInstallResultSchema,
-  PluginsListParamsSchema,
-  PluginsListResultSchema,
-  PluginsRefreshParamsSchema,
-  PluginsRefreshResultSchema,
-  PluginsSearchParamsSchema,
-  PluginsSearchResultSchema,
-  PluginsSessionActionParamsSchema,
-  PluginsSessionActionResultSchema,
-  PluginsSetEnabledParamsSchema,
-  PluginsSetEnabledResultSchema,
-  PluginsUiDescriptorsParamsSchema,
-  PluginsUiDescriptorsResultSchema,
-  PluginsUninstallParamsSchema,
-  PluginsUninstallResultSchema,
   ModelsAuthLogoutParamsSchema,
   ModelsAuthStatusParamsSchema,
   ModelsListParamsSchema,

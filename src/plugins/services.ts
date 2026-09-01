@@ -22,9 +22,11 @@ import {
 import { subscribePluginSessionsChanged } from "./gateway-events.js";
 import { isPluginJsonValue, type PluginJsonValue } from "./host-hook-json.js";
 import { withPluginHttpRouteRegistry } from "./http-registry.js";
+import { runPluginCleanup } from "./plugin-instance-scope.js";
+import { getPluginRecordRegistry } from "./registry-lifecycle.js";
 import type { PluginServiceRegistration } from "./registry-types.js";
 import type { PluginRegistry } from "./registry.js";
-import { createPluginServiceHealthGeneration } from "./service-health.js";
+import { createPluginServiceHealthReporter } from "./service-health.js";
 import { encodeStartupTraceSegment } from "./startup-trace-segment.js";
 import type { OpenClawPluginServiceContext, PluginLogger } from "./types.js";
 
@@ -176,30 +178,54 @@ function createScopedPluginServiceStartupTrace(
 }
 
 export type PluginServicesHandle = {
-  stop: (options?: { strict: true; deadlineAtMs: number }) => Promise<void>;
+  stop: (options?: {
+    strict: true;
+    deadlineAtMs: number;
+    pluginIds?: ReadonlySet<string>;
+  }) => Promise<void>;
 };
+
+type RunningPluginService = {
+  id: string;
+  pluginId: string;
+  registration: PluginServiceRegistration;
+  registry: PluginRegistry;
+  diagnosticsExporter: boolean;
+  stop?: () => void | Promise<void>;
+  stopping?: Promise<void>;
+  stopError?: unknown;
+  health: NonNullable<OpenClawPluginServiceContext["serviceHealth"]>;
+  lease: PluginRuntimeCapabilityLease;
+};
+const serviceInstances = new WeakMap<PluginServicesHandle, RunningPluginService[]>();
 
 type PluginServiceStartupTrace = {
   detail?: (name: string, metrics: ReadonlyArray<readonly [string, number | string]>) => void;
   measure: <T>(name: string, run: () => T | Promise<T>) => Promise<T>;
 };
 
-export async function startPluginServices(params: {
-  registry: PluginRegistry;
-  config: OpenClawConfig;
-  workspaceDir?: string;
-  startupTrace?: PluginServiceStartupTrace;
-  broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
-  onHandle?: (handle: PluginServicesHandle) => void;
-}): Promise<PluginServicesHandle> {
-  const healthGeneration = createPluginServiceHealthGeneration(params.registry);
-  const running: Array<{
-    id: string;
-    pluginId: string;
-    diagnosticsExporter: boolean;
-    stop?: () => void | Promise<void>;
-    lease: PluginRuntimeCapabilityLease;
-  }> = [];
+export async function startPluginServices(
+  params: {
+    registry: PluginRegistry;
+    config: OpenClawConfig;
+    workspaceDir?: string;
+    startupTrace?: PluginServiceStartupTrace;
+    broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
+    previous?: PluginServicesHandle | null;
+  } & (
+    | { throwOnStartError: true; onHandle: (handle: PluginServicesHandle) => void }
+    | { throwOnStartError?: false; onHandle?: (handle: PluginServicesHandle) => void }
+  ),
+): Promise<PluginServicesHandle> {
+  const running: RunningPluginService[] = [];
+  const previous = params.previous && serviceInstances.get(params.previous);
+  for (const entry of previous?.slice() ?? []) {
+    if (params.registry.services.includes(entry.registration)) {
+      running.push(entry);
+      previous!.splice(previous!.indexOf(entry), 1);
+    }
+  }
+  const retained = new Set(running);
   const runBeforeDeadline = async (
     run: () => void | Promise<void>,
     deadline: number,
@@ -234,17 +260,29 @@ export async function startPluginServices(params: {
     failures?: unknown[],
     deadline?: number,
   ) => {
+    let stopped = false;
     try {
+      if (deadline === undefined && entry.stopError) {
+        // oxlint-disable-next-line typescript/only-throw-error -- Preserve the plugin's exact cleanup rejection.
+        throw entry.stopError;
+      }
       if (entry.stop) {
+        const record = entry.registry.plugins.find((candidate) => candidate.id === entry.pluginId);
+        const registry = record ? getPluginRecordRegistry(entry.registry, record) : entry.registry;
         const cleanup = () =>
-          withPluginHttpRouteRegistry(params.registry, () => entry.stop?.(), entry.lease);
+          (entry.stopping ??= Promise.resolve(
+            withPluginHttpRouteRegistry(registry, () => entry.stop?.(), entry.lease),
+          ));
         if (deadline === undefined) {
           await cleanup();
         } else {
           await runBeforeDeadline(cleanup, deadline, "plugin service stop");
         }
       }
+      stopped = true;
     } catch (err) {
+      entry.stopError = err;
+      entry.health.reportFailure(err);
       log.warn(`plugin service stop failed (${entry.id}): ${String(err)}`);
       failures?.push(
         deadline === undefined
@@ -260,6 +298,12 @@ export async function startPluginServices(params: {
       );
     } finally {
       entry.lease.revoke();
+      const index = running.indexOf(entry);
+      // A timed-out stop still owns its resources. Retain it so rollback cannot
+      // start a duplicate; the next explicit reload observes the same settlement.
+      if (stopped && index >= 0) {
+        running.splice(index, 1);
+      }
     }
   };
   const startupSettled = createDeferredCore();
@@ -268,12 +312,14 @@ export async function startPluginServices(params: {
   let stopPromise: Promise<void> | undefined;
   const handle: PluginServicesHandle = {
     stop: (options) => {
-      stopRequested = true;
+      if (!options?.pluginIds) {
+        stopRequested = true;
+      }
       // Store the shared promise before plugin cleanup runs so shutdown cannot start twice.
-      if (!stopPromise) {
+      if (!stopPromise || options?.pluginIds) {
         const strict = options?.strict === true;
         const deadline = strict ? options.deadlineAtMs : undefined;
-        stopPromise = Promise.resolve().then(async () => {
+        const stopping = Promise.resolve().then(async () => {
           const failures: unknown[] = [];
           if (deadline === undefined) {
             await startupSettled.promise.catch(() => {});
@@ -294,7 +340,9 @@ export async function startPluginServices(params: {
               }
             }
           }
-          const reversed = running.toReversed();
+          const reversed = running
+            .filter((entry) => !options?.pluginIds || options.pluginIds.has(entry.pluginId))
+            .toReversed();
           const diagnosticsExporters = reversed.filter((entry) => entry.diagnosticsExporter);
           const exporterFailures = strict ? failures : [];
           const stopServices = async (services: typeof reversed, collected?: unknown[]) => {
@@ -341,18 +389,27 @@ export async function startPluginServices(params: {
             );
           }
         });
-        void stopPromise.then(healthGeneration.retire, healthGeneration.retire);
+        if (options?.pluginIds) {
+          return stopping;
+        }
+        stopPromise = stopping;
       }
       return stopPromise;
     },
   };
+  serviceInstances.set(handle, running);
+  // The issued handle keeps retained services and failed cleanup even when startup rejects.
   params.onHandle?.(handle);
 
   try {
     let failedCount = 0;
+    const failures: unknown[] = [];
     for (const entry of params.registry.services) {
       if (stopRequested) {
         break;
+      }
+      if (running.some((instance) => instance.registration === entry)) {
+        continue;
       }
       const service = entry.service;
       const traceName = createPluginServiceTraceName(entry);
@@ -362,7 +419,7 @@ export async function startPluginServices(params: {
         broadcast: params.broadcastPluginEvent,
         lease,
       });
-      const serviceHealth = healthGeneration.createReporter(entry);
+      const serviceHealth = createPluginServiceHealthReporter(entry);
       lease.retain(serviceHealth.revoke);
       const serviceContext = createServiceContext({
         config: params.config,
@@ -376,8 +433,13 @@ export async function startPluginServices(params: {
       const runningService = {
         id: service.id,
         pluginId: entry.pluginId,
+        registration: entry,
+        registry: params.registry,
         diagnosticsExporter: serviceContext.internalDiagnostics !== undefined,
-        stop: service.stop ? () => service.stop?.(serviceContext) : undefined,
+        stop: service.stop
+          ? () => runPluginCleanup(service, () => service.stop?.(serviceContext))
+          : undefined,
+        health: serviceHealth.health,
         lease,
       };
       // Own capabilities before startup yields so a bounded replacement can revoke stale work.
@@ -387,12 +449,19 @@ export async function startPluginServices(params: {
           withPluginHttpRouteRegistry(params.registry, () => service.start(serviceContext), lease);
         if (params.startupTrace) {
           await params.startupTrace.measure(traceName, startService);
+        } else if (params.throwOnStartError) {
+          await runBeforeDeadline(
+            startService,
+            Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
+            "plugin service startup",
+            `${entry.pluginId}/${service.id}`,
+          );
         } else {
           await startService();
         }
       } catch (err) {
-        running.splice(running.indexOf(runningService), 1);
         failedCount += 1;
+        failures.push(err);
         serviceContext.serviceHealth?.reportFailure(err);
         const error = err as Error;
         log.error(
@@ -403,7 +472,7 @@ export async function startPluginServices(params: {
         // stop here would wedge plugin reload/startup forever.
         await stopService(
           runningService,
-          undefined,
+          failures,
           Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
         );
       }
@@ -414,6 +483,18 @@ export async function startPluginServices(params: {
       ["failedCount", failedCount],
     ]);
     startupSettled.resolve();
+    if (params.throwOnStartError && failures.length > 0) {
+      for (const entry of running.toReversed()) {
+        if (!retained.has(entry)) {
+          await stopService(
+            entry,
+            failures,
+            Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
+          );
+        }
+      }
+      throw new AggregateError(failures, "plugin services failed to start");
+    }
     return handle;
   } catch (error) {
     startupSettled.reject(error);

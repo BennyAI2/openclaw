@@ -12,7 +12,11 @@ import {
   prepareConfigRuntimeEnv,
 } from "../config/config-env-vars.js";
 import { fingerprintConfigSnapshotAuthoredConfig } from "../config/config-journal-snapshot.js";
-import { readConfigFileSnapshotForWrite, registerConfigWriteListener } from "../config/config.js";
+import {
+  readConfigFileSnapshotForWrite,
+  registerConfigWriteListener,
+  replaceConfigFile,
+} from "../config/config.js";
 import type {
   ConfigFileSnapshot,
   ConfigWriteNotification,
@@ -34,6 +38,7 @@ import {
   getCurrentPluginMetadataSnapshotState,
   setCurrentPluginMetadataSnapshotState,
 } from "../plugins/current-plugin-metadata-state.js";
+import { PluginRuntimeApplicationError } from "../plugins/lifecycle.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import {
   getActiveGatewayRootWorkCount,
@@ -400,8 +405,6 @@ describe("buildGatewayReloadPlan", () => {
     "gateway.terminal.enabled",
     "cloudWorkers.profiles.aws.settings.class",
     "browser.enabled",
-    "plugins.installs.telegram.installPath",
-    "plugins.load.paths.0",
     "gateway.auth.mode",
     "secrets.egressProxy.enabled",
     "secrets.egressProxy.allowedHosts",
@@ -413,6 +416,16 @@ describe("buildGatewayReloadPlan", () => {
     expect(plan.restartReasons).toEqual([path]);
     expect(plan.hotReasons).toStrictEqual([]);
   });
+
+  it.each(["plugins.installs.telegram.installPath", "plugins.load.paths.0"])(
+    "routes plugin source changes through the runtime owner: %s",
+    (path) => {
+      const plan = buildGatewayReloadPlan([path]);
+      expect(plan.restartGateway).toBe(false);
+      expect(plan.reloadPlugins).toBe(true);
+      expect(plan.hotReasons).toEqual([path]);
+    },
+  );
 
   it.each([
     {
@@ -566,17 +579,17 @@ describe("buildGatewayReloadPlan", () => {
     }
   });
 
-  it("restarts for forced whole-record plugin install changes", () => {
+  it("reloads for forced whole-record plugin install changes", () => {
     const path = "plugins.installs.lossless.resolvedAt";
     const plan = buildGatewayReloadPlan([path, path], {
       noopPaths: [path],
       forceChangedPaths: [path],
     });
 
-    expect(plan.restartGateway).toBe(true);
-    expect(plan.reloadPlugins).toBe(false);
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.reloadPlugins).toBe(true);
     expect(plan.disposeMcpRuntimes).toBe(false);
-    expect(plan.restartReasons).toEqual([path, path]);
+    expect(plan.hotReasons).toEqual([path, path]);
     expect(plan.noopPaths).toStrictEqual([]);
   });
 
@@ -947,12 +960,7 @@ function createReloaderHarness(
       ownership: GatewayConfigReloadTransactionOwnership,
       sourceConfig: OpenClawConfig,
     ) => Promise<void>;
-    onHotReload?: (
-      plan: GatewayReloadPlan,
-      nextConfig: OpenClawConfig,
-      ownership: GatewayConfigReloadTransactionOwnership,
-      sourceConfig: OpenClawConfig,
-    ) => Promise<"applied" | "applied-restart-required">;
+    onHotReload?: Parameters<typeof startGatewayConfigReloader>[0]["onHotReload"];
     onRestart?: (
       plan: GatewayReloadPlan,
       nextConfig: OpenClawConfig,
@@ -1223,6 +1231,332 @@ describe("startGatewayConfigReloader", () => {
     resetGatewayWorkAdmission();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it.each(["off", "restart"] as const)(
+    "applies an explicit same-config plugin reload in %s mode",
+    async (mode) => {
+      const config: OpenClawConfig = { gateway: { reload: { mode } } };
+      const runtime = { operationId: "runtime-owner", generation: 9, pluginIds: ["notes"] };
+      const transactionEntered = vi.fn();
+      const runTransaction = async <T>(run: () => Promise<T>): Promise<T> => {
+        transactionEntered();
+        return await run();
+      };
+      const harness = createReloaderHarness(
+        async () => makeSnapshot({ config, sourceConfig: config, hash: "same" }),
+        {
+          initialConfig: config,
+          initialCompareConfig: config,
+          runTransaction,
+          onHotReload: async (plan, nextConfig, ownership) => {
+            ownership.markRuntimeCommitted(nextConfig, plan);
+            return { status: "applied", runtime };
+          },
+        },
+      );
+      expect(
+        await harness.reloader.applyPluginLifecycleChange({
+          config,
+          pluginIds: ["notes"],
+          reason: "reload",
+        }),
+      ).toBe(runtime);
+      expect(harness.onHotReload).toHaveBeenCalledOnce();
+      expect(harness.onHotReload.mock.calls[0]?.[0]).toMatchObject({
+        reloadPlugins: true,
+        restartGateway: false,
+        pluginLifecycle: { pluginIds: ["notes"], reason: "reload" },
+      });
+      expect(transactionEntered).not.toHaveBeenCalled();
+      expect(harness.onRestart).not.toHaveBeenCalled();
+      await harness.reloader.stop();
+    },
+  );
+
+  it.each(["current", "stale"] as const)(
+    "checks explicit plugin reload against %s authored config before applying defaults",
+    async (source) => {
+      const configRoot = tempDirs.make("openclaw-plugin-reload-source-");
+      const configPath = nodePath.join(configRoot, "openclaw.json");
+      await writeFile(
+        configPath,
+        JSON.stringify({ gateway: { reload: { mode: "off" } }, plugins: { enabled: false } }),
+      );
+      const snapshot = await createConfigIO({
+        configPath,
+        env: { ...process.env, OPENCLAW_STATE_DIR: configRoot },
+      }).readConfigFileSnapshot();
+      expect(snapshot.valid, JSON.stringify(snapshot.issues)).toBe(true);
+      expect(snapshot.sourceConfig.commands).toBeUndefined();
+      expect(snapshot.config.commands).toEqual({
+        native: "auto",
+        nativeSkills: "auto",
+        restart: true,
+      });
+      const runtime = { operationId: "source-owner", generation: 9, pluginIds: ["notes"] };
+      const harness = createReloaderHarness(async () => snapshot, {
+        initialConfig: snapshot.config,
+        initialCompareConfig: snapshot.sourceConfig,
+        onHotReload: async (plan, nextConfig, ownership) => {
+          ownership.markRuntimeCommitted(nextConfig, plan);
+          return { status: "applied", runtime };
+        },
+      });
+      try {
+        const application = harness.reloader.applyPluginLifecycleChange({
+          config:
+            source === "current"
+              ? snapshot.sourceConfig
+              : { ...snapshot.sourceConfig, plugins: { enabled: true } },
+          pluginIds: ["notes"],
+          reason: "reload",
+        });
+        if (source === "current") {
+          await expect(application).resolves.toBe(runtime);
+          expect(harness.onHotReload).toHaveBeenCalledOnce();
+          expect(harness.onHotReload.mock.calls[0]?.[1]).toBe(snapshot.config);
+          expect(harness.onHotReload.mock.calls[0]?.[3]).toBe(snapshot.sourceConfig);
+        } else {
+          await expect(application).rejects.toMatchObject({
+            details: { phase: "prepare", committed: false },
+            cause: expect.any(GatewayConfigReloadSupersededError),
+          });
+          expect(harness.onHotReload).not.toHaveBeenCalled();
+        }
+        expect(harness.onRestart).not.toHaveBeenCalled();
+      } finally {
+        await harness.reloader.stop();
+      }
+    },
+  );
+
+  it.each([
+    { storage: "root", superseded: false },
+    { storage: "root", superseded: true },
+    { storage: "include", superseded: false },
+    { storage: "include", superseded: true },
+  ] as const)(
+    "applies only its committed plugin config ($storage, superseded=$superseded)",
+    async ({ storage, superseded }) => {
+      const configRoot = await realpath(tempDirs.make("openclaw-plugin-write-receipt-"));
+      const configPath = nodePath.join(configRoot, "openclaw.json");
+      const includePath = nodePath.join(configRoot, "plugins.json5");
+      await writeFile(includePath, JSON.stringify({ enabled: false }));
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          gateway: { reload: { mode: "off" } },
+          agents: { defaults: { models: { "openai/gpt-5.6-luna": {} } } },
+          plugins: storage === "include" ? { $include: "./plugins.json5" } : { enabled: false },
+        }),
+      );
+      const io = createConfigIO({
+        configPath,
+        env: {
+          ...process.env,
+          OPENCLAW_CONFIG_PATH: configPath,
+          OPENCLAW_STATE_DIR: configRoot,
+        },
+      });
+      const prepared = await io.readConfigFileSnapshotForWrite();
+      expect(prepared.snapshot.valid, JSON.stringify(prepared.snapshot.issues)).toBe(true);
+      const config = {
+        ...prepared.snapshot.sourceConfig,
+        plugins: { ...prepared.snapshot.sourceConfig.plugins, allow: [] },
+      };
+      const write = await replaceConfigFile({
+        nextConfig: config,
+        snapshot: prepared.snapshot,
+        writeOptions: prepared.writeOptions,
+        io,
+      });
+      if (storage === "root") {
+        expect(write.nextConfig.meta?.lastTouchedVersion).toBeTypeOf("string");
+        expect(write.nextConfig.agents?.defaults?.modelPolicy?.allow).toEqual([
+          "openai/gpt-5.6-luna",
+        ]);
+        expect(config.meta?.lastTouchedVersion).toBeUndefined();
+      }
+      if (superseded) {
+        await writeFile(
+          storage === "include" ? includePath : configPath,
+          storage === "include"
+            ? JSON.stringify({ enabled: false, allow: ["another-plugin"] })
+            : JSON.stringify(write.nextConfig, null, 4),
+        );
+      }
+      const current = await io.readConfigFileSnapshot();
+      expect(current.valid, JSON.stringify(current.issues)).toBe(true);
+      if (storage === "include") {
+        expect(current.hash).toBe(write.persistedHash);
+      }
+      const runtime = { operationId: "written-config", generation: 9, pluginIds: ["notes"] };
+      const harness = createReloaderHarness(async () => current, {
+        initialConfig: prepared.snapshot.config,
+        initialCompareConfig: prepared.snapshot.sourceConfig,
+        onHotReload: async (plan, nextConfig, ownership) => {
+          ownership.markRuntimeCommitted(nextConfig, plan);
+          return { status: "applied", runtime };
+        },
+      });
+      try {
+        const application = harness.reloader.applyPluginLifecycleChange({
+          config,
+          write,
+          pluginIds: ["notes"],
+          reason: "disable",
+        });
+        if (superseded) {
+          await expect(application).rejects.toMatchObject({
+            details: { phase: "prepare", committed: false },
+            cause: expect.any(GatewayConfigReloadSupersededError),
+          });
+          expect(harness.onHotReload).not.toHaveBeenCalled();
+        } else {
+          await expect(application).resolves.toBe(runtime);
+          expect(harness.onHotReload).toHaveBeenCalledOnce();
+          expect(harness.onHotReload.mock.calls[0]?.[3]).toBe(current.sourceConfig);
+        }
+        expect(harness.onRestart).not.toHaveBeenCalled();
+      } finally {
+        await harness.reloader.stop();
+      }
+    },
+  );
+
+  it.each(["source", "hash"] as const)(
+    "rejects a writer receipt missing its %s before plugin runtime application",
+    async (missing) => {
+      const config: OpenClawConfig = { gateway: { reload: { mode: "off" } } };
+      const runtime = { operationId: "runtime-owner", generation: 9, pluginIds: ["notes"] };
+      const harness = createReloaderHarness(
+        async () => makeSnapshot({ config, sourceConfig: config, hash: "same" }),
+        {
+          initialConfig: config,
+          initialCompareConfig: config,
+          onHotReload: async (plan, nextConfig, ownership) => {
+            ownership.markRuntimeCommitted(nextConfig, plan);
+            return { status: "applied", runtime };
+          },
+        },
+      );
+      try {
+        await expect(
+          harness.reloader.applyPluginLifecycleChange({
+            config,
+            write:
+              missing === "source"
+                ? { persistedHash: "same" }
+                : { persistedHash: null, persistedSourceConfig: config },
+            pluginIds: ["notes"],
+            reason: "disable",
+          }),
+        ).rejects.toMatchObject({
+          details: { phase: "prepare", committed: false },
+          cause: expect.any(GatewayConfigReloadSupersededError),
+        });
+        expect(harness.onHotReload).not.toHaveBeenCalled();
+        expect(harness.onRestart).not.toHaveBeenCalled();
+      } finally {
+        await harness.reloader.stop();
+      }
+    },
+  );
+
+  it("does not acknowledge an explicit plugin reload when runtime activation fails", async () => {
+    const config: OpenClawConfig = { gateway: { reload: {} } };
+    const harness = createReloaderHarness(
+      async () => makeSnapshot({ config, sourceConfig: config }),
+      {
+        initialConfig: config,
+        onHotReload: async () => {
+          throw new Error("plugin readiness failed");
+        },
+      },
+    );
+    await expect(
+      harness.reloader.applyPluginLifecycleChange({
+        config,
+        pluginIds: ["notes"],
+        reason: "reload",
+      }),
+    ).rejects.toThrow("plugin readiness failed");
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    await harness.reloader.stop();
+  });
+
+  it.each([
+    "same-source",
+    "changed-bytes",
+    "committed",
+    "failed-cleanup",
+    "repeated-echo",
+  ] as const)("rebases an explicit watcher echo only before publication: %s", async (scenario) => {
+    const config: OpenClawConfig = { gateway: { reload: {} } };
+    const operationIds: string[] = [];
+    let reads = 0;
+    const harness = createReloaderHarness(
+      async () =>
+        makeSnapshot({
+          config,
+          sourceConfig: config,
+          hash: ++reads > 1 && scenario === "changed-bytes" ? "changed" : "same",
+        }),
+      {
+        initialConfig: config,
+        onHotReload: async (plan, nextConfig, ownership) => {
+          if (!plan.pluginLifecycle) {
+            throw new Error("Missing plugin operation owner");
+          }
+          const operationId = plan.pluginLifecycle.operationId;
+          operationIds.push(operationId);
+          if (operationIds.length === 1 || scenario === "repeated-echo") {
+            if (scenario === "committed") {
+              ownership.markRuntimeCommitted(nextConfig, plan);
+            }
+            harness.watcher.emit("change");
+            const superseded = new GatewayConfigReloadSupersededError();
+            throw new PluginRuntimeApplicationError(
+              "Plugin operation superseded",
+              {
+                operationId,
+                generation: 1,
+                pluginIds: ["notes"],
+                phase: "activate",
+                committed: scenario === "committed",
+              },
+              {
+                cause:
+                  scenario === "failed-cleanup"
+                    ? new AggregateError([superseded, new Error("cleanup failed")])
+                    : superseded,
+              },
+            );
+          }
+          ownership.markRuntimeCommitted(nextConfig, plan);
+          return {
+            status: "applied",
+            runtime: { operationId, generation: 2, pluginIds: ["notes"] },
+          };
+        },
+      },
+    );
+    const operation = harness.reloader.applyPluginLifecycleChange({
+      config,
+      pluginIds: ["notes"],
+      reason: "reload",
+    });
+    if (scenario === "same-source") {
+      await expect(operation).resolves.toMatchObject({ generation: 2 });
+      expect(operationIds).toHaveLength(2);
+      expect(operationIds[1]).toBe(operationIds[0]);
+    } else {
+      await expect(operation).rejects.toBeInstanceOf(PluginRuntimeApplicationError);
+      expect(operationIds).toHaveLength(scenario === "repeated-echo" ? 2 : 1);
+    }
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    await harness.reloader.stop();
   });
 
   it("watches resolved includes and reconciles them after an accepted reload", async () => {
@@ -4810,14 +5144,14 @@ describe("startGatewayConfigReloader", () => {
     });
     await vi.runOnlyPendingTimersAsync();
 
-    expect(harness.onHotReload).not.toHaveBeenCalled();
-    const [plan, nextConfig] = getOnlyRestartCall(harness);
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    const [plan, nextConfig] = getOnlyHotReloadCall(harness);
     expect(plan.changedPaths).toEqual([
       "plugins.installs.lossless.resolvedAt",
       "plugins.installs.lossless.resolvedAt",
     ]);
-    expect(plan.restartGateway).toBe(true);
-    expect(plan.restartReasons).toEqual([
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.hotReasons).toEqual([
       "plugins.installs.lossless.resolvedAt",
       "plugins.installs.lossless.resolvedAt",
     ]);
@@ -4826,7 +5160,7 @@ describe("startGatewayConfigReloader", () => {
     await harness.reloader.stop();
   });
 
-  it("queues restart when an external plugin source write only changes the managed index", async () => {
+  it("hot reloads when an external plugin source write only changes the managed index", async () => {
     const activeConfig: OpenClawConfig = {
       gateway: { reload: {} },
       plugins: {
@@ -4861,17 +5195,17 @@ describe("startGatewayConfigReloader", () => {
     harness.watcher.emit("change");
     await vi.runOnlyPendingTimersAsync();
 
-    expect(harness.onHotReload).not.toHaveBeenCalled();
-    const [plan, nextConfig] = getOnlyRestartCall(harness);
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    const [plan, nextConfig] = getOnlyHotReloadCall(harness);
     expect(plan.changedPaths).toEqual(["plugins.installs.lossless-claw"]);
-    expect(plan.restartGateway).toBe(true);
-    expect(plan.restartReasons).toEqual(["plugins.installs.lossless-claw"]);
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.hotReasons).toEqual(["plugins.installs.lossless-claw"]);
     expect(nextConfig).toBe(activeConfig);
 
     await harness.reloader.stop();
   });
 
-  it("reloads explicitly signaled plugin metadata when config bytes stay identical", async () => {
+  it("reloads explicit plugin metadata when config bytes stay identical", async () => {
     const activeConfig: OpenClawConfig = {
       gateway: { reload: {} },
     };
@@ -4896,23 +5230,33 @@ describe("startGatewayConfigReloader", () => {
       initialInternalWriteHash: "unchanged-config",
       initialPluginInstallRecords: {},
       readPluginInstallRecords,
+      onHotReload: async (plan, nextConfig, ownership) => {
+        ownership.markRuntimeCommitted(nextConfig, plan);
+        return {
+          status: "applied",
+          runtime: { operationId: "metadata-refresh", generation: 2, pluginIds: ["brave"] },
+        };
+      },
     });
 
-    harness.reloader.notifyPluginMetadataChanged();
-    await vi.runOnlyPendingTimersAsync();
+    await harness.reloader.applyPluginLifecycleChange({
+      config: activeConfig,
+      pluginIds: ["brave"],
+      reason: "metadata",
+    });
 
     expect(readSnapshot).toHaveBeenCalledOnce();
     expect(readPluginInstallRecords).toHaveBeenCalledOnce();
-    const [plan, nextConfig] = getOnlyRestartCall(harness);
+    const [plan, nextConfig] = getOnlyHotReloadCall(harness);
     expect(plan.changedPaths).toEqual(["plugins.installs.brave"]);
-    expect(plan.restartReasons).toEqual(["plugins.installs.brave"]);
+    expect(plan.hotReasons).toEqual(["plugins.installs.brave"]);
     expect(nextConfig).toBe(activeConfig);
 
     await harness.reloader.stop();
   });
 
   it.each(["hybrid", "off"] as const)(
-    "preserves startup metadata when plugin metadata changes without config changes (%s)",
+    "applies explicit metadata through the hot owner without replaying watcher echoes (%s)",
     async (mode) => {
       const activeConfig: OpenClawConfig = {
         gateway: { reload: { mode } },
@@ -4938,36 +5282,40 @@ describe("startGatewayConfigReloader", () => {
         initialCompareConfig: activeConfig,
         initialPluginInstallRecords: installRecords,
         readPluginInstallRecords,
+        onHotReload: async (plan, nextConfig, ownership) => {
+          ownership.markRuntimeCommitted(nextConfig, plan);
+          return {
+            status: "applied",
+            runtime: { operationId: "metadata-refresh", generation: 2, pluginIds: ["brave"] },
+          };
+        },
       });
       const startupMetadata = { plugins: [] };
       setCurrentPluginMetadataSnapshotState(startupMetadata, "startup-metadata");
 
-      harness.reloader.notifyPluginMetadataChanged();
+      const application = harness.reloader.applyPluginLifecycleChange({
+        config: activeConfig,
+        pluginIds: ["brave"],
+        reason: "metadata",
+      });
       expect(getCurrentPluginMetadataSnapshotState().snapshot).toBe(startupMetadata);
-      await vi.runOnlyPendingTimersAsync();
+      await application;
 
-      expect(harness.onHotReload).not.toHaveBeenCalled();
       expect(getCurrentPluginMetadataSnapshotState().snapshot).toBe(startupMetadata);
-      if (mode === "off") {
-        expect(harness.onRestart).not.toHaveBeenCalled();
-        await harness.reloader.stop();
-        return;
-      }
-      const [plan, nextConfig] = getOnlyRestartCall(harness);
+      const [plan, nextConfig] = getOnlyHotReloadCall(harness);
       expect(plan.changedPaths).toEqual([]);
-      expect(plan.restartGateway).toBe(true);
-      expect(plan.restartReasons).toEqual(["plugin metadata changed"]);
-      expect(plan.reloadPlugins).toBe(false);
+      expect(plan.restartGateway).toBe(false);
+      expect(plan.pluginLifecycle).toMatchObject({ pluginIds: ["brave"], reason: "metadata" });
+      expect(plan.reloadPlugins).toBe(true);
       expect(plan.disposeMcpRuntimes).toBe(false);
       expect(nextConfig).toBe(activeConfig);
       expect(getCurrentPluginMetadataSnapshotState().snapshot).toBe(startupMetadata);
 
-      // An accepted restart consumes this signal; an unchanged watcher echo must
-      // not request another restart or replace the running metadata.
+      // The explicit receipt completes the operation; its unchanged watcher echo is inert.
       harness.watcher.emit("change");
       await vi.runOnlyPendingTimersAsync();
-      expect(harness.onHotReload).not.toHaveBeenCalled();
-      expect(harness.onRestart).toHaveBeenCalledOnce();
+      expect(harness.onHotReload).toHaveBeenCalledOnce();
+      expect(harness.onRestart).not.toHaveBeenCalled();
       expect(getCurrentPluginMetadataSnapshotState().snapshot).toBe(startupMetadata);
 
       await harness.reloader.stop();
@@ -5027,7 +5375,7 @@ describe("startGatewayConfigReloader", () => {
     await harness.reloader.stop();
   });
 
-  it("queues restart when an external plugin source write also changes plugin config", async () => {
+  it("hot reloads when an external plugin source write also changes plugin config", async () => {
     const previousConfig: OpenClawConfig = {
       gateway: { reload: {} },
       plugins: {
@@ -5068,11 +5416,11 @@ describe("startGatewayConfigReloader", () => {
     harness.watcher.emit("change");
     await vi.runOnlyPendingTimersAsync();
 
-    expect(harness.onHotReload).not.toHaveBeenCalled();
-    const [plan, restartedConfig] = getOnlyRestartCall(harness);
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    const [plan, restartedConfig] = getOnlyHotReloadCall(harness);
     expect(plan.changedPaths).toEqual(["plugins.entries", "plugins.installs.lossless-claw"]);
-    expect(plan.restartGateway).toBe(true);
-    expect(plan.restartReasons).toEqual(["plugins.installs.lossless-claw"]);
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.hotReasons).toEqual(["plugins.entries", "plugins.installs.lossless-claw"]);
     expect(restartedConfig).toBe(nextConfig);
 
     await harness.reloader.stop();

@@ -538,10 +538,10 @@ for the checklist.
 
 ### Reload modes
 
-| Mode                   | Behavior                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------- |
-| **`hybrid`** (default) | Hot-applies safe changes instantly. Automatically restarts for critical ones. |
-| **`off`**              | Disables file watching. Changes take effect on the next manual restart.       |
+| Mode                   | Behavior                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| **`hybrid`** (default) | Hot-applies safe changes instantly. Automatically restarts for critical ones.                      |
+| **`off`**              | Disables automatic config application. Use explicit plugin management or restart to apply changes. |
 
 ```json5
 {
@@ -568,28 +568,30 @@ Hot reload and secrets reload preserve that distinction: catalog compatibility
 metadata does not become a custom request override that switches a native runtime
 back to OpenClaw.
 
-| Category            | Fields                                                                  | Gateway restart needed?      |
-| ------------------- | ----------------------------------------------------------------------- | ---------------------------- |
-| Channels            | `channels.*`, `web` (WhatsApp) - all built-in and plugin channels       | No (restarts that channel)   |
-| Agent & models      | `agent`, `agents`, `models`, `routing`                                  | No                           |
-| Automation          | `hooks`, `cron`, `agent.heartbeat`                                      | No (restarts that subsystem) |
-| Sessions & messages | `session`, `messages`                                                   | No                           |
-| Tools & media       | `tools`, `skills`, `mcp`, `audio`, `talk`                               | No                           |
-| Plugin config       | `plugins.entries.*`, `plugins.allow`, `plugins.deny`, `plugins.enabled` | No (reloads plugin runtime)  |
-| UI & misc           | `ui`, `logging`, `identity`, `bindings`                                 | No                           |
-| Gateway server      | `gateway.*` (port, bind, auth, tailscale, TLS, HTTP, push)              | **Yes**                      |
-| Infrastructure      | `discovery`, `browser`, `plugins.load`, `plugins.installs`              | **Yes**                      |
+| Category            | Fields                                                            | Gateway restart needed?      |
+| ------------------- | ----------------------------------------------------------------- | ---------------------------- |
+| Channels            | `channels.*`, `web` (WhatsApp) - all built-in and plugin channels | No (restarts that channel)   |
+| Agent & models      | `agent`, `agents`, `models`, `routing`                            | No                           |
+| Automation          | `hooks`, `cron`, `agent.heartbeat`                                | No (restarts that subsystem) |
+| Sessions & messages | `session`, `messages`                                             | No                           |
+| Tools & media       | `tools`, `skills`, `mcp`, `audio`, `talk`                         | No                           |
+| Plugins             | `plugins.*`                                                       | No (reloads plugin runtime)  |
+| UI & misc           | `ui`, `logging`, `identity`, `bindings`                           | No                           |
+| Gateway server      | `gateway.*` (port, bind, auth, tailscale, TLS, HTTP, push)        | **Yes**                      |
+| Infrastructure      | `discovery`, `browser`                                            | **Yes**                      |
 
 <Note>
-`gateway.reload` and `gateway.remote` are exceptions under `gateway.*` - changing them does **not** trigger a restart. Individual plugins can also override this table: a loaded plugin may declare its own restart-triggering config prefixes (for example the bundled Canvas plugin restarts the Gateway for `plugins.enabled`, `plugins.allow`, and `plugins.deny`, not just its own `plugins.entries.canvas`), so the actual behavior depends on which plugins are active.
+`gateway.reload` and `gateway.remote` are exceptions under `gateway.*` - changing them does **not** trigger a restart. `browser.profiles.*` also hot-applies. Loaded plugins can override the table with their registered reload prefixes, so automatic config reload follows the active plugins' policy. Explicit plugin management applies plugin changes without restarting the Gateway, but rejects unrelated changes to restart-required settings.
 </Note>
 
-Plugin hot reload uses the package metadata discovered at Gateway startup.
-Enablement, plugin config, and account changes do not rescan plugin files.
-Install, update, uninstall, and explicit plugin metadata refresh require a
-Gateway restart; `hybrid` schedules that restart, while `off` leaves it to you.
-Changing an agent's workspace also does not discover plugins in the new
-directory until restart. See [Plugin metadata snapshots](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table).
+Plugin runtime replacement refreshes package metadata and publishes it with
+the new registry. Install, update, uninstall, reload, and explicit metadata
+refresh apply through the running Gateway without restarting it, including
+when automatic config reload is off. Plugin files are not continuously watched;
+after editing source or a manifest, run `openclaw plugins reload <id>`.
+The Gateway keeps its selected plugin workspace until restart; changing an
+agent's workspace alone does not switch that plugin discovery root. See
+[Plugin metadata snapshots](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table).
 
 ### Reload planning
 

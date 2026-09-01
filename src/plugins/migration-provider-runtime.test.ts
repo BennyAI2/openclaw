@@ -1,10 +1,12 @@
 // Covers migration provider runtime hooks supplied by plugins.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { clearPluginMetadataLifecycleCaches } from "./plugin-metadata-lifecycle.js";
 import type { PluginRegistry } from "./registry-types.js";
 import { createEmptyPluginRegistry } from "./registry.js";
 import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
+import { createPluginRecord } from "./status.test-helpers.js";
 
 type MockManifestRegistry = {
   plugins: Array<Record<string, unknown>>;
@@ -222,11 +224,13 @@ describe("migration provider runtime", () => {
     const provider = createMigrationProvider("external-import");
     const active = createEmptyPluginRegistry();
     const loaded = createEmptyPluginRegistry();
+    const record = createPluginRecord({ id: "external-migration", source: "test" });
+    loaded.plugins.push(record);
     loaded.migrationProviders.push({
       pluginId: "external-migration",
       pluginName: "External Migration",
       source: "test",
-      provider,
+      provider: new PluginInstance(record.id, { record, registry: loaded }).wrap(provider),
     } as never);
     mocks.resolveRuntimePluginRegistry.mockImplementation((params?: unknown) =>
       params === undefined ? active : loaded,

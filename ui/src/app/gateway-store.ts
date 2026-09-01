@@ -116,6 +116,7 @@ export function createApplicationGateway(
     selfUser: null,
   };
   let client: GatewayBrowserClient | null = null;
+  let pluginCapabilityConnection = 0;
   let canvasSurfaceLease: CanvasSurfaceLease | null = null;
   let canvasSurfaceLeaseLoad: Promise<CanvasSurfaceLease> | null = null;
   let canvasSurfaceLeaseClient: GatewayBrowserClient | null = null;
@@ -284,7 +285,26 @@ export function createApplicationGateway(
   };
   const recordGatewayEvent = (event: Parameters<GatewayEventListener>[0]) => {
     const eventClient = client;
-    if (event.event === "shutdown") {
+    if (event.event === "plugins.changed" && eventClient) {
+      const eventConnection = pluginCapabilityConnection;
+      const readCurrent = () =>
+        isCurrentClient(eventClient) &&
+        eventConnection === pluginCapabilityConnection &&
+        snapshot.phase === "connected"
+          ? snapshot
+          : null;
+      void import("./plugin-capabilities.runtime.ts")
+        .then(({ refreshPluginCapabilities }) =>
+          refreshPluginCapabilities(event.payload, eventClient, readCurrent, setSnapshot, (url) =>
+            startCanvasSurfaceLease(eventClient, canvasSurfaceLeaseGeneration, url),
+          ),
+        )
+        .catch((error: unknown) => {
+          if (readCurrent()) {
+            setSnapshot({ ...snapshot, lastError: formatUiError(error) });
+          }
+        });
+    } else if (event.event === "shutdown") {
       // Only a restart-bearing shutdown arms the amber state; an ordinary stop
       // (restartExpectedMs absent) flows through the normal offline pill so the
       // retry action stays reachable. Hostile values fall to the timer clamp.
@@ -428,6 +448,7 @@ export function createApplicationGateway(
         if (client !== nextClient) {
           return;
         }
+        pluginCapabilityConnection += 1;
         const exactBuildIdentityAvailable = Boolean(hello.server?.buildId?.trim());
         const controlUiBuildFresh = !(
           isSameOriginGateway(nextConnection.gatewayUrl) &&
@@ -494,6 +515,7 @@ export function createApplicationGateway(
           phase: "connected",
           restartPending: false,
           hello,
+          pluginCapabilities: null,
           canvasPluginSurfaceUrl,
           // Trim guards a whitespace-only defaultId from becoming a truthy selection.
           assistantAgentId: sessionDefaults?.defaultAgentId?.trim() || null,
@@ -521,6 +543,7 @@ export function createApplicationGateway(
         if (client !== nextClient) {
           return;
         }
+        pluginCapabilityConnection += 1;
         stopCanvasSurfaceLease();
         const mismatchedBuildId = readControlUiBuildMismatchId(error?.details);
         if (mismatchedBuildId) {
@@ -557,6 +580,7 @@ export function createApplicationGateway(
                     ? "connecting"
                     : "stopped",
           hello: null,
+          pluginCapabilities: null,
           canvasPluginSurfaceUrl: null,
           selfUser: null,
           restartPending: restartPending || snapshot.restartPending === true,
@@ -606,6 +630,7 @@ export function createApplicationGateway(
       // recovery or a manual retry when a session already existed.
       phase: everConnected ? "reconnecting" : "connecting",
       hello: null,
+      pluginCapabilities: null,
       canvasPluginSurfaceUrl: null,
       assistantAgentId: null,
       selfUser: null,
@@ -659,6 +684,7 @@ export function createApplicationGateway(
         offlineStable: false,
         restartPending: false,
         hello: null,
+        pluginCapabilities: null,
         canvasPluginSurfaceUrl: null,
         assistantAgentId: null,
         selfUser: null,

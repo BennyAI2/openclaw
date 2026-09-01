@@ -89,7 +89,6 @@ function loadProviderDiscoveryModule(manifest: PluginManifestRecord): ProviderDi
     : source;
   const moduleLoader = getCachedPluginModuleLoader({
     modulePath,
-    rootDir,
     importerUrl: import.meta.url,
     loaderFilename: import.meta.url,
     preferBuiltDist: true,

@@ -353,7 +353,6 @@ function loadSetupChannelPluginFromManifestRecord(params: {
   try {
     const moduleLoader = getCachedPluginModuleLoader({
       modulePath: params.record.setupSource,
-      rootDir: params.record.rootDir,
       importerUrl: import.meta.url,
       preferBuiltDist: true,
       loaderFilename: import.meta.url,

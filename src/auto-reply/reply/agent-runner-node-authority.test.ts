@@ -80,11 +80,8 @@ describe("webchat admission to plugin node duplex authority", () => {
       const { runWithGatewayRequestEnvelope } = await import("../../gateway/server-methods.js");
       const { createGatewayNodesRuntime } = await import("../../gateway/server-plugins.js");
       const { createPluginRecord } = await import("../../plugins/loader-records.js");
-      const {
-        markPluginRegistryActive,
-        markPluginRegistryRetired,
-        revokePluginRecordLifecycleEpoch,
-      } = await import("../../plugins/registry-lifecycle.js");
+      const { markPluginRegistryActive, markPluginRegistryRetired, revokePluginRecord } =
+        await import("../../plugins/registry-lifecycle.js");
       const { createEmptyPluginRegistry } = await import("../../plugins/registry-empty.js");
       const { withPluginRuntimePluginScope, withPluginRuntimeRegistryScope } =
         await import("../../plugins/runtime/gateway-request-scope.js");
@@ -325,7 +322,7 @@ describe("webchat admission to plugin node duplex authority", () => {
                     markPluginRegistryActive(registry);
                     break;
                   case "runtime-record-revoked":
-                    revokePluginRecordLifecycleEpoch(preparedRegistry, preparedRecord);
+                    revokePluginRecord(preparedRegistry, preparedRecord);
                     break;
                   case "placement": {
                     const claimed = claimTurn.mock.results[0];

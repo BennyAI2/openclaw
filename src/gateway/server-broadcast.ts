@@ -75,6 +75,7 @@ const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
   "config.changed": [READ_SCOPE],
   "users.prefs.changed": [READ_SCOPE],
   "skills.changed": [READ_SCOPE],
+  "plugins.changed": [READ_SCOPE],
   "voicewake.changed": [READ_SCOPE],
   "voicewake.routing.changed": [READ_SCOPE],
   [GATEWAY_EVENT_DEVICE_PAIR_CHANGED]: [PAIRING_SCOPE],

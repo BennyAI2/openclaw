@@ -478,6 +478,7 @@ export const systemAgentHandlers: GatewayRequestHandlers = {
           // engine's setup path honors this via surface: "gateway".
           const engine = new SystemAgentChatEngine({
             surface: "gateway",
+            applyPluginRuntime: context.applyPluginLifecycleChange,
             verifiedInference: inference.binding,
             operatorApprovalOnly: params.delegation !== undefined,
             ...(params.delegation?.agentId ? { requesterAgentId: params.delegation.agentId } : {}),

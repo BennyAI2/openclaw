@@ -99,28 +99,27 @@ type WebSearchProviderPlugin = import("./types.js").WebSearchProviderPlugin;
 type WorkerProvider = import("./types.js").WorkerProvider;
 type UnifiedModelCatalogProviderPlugin = import("./types.js").UnifiedModelCatalogProviderPlugin;
 
-/** Agent tool factory registered by one plugin runtime. */
-export type PluginToolRegistration = {
+type PluginRegistrationMetadata = {
   pluginId: string;
   pluginName?: string;
+  source: string;
+  rootDir?: string;
+};
+
+/** Agent tool factory registered by one plugin runtime. */
+export type PluginToolRegistration = PluginRegistrationMetadata & {
   factory: OpenClawPluginToolFactory;
   names: string[];
   declaredNames?: string[];
   optional: boolean;
   /** Loader-owned provenance. Missing values are conservative legacy registrations. */
   origin?: PluginOrigin;
-  source: string;
-  rootDir?: string;
 };
-type PluginCliRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginCliRegistration = PluginRegistrationMetadata & {
   register: OpenClawPluginCliRegistrar;
   parentPath: string[];
   commands: string[];
   descriptors: OpenClawPluginCliRootCommandDescriptor[];
-  source: string;
-  rootDir?: string;
 };
 
 /** Gateway HTTP route registered by a plugin runtime. */
@@ -140,60 +139,29 @@ export type PluginHttpRouteRegistration = {
   source?: string;
 };
 
-type PluginHostedMediaResolverRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginHostedMediaResolverRegistration = PluginRegistrationMetadata & {
   resolver: OpenClawPluginHostedMediaResolver;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginChannelRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginChannelRegistration = PluginRegistrationMetadata & {
   plugin: ChannelPlugin;
   /** Exact record-bound runtime resolver captured when the active plugin registered the channel. */
   resolveChannelRuntime?: () => PluginRuntime["channel"];
   /** Loader-owned provenance. Missing values are conservative legacy registrations. */
   origin?: PluginOrigin;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginChannelSetupRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginChannelSetupRegistration = PluginRegistrationMetadata & {
   plugin: ChannelPlugin;
   /** Loader-owned provenance. Missing values are conservative legacy registrations. */
   origin?: PluginOrigin;
-  source: string;
   enabled: boolean;
-  rootDir?: string;
 };
 
-type PluginProviderRegistration = {
-  pluginId: string;
-  pluginName?: string;
-  provider: ProviderPlugin;
-  source: string;
-  rootDir?: string;
-};
-
-type PluginModelCatalogProviderRegistration = {
-  pluginId: string;
-  pluginName?: string;
-  provider: UnifiedModelCatalogProviderPlugin;
-  source: string;
-  rootDir?: string;
-};
-
-type PluginSessionCatalogRegistration = {
-  pluginId: string;
-  pluginName?: string;
-  provider: SessionCatalogProvider;
-  source: string;
-  rootDir?: string;
-};
+type PluginProviderRegistration = PluginOwnedProviderRegistration<ProviderPlugin>;
+type PluginModelCatalogProviderRegistration =
+  PluginOwnedProviderRegistration<UnifiedModelCatalogProviderPlugin>;
+type PluginSessionCatalogRegistration = PluginOwnedProviderRegistration<SessionCatalogProvider>;
 
 export type PluginDashboardDataBindingRegistration = PluginManifestDashboardDataBinding & {
   pluginId: string;
@@ -213,29 +181,17 @@ export type PluginBoardWidgetContentKindRegistration = {
   definition: PluginBoardWidgetContentKind;
 };
 
-type PluginCliBackendRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginCliBackendRegistration = PluginRegistrationMetadata & {
   builtWithOpenClawVersion?: string;
   backend: CliBackendPlugin;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginTextTransformsRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginTextTransformsRegistration = PluginRegistrationMetadata & {
   transforms: PluginTextTransformRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginOwnedProviderRegistration<T extends { id: string }> = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginOwnedProviderRegistration<T> = PluginRegistrationMetadata & {
   provider: T;
-  source: string;
-  rootDir?: string;
 };
 
 type PluginSpeechProviderRegistration = PluginOwnedProviderRegistration<SpeechProviderPlugin>;
@@ -259,36 +215,24 @@ type PluginWebFetchProviderRegistration = PluginOwnedProviderRegistration<WebFet
 type PluginWebSearchProviderRegistration = PluginOwnedProviderRegistration<WebSearchProviderPlugin>;
 type PluginWorkerProviderRegistration = PluginOwnedProviderRegistration<WorkerProvider>;
 type PluginMigrationProviderRegistration = PluginOwnedProviderRegistration<MigrationProviderPlugin>;
-type PluginCodexAppServerExtensionFactoryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginCodexAppServerExtensionFactoryRegistration = PluginRegistrationMetadata & {
   rawFactory: CodexAppServerExtensionFactory;
   factory: CodexAppServerExtensionFactory;
-  source: string;
-  rootDir?: string;
 };
-export type PluginAgentToolResultMiddlewareRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginAgentToolResultMiddlewareRegistration = PluginRegistrationMetadata & {
   rawHandler: AgentToolResultMiddleware;
   handler: AgentToolResultMiddleware;
   runtimes: AgentToolResultMiddlewareRuntime[];
   scopes?: AgentToolResultMiddlewareScope[];
-  source: string;
-  rootDir?: string;
 };
 export type PluginAgentToolResultMiddlewareOwner = {
   pluginId: string;
   runtimes: AgentToolResultMiddlewareRuntime[];
   manifest: PluginManifestRecord;
 };
-type PluginAgentHarnessRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginAgentHarnessRegistration = PluginRegistrationMetadata & {
   harness: AgentHarness;
   nativeCompaction?: AgentHarnessNativeCompaction;
-  source: string;
-  rootDir?: string;
 };
 
 type PluginHookRegistration = {
@@ -299,71 +243,39 @@ type PluginHookRegistration = {
   rootDir?: string;
 };
 
-export type PluginServiceRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginServiceRegistration = PluginRegistrationMetadata & {
   service: OpenClawPluginService;
-  source: string;
   origin: PluginOrigin;
   trustedOfficialInstall?: boolean;
-  rootDir?: string;
 };
 
-export type PluginGatewayDiscoveryServiceRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginGatewayDiscoveryServiceRegistration = PluginRegistrationMetadata & {
   service: OpenClawGatewayDiscoveryService;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginReloadRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginReloadRegistration = PluginRegistrationMetadata & {
   registration: OpenClawPluginReloadRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginNodeHostCommandRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginNodeHostCommandRegistration = PluginRegistrationMetadata & {
   command: import("./types.js").OpenClawPluginNodeHostCommand;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginNodeInvokePolicyRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginNodeInvokePolicyRegistration = PluginRegistrationMetadata & {
   policy: import("./types.js").OpenClawPluginNodeInvokePolicy;
   pluginConfig?: Record<string, unknown>;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginWidgetPresenterRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginWidgetPresenterRegistration = PluginRegistrationMetadata & {
   presenter: import("./plugin-registration.types.js").WidgetPresenter;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginSecurityAuditCollectorRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginSecurityAuditCollectorRegistration = PluginRegistrationMetadata & {
   collector: OpenClawPluginSecurityAuditCollector;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginCommandRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginCommandRegistration = PluginRegistrationMetadata & {
   command: OpenClawPluginCommandDefinition;
-  source: string;
-  rootDir?: string;
   trustedOwnerStatusExposure?: true;
 };
 
@@ -385,79 +297,43 @@ type PluginInteractiveHandlerRegistryRegistration = PluginInteractiveHandlerRegi
   pluginRoot?: string;
 };
 
-type PluginSessionExtensionRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginSessionExtensionRegistryRegistration = PluginRegistrationMetadata & {
   extension: PluginSessionExtensionRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginTrustedToolPolicyRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginTrustedToolPolicyRegistryRegistration = PluginRegistrationMetadata & {
   policy: PluginTrustedToolPolicyRegistration;
   origin?: PluginRecord["origin"];
-  source: string;
-  rootDir?: string;
 };
 
-type PluginToolMetadataRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginToolMetadataRegistryRegistration = PluginRegistrationMetadata & {
   metadata: PluginToolMetadataRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginControlUiDescriptorRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginControlUiDescriptorRegistryRegistration = PluginRegistrationMetadata & {
   descriptor: PluginControlUiDescriptor;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginRuntimeLifecycleRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginRuntimeLifecycleRegistryRegistration = PluginRegistrationMetadata & {
   lifecycle: PluginRuntimeLifecycleRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginAgentEventSubscriptionRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginAgentEventSubscriptionRegistryRegistration = PluginRegistrationMetadata & {
   subscription: PluginAgentEventSubscriptionRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginSessionSchedulerJobRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginSessionSchedulerJobRegistryRegistration = PluginRegistrationMetadata & {
   job: PluginSessionSchedulerJobRegistration;
   generation?: number;
-  source: string;
-  rootDir?: string;
 };
 
-export type PluginSessionActionRegistryRegistration = {
-  pluginId: string;
-  pluginName?: string;
+export type PluginSessionActionRegistryRegistration = PluginRegistrationMetadata & {
   action: PluginSessionActionRegistration;
-  source: string;
-  rootDir?: string;
 };
 
-type PluginConversationBindingResolvedHandlerRegistration = {
-  pluginId: string;
-  pluginName?: string;
+type PluginConversationBindingResolvedHandlerRegistration = PluginRegistrationMetadata & {
   pluginRoot?: string;
   handler: (event: PluginConversationBindingResolvedEvent) => void | Promise<void>;
-  source: string;
-  rootDir?: string;
 };
 
 export type PluginRecord = {

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
+import { getPluginModuleLoaderStats } from "../plugins/plugin-module-loader-cache.js";
 import { withMockedWindowsPlatform } from "../test-utils/vitest-spies.js";
 import {
   listImportedBundledPluginFacadeIds,
@@ -15,7 +16,6 @@ import {
   loadBundledPluginPublicSurfaceModuleSyncCore,
   MissingPublicSurfaceError,
   resetFacadeLoaderStateForTest,
-  setFacadeLoaderSourceTransformFactoryForTest,
 } from "./facade-loader.js";
 import { listImportedBundledPluginFacadeIds as listImportedFacadeRuntimeIds } from "./facade-runtime.js";
 import { createPluginSdkTestHarness } from "./test-helpers.js";
@@ -24,9 +24,6 @@ const { createTempDirSync } = createPluginSdkTestHarness();
 const originalBundledPluginsDir = process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
 const originalDisableBundledPlugins = process.env.OPENCLAW_DISABLE_BUNDLED_PLUGINS;
 const FACADE_LOADER_GLOBAL = "__openclawTestLoadBundledPluginPublicSurfaceModuleSync";
-type FacadeLoaderSourceTransformFactory = NonNullable<
-  Parameters<typeof setFacadeLoaderSourceTransformFactoryForTest>[0]
->;
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const trustedBundledPluginFixtureRoots: string[] = [];
 let trustedPluginIdCounter = 0;
@@ -213,7 +210,6 @@ function writeJsonFile(filePath: string, value: unknown): void {
 afterEach(() => {
   vi.restoreAllMocks();
   resetFacadeLoaderStateForTest();
-  setFacadeLoaderSourceTransformFactoryForTest(undefined);
   for (const dir of trustedBundledPluginFixtureRoots.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -372,7 +368,7 @@ describe("plugin-sdk facade loader", () => {
     expect(listImportedFacadeRuntimeIds()).toEqual([fixture.pluginId]);
   });
 
-  it("reloads replaced facade artifacts and dependencies without erasing imported-plugin history", () => {
+  it("keeps uncaptured native facade modules process-stable when metadata changes", () => {
     const pluginRoot = fs.realpathSync(createTempDirSync("openclaw-facade-replacement-"));
     const modulePath = path.join(pluginRoot, "api.js");
     const dependencyPath = path.join(pluginRoot, "dependency.js");
@@ -397,7 +393,7 @@ describe("plugin-sdk facade loader", () => {
     clearPluginMetadataLifecycleCaches();
 
     expect(listImportedBundledPluginFacadeIds()).toContain("replacement-plugin");
-    expect(loadArtifact()).toBe("replacement");
+    expect(loadArtifact()).toBe("retired");
   });
 
   it("uses native require for Windows dist facade loads", () => {
@@ -407,13 +403,7 @@ describe("plugin-sdk facade loader", () => {
     });
     process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = fixture.bundledPluginsDir;
 
-    const createJitiCalls: Parameters<FacadeLoaderSourceTransformFactory>[] = [];
-    setFacadeLoaderSourceTransformFactoryForTest(((...args) => {
-      createJitiCalls.push(args);
-      return vi.fn(() => ({
-        marker: "jiti-fallback",
-      })) as unknown as ReturnType<FacadeLoaderSourceTransformFactory>;
-    }) as FacadeLoaderSourceTransformFactory);
+    const before = getPluginModuleLoaderStats();
     const restoreVersions = forceNodeRuntimeVersionsForTest();
 
     withMockedWindowsPlatform(() => {
@@ -424,7 +414,13 @@ describe("plugin-sdk facade loader", () => {
             artifactBasename: "api.js",
           }).marker,
         ).toBe("windows-dist-ok");
-        expect(createJitiCalls).toHaveLength(0);
+        expect(getPluginModuleLoaderStats()).toMatchObject({
+          calls: before.calls + 1,
+          nativeHits: before.nativeHits + 1,
+          nativeMisses: before.nativeMisses,
+          sourceTransformForced: before.sourceTransformForced,
+          sourceTransformFallbacks: before.sourceTransformFallbacks,
+        });
       } finally {
         restoreVersions();
       }

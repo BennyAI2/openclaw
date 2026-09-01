@@ -32,7 +32,6 @@ Enable the bundled plugin:
   <Tab title="CLI">
     ```bash
     openclaw plugins enable admin-http-rpc
-    openclaw gateway restart
     ```
   </Tab>
   <Tab title="Config">
@@ -48,13 +47,12 @@ Enable the bundled plugin:
   </Tab>
 </Tabs>
 
-The route is registered during plugin startup, so restart the Gateway after changing plugin config.
+Enablement applies to the running Gateway. After direct plugin config edits, run `openclaw plugins reload admin-http-rpc`.
 
 Disable it when you no longer need the HTTP surface:
 
 ```bash
 openclaw plugins disable admin-http-rpc
-openclaw gateway restart
 ```
 
 ## Verify the route
@@ -194,7 +192,7 @@ Shared-token WebSocket clients without a trusted device identity cannot self-dec
 
 `404 Not Found`
 
-: The plugin is disabled, the Gateway has not restarted since enabling it, or the request is going to a different Gateway process.
+: The plugin is disabled, failed to activate, or the request is going to a different Gateway process. Check the plugin state and any activation error in the Control UI.
 
 `401 Unauthorized`
 

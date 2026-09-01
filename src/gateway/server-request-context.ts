@@ -123,7 +123,7 @@ type GatewayRequestContextParams = {
   channelWizardRunner: GatewayRequestContext["channelWizardRunner"];
   broadcastVoiceWakeChanged: GatewayRequestContext["broadcastVoiceWakeChanged"];
   broadcastVoiceWakeRoutingChanged: GatewayRequestContext["broadcastVoiceWakeRoutingChanged"];
-  notifyPluginMetadataChanged: GatewayRequestContext["notifyPluginMetadataChanged"];
+  applyPluginLifecycleChange: NonNullable<GatewayRequestContext["applyPluginLifecycleChange"]>;
   getConfigReloaderHotReloadStatus: GatewayRequestContext["getConfigReloaderHotReloadStatus"];
   unavailableGatewayMethods: ReadonlySet<string>;
 };
@@ -195,7 +195,7 @@ export function createGatewayRequestContext(
     sessionViewerPresence: params.runtimeState.sessionViewerPresence,
     sessionCompanion: params.sessionCompanion,
     sessionObserver: params.sessionObserver,
-    notifyPluginMetadataChanged: params.notifyPluginMetadataChanged,
+    applyPluginLifecycleChange: params.applyPluginLifecycleChange,
     getMcpAppSandboxPort: params.getMcpAppSandboxPort,
     ensureSandboxHostPort: params.ensureSandboxHostPort,
     get portalService() {

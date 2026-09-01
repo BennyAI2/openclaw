@@ -60,6 +60,7 @@ export function metadataSnapshot(params: {
       ],
       installRecords: installRecord ? { [id]: installRecord } : {},
     },
+    manifestRegistry: { plugins: [manifest], diagnostics: [] },
     byPluginId: new Map([[id, manifest]]),
     plugins: [manifest],
     diagnostics: [],
@@ -70,6 +71,7 @@ export function metadataSnapshot(params: {
 export function emptyMetadataSnapshot() {
   return {
     index: { plugins: [], installRecords: {} },
+    manifestRegistry: { plugins: [], diagnostics: [] },
     byPluginId: new Map(),
     plugins: [],
     diagnostics: [],

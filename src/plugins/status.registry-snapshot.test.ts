@@ -843,14 +843,14 @@ describe("buildPluginRegistrySnapshotReport", () => {
     expectFields(plugin, {
       status: "error",
       error:
-        'Plugin "dependency-demo" cannot load because required dependencies are missing: missing-required. Install the plugin dependencies or reinstall/update the plugin, then restart the Gateway.',
+        'Plugin "dependency-demo" cannot load because required dependencies are missing: missing-required. Install the plugin dependencies or reinstall/update the plugin, then run "openclaw plugins reload dependency-demo".',
     });
     expect(report.diagnostics).toContainEqual({
       level: "error",
       pluginId: "dependency-demo",
       source: fs.realpathSync(fixture.runtimeSource),
       message:
-        'Plugin "dependency-demo" cannot load because required dependencies are missing: missing-required. Install the plugin dependencies or reinstall/update the plugin, then restart the Gateway.',
+        'Plugin "dependency-demo" cannot load because required dependencies are missing: missing-required. Install the plugin dependencies or reinstall/update the plugin, then run "openclaw plugins reload dependency-demo".',
     });
     const dependencyStatus = requireRecord(plugin.dependencyStatus);
     expectFields(dependencyStatus, {

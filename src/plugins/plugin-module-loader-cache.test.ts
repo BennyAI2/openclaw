@@ -386,40 +386,6 @@ describe("getCachedPluginModuleLoader", () => {
     expect(cache.size).toBe(2);
   });
 
-  it("lets callers explicitly share loaders behind an unsafe shared cache scope key", async () => {
-    const { createJiti, getCachedPluginModuleLoader } =
-      await loadCachedPluginModuleLoader("shared-cache-scope-key");
-
-    const cache = new Map();
-    const first = getCachedPluginModuleLoader({
-      cache,
-      modulePath: "/repo/dist/extensions/demo-a/api.js",
-      importerUrl: "file:///repo/src/plugins/public-surface-loader.ts",
-      loaderFilename: "file:///repo/src/plugins/public-surface-loader.ts",
-      aliasMap: {
-        demo: "/repo/demo-a.js",
-      },
-      tryNative: true,
-      sharedCacheScopeKey: "bundled:native",
-    });
-    const second = getCachedPluginModuleLoader({
-      cache,
-      modulePath: "/repo/dist/extensions/demo-b/api.js",
-      importerUrl: "file:///repo/src/plugins/public-surface-loader.ts",
-      loaderFilename: "file:///repo/src/plugins/public-surface-loader.ts",
-      aliasMap: {
-        demo: "/repo/demo-b.js",
-      },
-      tryNative: true,
-      sharedCacheScopeKey: "bundled:native",
-    });
-
-    expect(second).toBe(first);
-    second("/repo/dist/extensions/demo-b/api.js");
-    expect(createJiti).toHaveBeenCalledTimes(1);
-    expect(cache.size).toBe(1);
-  });
-
   it("reuses pre-normalized alias options across module-scoped loader filenames", async () => {
     const { createJiti, getCachedPluginModuleLoader } =
       await loadCachedPluginModuleLoader("module-filename-aliases");
@@ -930,33 +896,5 @@ describe("getCachedPluginModuleLoader", () => {
     expect(fromSourceTransformer).toHaveBeenCalledWith(
       "file:///C:/Users/alice/openclaw/extensions/feishu/api.ts",
     );
-  });
-});
-
-describe("plugin module cache generation cleanup", () => {
-  it.each([
-    { boundaryRoot: "/repo/dist/extensions/demo", dependencyRoot: "/repo/dist" },
-    { boundaryRoot: "/repo/dist/extensions", dependencyRoot: "/repo/dist" },
-    { boundaryRoot: "/repo/installed/demo", dependencyRoot: "/repo/installed/demo" },
-  ])("evicts native dependencies under $dependencyRoot for $boundaryRoot", async (params) => {
-    const clearPluginModuleRequireCache = vi.fn();
-    vi.doMock("./native-module-require.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("./native-module-require.js")>()),
-      clearPluginModuleRequireCache,
-    }));
-    const { recordPluginModuleRoot } = await importPluginModuleLoader(
-      "./plugin-module-loader-cache.js?scope=lifecycle-disposal",
-    );
-    const modulePath = "/repo/dist/extensions/demo/api.js";
-    recordPluginModuleRoot(modulePath, params.boundaryRoot);
-    const previous = getPluginCache();
-
-    resetPluginCache();
-
-    expect(clearPluginModuleRequireCache).toHaveBeenCalledWith(modulePath, {
-      dependencyRoot: params.dependencyRoot,
-    });
-    expect(getPluginCache()).not.toBe(previous);
-    expect(getPluginCache().sources.size).toBe(0);
   });
 });

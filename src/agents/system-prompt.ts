@@ -1013,6 +1013,7 @@ export function buildAgentSystemPrompt(params: {
   const hasProcess = availableTools.has("process");
   const hasGateway = availableTools.has("gateway");
   const hasOpenClaw = availableTools.has("openclaw");
+  const hasPlugins = availableTools.has("plugins");
   const messageToolAvailable = availableTools.has("message");
   const hasAutomations = availableTools.has(AUTOMATIONS_TOOL_NAME);
   const readToolName = resolveToolName("read");
@@ -1330,15 +1331,12 @@ export function buildAgentSystemPrompt(params: {
       ...safetySection,
       "## OpenClaw Control",
       "Do not invent commands.",
-      ...(hasOpenClaw
-        ? [
-            "Gateway restart, config, channels, plugins, agents, models/providers, updates: ask `openclaw`. Never restart the Gateway through shell commands or write your own config.",
-          ]
+      ...(hasPlugins ? ["Plugin management: use `plugins`."] : []),
+      hasOpenClaw
+        ? `Gateway restart, config, channels, ${hasPlugins ? "" : "plugins, "}agents, models/providers, updates: ask \`openclaw\`. Never restart the Gateway through shell commands or write your own config.`
         : hasGateway
-          ? [
-              "Config read: `gateway` (`config.get|config.schema.lookup`). Write/restart unavailable; ask human.",
-            ]
-          : ["System controls unavailable; ask human."]),
+          ? "Config read: `gateway` (`config.get|config.schema.lookup`). Write/restart unavailable; ask human."
+          : `${hasPlugins ? "Other system" : "System"} controls unavailable; ask human.`,
       "",
       ...skillsSection,
       ...skillWorkshopSection,

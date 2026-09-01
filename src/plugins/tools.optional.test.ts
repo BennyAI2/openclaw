@@ -8,7 +8,9 @@ import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { loggingState } from "../logging/state.js";
 import { resolveInstalledPluginIndexPolicyHash } from "./installed-plugin-index-policy.js";
 import type { PluginLoadOptions } from "./loader-types.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
+import { createPluginRecord } from "./status.test-helpers.js";
 import { appendRuntimePluginToolGrant } from "./tool-grant-allowlist.js";
 
 type MockRegistryToolEntry = {
@@ -196,20 +198,25 @@ function createResolveToolsParams(params?: {
 }
 
 function createToolRegistry(entries: MockRegistryToolEntry[]) {
-  return {
-    plugins: entries.map((entry) => ({
-      id: entry.pluginId,
-      origin: entry.origin ?? "bundled",
-      status: "loaded",
-    })),
+  const registry = {
+    ...createEmptyPluginRegistry(),
+    plugins: entries.map((entry) =>
+      createPluginRecord({
+        id: entry.pluginId,
+        source: entry.source,
+        origin: entry.origin ?? "bundled",
+      }),
+    ),
     tools: entries,
-    diagnostics: [] as Array<{
-      level: string;
-      pluginId: string;
-      source: string;
-      message: string;
-    }>,
   };
+  registry.tools = entries.map((entry, index) => ({
+    ...entry,
+    factory: new PluginInstance(entry.pluginId, {
+      record: registry.plugins[index]!,
+      registry: registry as never,
+    }).wrap(entry.factory),
+  }));
+  return registry;
 }
 
 function setRegistry(
@@ -368,11 +375,7 @@ function createOptionalDemoActiveRegistry() {
     config: createContext().config,
     plugin: createToolManifest("optional-demo", ["optional_tool"]),
   });
-  const registry = {
-    plugins: [{ id: "optional-demo", status: "loaded" }],
-    tools: [createOptionalDemoEntry()],
-    diagnostics: [],
-  };
+  const registry = createToolRegistry([createOptionalDemoEntry()]);
   setActivePluginRegistry?.(registry as never, "test-tool-registry", "gateway-bindable", "/tmp");
   return registry;
 }
@@ -842,19 +845,8 @@ describe("resolvePluginTools optional tools", () => {
     loadOpenClawPluginsMock.mockImplementation((params) =>
       Array.isArray((params as { onlyPluginIds?: string[] }).onlyPluginIds) &&
       (params as { onlyPluginIds?: string[] }).onlyPluginIds?.length === 0
-        ? { tools: [], diagnostics: [] }
-        : {
-            tools: [
-              {
-                pluginId: "xai",
-                optional: false,
-                source: "/tmp/xai.js",
-                names: ["x_search"],
-                factory,
-              },
-            ],
-            diagnostics: [],
-          },
+        ? createToolRegistry([])
+        : createToolRegistry([createNamedToolEntry("xai", "x_search", { factory })]),
     );
 
     const tools = resolvePluginTools({
@@ -1165,11 +1157,14 @@ describe("resolvePluginTools optional tools", () => {
       ],
     });
     const partialRegistry = createToolRegistry([multiEntry]);
-    partialRegistry.plugins.push({
-      id: "optional-demo",
-      origin: "bundled",
-      status: "loaded",
-    });
+    partialRegistry.plugins.push(
+      createPluginRecord({
+        id: "optional-demo",
+        source: optionalEntry.source,
+        origin: "bundled",
+        status: "loaded",
+      }),
+    );
     const fullRegistry = createToolRegistry([multiEntry, optionalEntry]);
     setActivePluginRegistry?.(
       partialRegistry as never,
@@ -1253,11 +1248,14 @@ describe("resolvePluginTools optional tools", () => {
       ],
     });
     const staleRegistry = createToolRegistry([multiEntry]);
-    staleRegistry.plugins.push({
-      id: "optional-demo",
-      origin: "bundled",
-      status: "loaded",
-    });
+    staleRegistry.plugins.push(
+      createPluginRecord({
+        id: "optional-demo",
+        source: optionalEntry.source,
+        origin: "bundled",
+        status: "loaded",
+      }),
+    );
     const freshRegistry = createToolRegistry([multiEntry, optionalEntry]);
     setActivePluginRegistry?.(
       staleRegistry as never,
@@ -1291,19 +1289,7 @@ describe("resolvePluginTools optional tools", () => {
     });
     const factory = vi.fn(() => makeTool("x_search"));
     setActivePluginRegistry(
-      {
-        plugins: [{ id: "xai", status: "loaded" }],
-        tools: [
-          {
-            pluginId: "xai",
-            optional: false,
-            source: "/tmp/xai.js",
-            names: ["x_search"],
-            factory,
-          },
-        ],
-        diagnostics: [],
-      } as never,
+      createToolRegistry([createNamedToolEntry("xai", "x_search", { factory })]) as never,
       "test-tool-registry",
       "gateway-bindable",
       "/tmp",
@@ -1374,19 +1360,7 @@ describe("resolvePluginTools optional tools", () => {
     });
     const factory = vi.fn(() => makeTool("x_search"));
     setActivePluginRegistry(
-      {
-        plugins: [{ id: "xai", status: "loaded" }],
-        tools: [
-          {
-            pluginId: "xai",
-            optional: false,
-            source: "/tmp/xai.js",
-            names: ["x_search"],
-            factory,
-          },
-        ],
-        diagnostics: [],
-      } as never,
+      createToolRegistry([createNamedToolEntry("xai", "x_search", { factory })]) as never,
       "test-tool-registry",
       "gateway-bindable",
       "/tmp",
@@ -2836,15 +2810,10 @@ describe("resolvePluginTools optional tools", () => {
 
   it("retains cold-loaded plugin tools for cached descriptor execution after active registry replacement", async () => {
     const factory = vi.fn(() => makeTool("cached_lifecycle_tool"));
-    const gatewayRegistry = setRegistry([
-      {
-        pluginId: "cache-lifecycle-test",
-        optional: false,
-        source: "/tmp/cache-lifecycle-test.js",
-        names: ["cached_lifecycle_tool"],
-        factory,
-      },
-    ]);
+    const entry = createNamedToolEntry("cache-lifecycle-test", "cached_lifecycle_tool", {
+      factory,
+    });
+    setRegistry([entry]);
     const first = resolvePluginTools(
       createResolveToolsParams({
         toolAllowlist: ["cached_lifecycle_tool"],
@@ -2869,15 +2838,18 @@ describe("resolvePluginTools optional tools", () => {
       factory: () => makeTool("unrelated_live_tool"),
     };
     const replacementRegistry = createToolRegistry([unrelatedEntry]);
-    replacementRegistry.plugins.push({
-      id: "cache-lifecycle-test",
-      origin: "bundled",
-      status: "loaded",
-    });
+    replacementRegistry.plugins.push(
+      createPluginRecord({
+        id: "cache-lifecycle-test",
+        source: "/tmp/cache-lifecycle-test.js",
+        origin: "bundled",
+        status: "loaded",
+      }),
+    );
     setActivePluginRegistry?.(replacementRegistry as never, "provider-runtime", "default", "/tmp");
     loadOpenClawPluginsMock.mockReset();
     loadOpenClawPluginsMock
-      .mockReturnValueOnce(gatewayRegistry)
+      .mockReturnValueOnce(createToolRegistry([entry]))
       .mockReturnValue(createToolRegistry([]));
 
     await expect(tool?.execute("call-1", {}, undefined)).resolves.toEqual({
@@ -2888,7 +2860,7 @@ describe("resolvePluginTools optional tools", () => {
     });
     expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
     expect(getActivePluginRegistry?.()).toBe(replacementRegistry);
-    expect(getActivePluginRegistry?.()?.tools.map((entry) => entry.pluginId)).toContain(
+    expect(getActivePluginRegistry?.()?.tools.map((toolEntry) => toolEntry.pluginId)).toContain(
       "unrelated-live",
     );
   });
@@ -3140,23 +3112,10 @@ describe("resolvePluginTools optional tools", () => {
       plugin: createToolManifest("optional-demo", ["optional_tool"]),
     });
     const heavyFactory = vi.fn(() => makeTool("heavy_tool"));
-    const activeRegistry = {
-      plugins: [
-        { id: "optional-demo", status: "loaded" },
-        { id: "heavy-startup", status: "loaded" },
-      ],
-      tools: [
-        createOptionalDemoEntry(),
-        {
-          pluginId: "heavy-startup",
-          optional: false,
-          source: "/tmp/heavy-startup.js",
-          names: ["heavy_tool"],
-          factory: heavyFactory,
-        },
-      ],
-      diagnostics: [],
-    };
+    const activeRegistry = createToolRegistry([
+      createOptionalDemoEntry(),
+      createNamedToolEntry("heavy-startup", "heavy_tool", { factory: heavyFactory }),
+    ]);
     setActivePluginRegistry(activeRegistry as never, "gateway-startup", "gateway-bindable", "/tmp");
     loadOpenClawPluginsMock.mockReturnValue(activeRegistry);
 
@@ -3199,23 +3158,20 @@ describe("resolvePluginTools optional tools", () => {
       ],
     });
     const memorySearchFactory = vi.fn(() => [makeTool("memory_search"), makeTool("memory_get")]);
-    const activeRegistry = {
-      plugins: [
-        { id: "memory-core", status: "loaded" },
-        { id: "memory-lancedb", status: "disabled" },
-      ],
-      tools: [
-        {
-          pluginId: "memory-core",
-          optional: false,
-          source: "/tmp/memory-core.js",
-          names: ["memory_search", "memory_get"],
-          declaredNames: ["memory_search", "memory_get"],
-          factory: memorySearchFactory,
-        },
-      ],
-      diagnostics: [],
-    };
+    const activeRegistry = createToolRegistry([
+      createNamedToolEntry("memory-core", ["memory_search", "memory_get"], {
+        declaredNames: ["memory_search", "memory_get"],
+        factory: memorySearchFactory,
+      }),
+    ]);
+    activeRegistry.plugins.push(
+      createPluginRecord({
+        id: "memory-lancedb",
+        origin: "bundled",
+        enabled: false,
+        status: "disabled",
+      }),
+    );
     setActivePluginRegistry(activeRegistry as never, "gateway-startup", "gateway-bindable", "/tmp");
     loadOpenClawPluginsMock.mockReturnValue(activeRegistry);
 
@@ -3265,26 +3221,27 @@ describe("resolvePluginTools optional tools", () => {
         return tool;
       });
     });
-    const loadedRegistry = {
-      plugins: [{ id: "memory-core", status: "loaded" }],
-      tools: [
-        {
-          pluginId: "memory-core",
-          optional: false,
-          source: "/tmp/memory-core.js",
-          names: ["memory_search", "memory_get"],
-          declaredNames: ["memory_search", "memory_get"],
-          factory: memorySearchFactory,
-        },
-      ],
-      diagnostics: [],
-    };
+    const loadedRegistry = createToolRegistry([
+      {
+        pluginId: "memory-core",
+        optional: false,
+        source: "/tmp/memory-core.js",
+        names: ["memory_search", "memory_get"],
+        declaredNames: ["memory_search", "memory_get"],
+        factory: memorySearchFactory,
+      },
+    ]);
     setActivePluginRegistry(
       {
-        plugins: [{ id: "memory-core", status: "loaded" }],
-        tools: [],
-        diagnostics: [],
-      } as never,
+        ...createEmptyPluginRegistry(),
+        plugins: [
+          createPluginRecord({
+            id: "memory-core",
+            source: "/tmp/memory-core.js",
+            origin: "bundled",
+          }),
+        ],
+      },
       "gateway-startup",
       "gateway-bindable",
       "/tmp",

@@ -57,6 +57,7 @@ export function attachPluginApiFacades<T extends object>(
     clearRunContext: (...args) => api.clearRunContext(...args),
   };
   api.lifecycle = {
+    ...api.lifecycle,
     registerRuntimeLifecycle: (...args) => api.registerRuntimeLifecycle(...args),
   };
   return api as T & PluginApiFacadeFields;

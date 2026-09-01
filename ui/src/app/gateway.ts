@@ -1,3 +1,4 @@
+import type { PluginsUiDescriptorsResult } from "../../../packages/gateway-protocol/src/schema/plugins.js";
 import type { ControlUiBootstrapProfileHint } from "../../../src/gateway/control-ui-bootstrap-contract.js";
 import type { EventLogEntry } from "../api/event-log.ts";
 import type { GatewayBrowserClient, GatewayEventListener, GatewayHelloOk } from "../api/gateway.ts";
@@ -18,6 +19,7 @@ export type ApplicationGatewaySnapshot = {
   offlineStable: boolean;
   restartPending?: boolean;
   hello: GatewayHelloOk | null;
+  pluginCapabilities?: PluginsUiDescriptorsResult | null;
   canvasPluginSurfaceUrl: string | null;
   assistantAgentId: string | null;
   sessionKey: string;

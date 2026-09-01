@@ -64,6 +64,90 @@ describe("plugin service replacement", () => {
     resetPluginRuntimeStateForTest();
   });
 
+  it("transfers an unchanged service without restarting it and stops only the replaced owner", async () => {
+    const first = { id: "first", start: vi.fn(), stop: vi.fn() };
+    const sibling = { id: "sibling", start: vi.fn(), stop: vi.fn() };
+    const replacement = { id: "first", start: vi.fn(), stop: vi.fn() };
+    const oldRegistry = createRegistry([first], "first");
+    const siblingRegistration = createRegistry([sibling], "sibling").services[0]!;
+    oldRegistry.services.push(siblingRegistration);
+    const previous = await startPluginServices({
+      registry: oldRegistry,
+      config: createServiceConfig(),
+    });
+    await previous.stop({
+      strict: true,
+      deadlineAtMs: Date.now() + 5_000,
+      pluginIds: new Set(["first"]),
+    });
+    const nextRegistry = createRegistry([replacement], "first");
+    nextRegistry.services.push(siblingRegistration);
+    let current: PluginServicesHandle | undefined;
+    try {
+      await startPluginServices({
+        registry: nextRegistry,
+        config: createServiceConfig(),
+        previous,
+        onHandle: (handle) => {
+          current = handle;
+        },
+        throwOnStartError: true,
+      });
+      expect(first.stop).toHaveBeenCalledOnce();
+      expect(replacement.start).toHaveBeenCalledOnce();
+      expect(sibling.start).toHaveBeenCalledOnce();
+      expect(sibling.stop).not.toHaveBeenCalled();
+    } finally {
+      await current?.stop();
+      await previous.stop();
+    }
+    expect(sibling.stop).toHaveBeenCalledOnce();
+    expect(replacement.stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps unchanged services with the issued handle when a candidate cannot start", async () => {
+    const sibling = { id: "sibling", start: vi.fn(), stop: vi.fn() };
+    const oldRegistry = createRegistry([sibling], "sibling");
+    const previous = await startPluginServices({
+      registry: oldRegistry,
+      config: createServiceConfig(),
+    });
+    const broken = {
+      id: "broken",
+      start: () => {
+        throw new Error("candidate failed");
+      },
+      stop: vi.fn(),
+    };
+    const nextRegistry = createRegistry([broken], "broken");
+    nextRegistry.services.push(...oldRegistry.services);
+    let issued: PluginServicesHandle | undefined;
+    try {
+      await expect(
+        startPluginServices({
+          registry: nextRegistry,
+          config: createServiceConfig(),
+          previous,
+          onHandle: (handle) => {
+            issued = handle;
+          },
+          throwOnStartError: true,
+        }),
+      ).rejects.toThrow("plugin services failed to start");
+      expect(issued).toBeDefined();
+      expect(broken.stop).toHaveBeenCalledOnce();
+      expect(sibling.start).toHaveBeenCalledOnce();
+      expect(sibling.stop).not.toHaveBeenCalled();
+      await previous.stop();
+      expect(sibling.stop).not.toHaveBeenCalled();
+      await issued?.stop();
+      expect(sibling.stop).toHaveBeenCalledOnce();
+    } finally {
+      await issued?.stop();
+      await previous.stop();
+    }
+  });
+
   it("strictly aggregates ordinary and exporter failures while draining producers first", async () => {
     const order: string[] = [];
     const ordinaryFailure = new Error("ordinary cleanup rejected");
@@ -233,6 +317,14 @@ describe("plugin service replacement", () => {
       expect(siblingStop).toHaveBeenCalledOnce();
       expect(registry.httpRoutes).toEqual([]);
       expect(() => context?.gatewayEvents?.onSessionsChanged(received)).toThrow("no longer active");
+      const health = listPluginServiceHealthFailures(registry);
+      expect(health).toEqual([
+        expect.objectContaining({
+          pluginId: "plugin:test",
+          serviceId: "blocked-cleanup",
+          error: expect.stringContaining("stop timed out"),
+        }),
+      ]);
 
       releaseCleanup?.();
       await Promise.resolve();
@@ -243,7 +335,7 @@ describe("plugin service replacement", () => {
       expect(lateFailures).toHaveLength(4);
       expect(received).not.toHaveBeenCalled();
       expect(broadcastPluginEvent).not.toHaveBeenCalled();
-      expect(listPluginServiceHealthFailures(registry)).toEqual([]);
+      expect(listPluginServiceHealthFailures(registry)).toEqual(health);
       expect(registry.httpRoutes).toEqual([]);
       expect(nestedRegistry.httpRoutes).toEqual([]);
     } finally {

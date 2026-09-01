@@ -173,22 +173,15 @@ vi.mock("./config-model-validation.js", () => ({
 
 vi.mock("../gateway/config-reload-plan.js", () => ({
   buildGatewayReloadPlan: (changedPaths: string[]) => {
-    const restartReasons = changedPaths.filter((changedPath) =>
-      changedPath.startsWith("plugins.load."),
-    );
     const hotReasons = changedPaths.filter(
       (changedPath) =>
-        !restartReasons.includes(changedPath) &&
-        (changedPath.startsWith("agents.entries.") ||
-          changedPath.startsWith("agents.defaults.models.") ||
-          changedPath.startsWith("models.") ||
-          changedPath.startsWith("plugins.")),
+        changedPath.startsWith("agents.entries.") ||
+        changedPath.startsWith("agents.defaults.models.") ||
+        changedPath.startsWith("models.") ||
+        changedPath === "plugins" ||
+        changedPath.startsWith("plugins."),
     );
-    restartReasons.push(
-      ...changedPaths.filter(
-        (changedPath) => !hotReasons.includes(changedPath) && !restartReasons.includes(changedPath),
-      ),
-    );
+    const restartReasons = changedPaths.filter((changedPath) => !hotReasons.includes(changedPath));
     return {
       changedPaths,
       restartGateway: restartReasons.length > 0,
@@ -199,7 +192,9 @@ vi.mock("../gateway/config-reload-plan.js", () => ({
       restartCron: false,
       restartHeartbeat: hotReasons.length > 0,
       restartHealthMonitor: false,
-      reloadPlugins: false,
+      reloadPlugins: hotReasons.some(
+        (changedPath) => changedPath === "plugins" || changedPath.startsWith("plugins."),
+      ),
       restartChannels: new Set(),
       disposeMcpRuntimes: false,
       noopPaths: [],
@@ -4877,6 +4872,9 @@ describe("config cli", () => {
   });
 
   describe("config apply hints - issue #80722", () => {
+    const pluginApplyHint =
+      "Plugin changes follow the Gateway reload policy. To reload explicitly, run: openclaw plugins reload <id>.";
+
     it("prints No change without writing for a same-value config set", async () => {
       setGatewaySnapshot();
 
@@ -4952,29 +4950,31 @@ describe("config cli", () => {
       expectLogExcludes("Restart the gateway to apply.");
     });
 
-    it("keeps the restart hint for hot-path edits when reload mode is off", async () => {
-      const resolved: OpenClawConfig = {
-        agents: {
-          entries: { main: { model: { primary: "openai/gpt-5.4" } } },
-        },
-        gateway: {
-          reload: { mode: "off" },
-        },
-      };
-      setSnapshot(resolved, withRuntimeDefaults(resolved));
+    it.each([
+      { configPath: "agents.list[0].model.primary", value: '"openai/gpt-5.5"' },
+      { configPath: "plugins.entries.canvas.enabled", value: "false" },
+    ])(
+      "keeps the restart hint when reload is off for $configPath",
+      async ({ configPath, value }) => {
+        const resolved: OpenClawConfig = {
+          agents: {
+            entries: { main: { model: { primary: "openai/gpt-5.4" } } },
+          },
+          plugins: { entries: { canvas: { enabled: true } } },
+          gateway: {
+            reload: { mode: "off" },
+          },
+        };
+        setSnapshot(resolved, withRuntimeDefaults(resolved));
 
-      await runConfigCommand([
-        "config",
-        "set",
-        "agents.list[0].model.primary",
-        '"openai/gpt-5.5"',
-        "--strict-json",
-      ]);
+        await runConfigCommand(["config", "set", configPath, value, "--strict-json"]);
 
-      expectLogIncludes("Updated agents.list[0].model.primary");
-      expectLogIncludes("Restart the gateway to apply.");
-      expectLogExcludes("Change will apply without restarting the gateway.");
-    });
+        expectLogIncludes(`Updated ${configPath}`);
+        expectLogIncludes("Restart the gateway to apply.");
+        expectLogExcludes("Change will apply without restarting the gateway.");
+        expectLogExcludes(pluginApplyHint);
+      },
+    );
 
     it("normalizes legacy restart mode to hot apply semantics", async () => {
       const resolved: OpenClawConfig = {
@@ -5042,7 +5042,7 @@ describe("config cli", () => {
       expectLogExcludes("Restart the gateway to apply.");
     });
 
-    it("keeps the restart hint for broad plugins writes that change load paths", async () => {
+    it("prints a lifecycle hint for broad plugins writes that change load paths", async () => {
       const resolved: OpenClawConfig = {
         plugins: {
           load: {
@@ -5064,11 +5064,12 @@ describe("config cli", () => {
         "--replace",
       ]);
 
-      expectLogIncludes("Updated plugins. Restart the gateway to apply.");
+      expectLogIncludes(`Updated plugins. ${pluginApplyHint}`);
+      expectLogExcludes("Restart the gateway to apply.");
       expectLogExcludes("Change will apply without restarting the gateway.");
     });
 
-    it("keeps the restart hint for broad plugins unsets that remove load paths", async () => {
+    it("prints a lifecycle hint for broad plugins unsets that remove load paths", async () => {
       const resolved: OpenClawConfig = {
         plugins: {
           load: {
@@ -5083,7 +5084,8 @@ describe("config cli", () => {
 
       await runConfigCommand(["config", "unset", "plugins"]);
 
-      expectLogIncludes("Removed plugins. Restart the gateway to apply.");
+      expectLogIncludes(`Removed plugins. ${pluginApplyHint}`);
+      expectLogExcludes("Restart the gateway to apply.");
       expectLogExcludes("Change will apply without restarting the gateway.");
     });
 
@@ -5105,7 +5107,7 @@ describe("config cli", () => {
       ["canvas.internal", 'plugins.entries["canvas.internal"].enabled'],
       ["canvas", "plugins.entries.canvas.config.accounts[0].enabled"],
     ])(
-      "keeps plugin entry %s writes unambiguous and restart-backed",
+      "keeps plugin entry %s writes unambiguous with a lifecycle hint",
       async (pluginId, configPath) => {
         const resolved = {
           plugins: {
@@ -5119,29 +5121,41 @@ describe("config cli", () => {
         await runConfigSet(configPath, "false");
 
         expectLogIncludes(`Updated ${configPath}`);
-        expectLogIncludes("Restart the gateway to apply.");
+        expectLogIncludes(pluginApplyHint);
+        expectLogExcludes("Restart the gateway to apply.");
         expectLogExcludes("Change will apply without restarting the gateway.");
         expectLogExcludes("No gateway restart needed.");
       },
     );
 
-    it("keeps the restart hint for mixed hot and restart batch updates", async () => {
-      const resolved: OpenClawConfig = {
-        agents: { entries: { main: { model: { primary: "openai/gpt-5.4" } } } },
-        gateway: { port: 18789 },
-      };
-      setSnapshot(resolved, withRuntimeDefaults(resolved));
+    it.each([
+      { configPath: "agents.list[0].model.primary", value: "openai/gpt-5.5" },
+      { configPath: "plugins.entries.canvas.enabled", value: false },
+    ])(
+      "keeps the restart hint for mixed batch updates including $configPath",
+      async ({ configPath, value }) => {
+        const resolved: OpenClawConfig = {
+          agents: { entries: { main: { model: { primary: "openai/gpt-5.4" } } } },
+          plugins: { entries: { canvas: { enabled: true } } },
+          gateway: { port: 18789 },
+        };
+        setSnapshot(resolved, withRuntimeDefaults(resolved));
 
-      await runConfigCommand([
-        "config",
-        "set",
-        "--batch-json",
-        '[{"path":"agents.list[0].model.primary","value":"openai/gpt-5.5"},{"path":"gateway.auth.mode","value":"token"}]',
-      ]);
+        await runConfigCommand([
+          "config",
+          "set",
+          "--batch-json",
+          JSON.stringify([
+            { path: configPath, value },
+            { path: "gateway.auth.mode", value: "token" },
+          ]),
+        ]);
 
-      expectLogIncludes("Updated 2 config paths. Restart the gateway to apply.");
-      expectLogExcludes("Change will apply without restarting the gateway.");
-    });
+        expectLogIncludes("Updated 2 config paths. Restart the gateway to apply.");
+        expectLogExcludes("Change will apply without restarting the gateway.");
+        expectLogExcludes(pluginApplyHint);
+      },
+    );
   });
 
   describe("config file", () => {

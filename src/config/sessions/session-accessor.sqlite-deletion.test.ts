@@ -11,7 +11,7 @@ import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import {
   markPluginRegistryActive,
   markPluginRegistryRetired,
-  revokePluginRecordLifecycleEpoch,
+  revokePluginRecord,
 } from "../../plugins/registry-lifecycle.js";
 import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { createPluginRecord } from "../../plugins/status.test-helpers.js";
@@ -525,7 +525,7 @@ describe("session deletion and native owner state", () => {
       } else if (change === "reactivated") {
         markPluginRegistryActive(owner.registry);
       } else if (change === "record revoked") {
-        revokePluginRecordLifecycleEpoch(owner.registry, owner.record);
+        revokePluginRecord(owner.registry, owner.record);
       } else {
         owner.registry.agentHarnesses = owner.registry.agentHarnesses.map((registration) =>
           Object.assign({}, registration),

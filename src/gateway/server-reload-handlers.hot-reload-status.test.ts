@@ -20,7 +20,6 @@ const hoisted = vi.hoisted(() => ({
         changedPaths: readonly string[];
       }) => void)
     | undefined,
-  notifyPluginMetadataChanged: vi.fn(),
   stop: vi.fn(async () => {}),
 }));
 
@@ -44,7 +43,8 @@ vi.mock("./config-reload.js", async () => {
         return {
           stop: hoisted.stop,
           hotReloadStatus: () => hoisted.hotReloadStatus.current,
-          notifyPluginMetadataChanged: hoisted.notifyPluginMetadataChanged,
+          isReloading: () => false,
+          applyPluginLifecycleChange: vi.fn(),
         };
       },
     ),

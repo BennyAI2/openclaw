@@ -6,10 +6,8 @@ import {
   listChannelPlugins,
 } from "../channels/plugins/index.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  getActivePluginHttpRouteRegistry,
-  getActivePluginHttpRouteRegistryVersion,
-} from "../plugins/runtime.js";
+import type { PluginLifecycleReason } from "../plugins/lifecycle.js";
+import { getActivePluginRegistry, getActivePluginRegistryVersion } from "../plugins/runtime.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/account-id.js";
 import { isPlainObject } from "../utils.js";
 
@@ -29,6 +27,11 @@ export type GatewayReloadPlan = {
   reconcileSkillReviewJobs?: boolean;
   restartHealthMonitor: boolean;
   reloadPlugins: boolean;
+  pluginLifecycle?: {
+    pluginIds: readonly string[];
+    reason: PluginLifecycleReason;
+    operationId: string;
+  };
   restartChannels: Set<ChannelKind>;
   disposeMcpRuntimes: boolean;
   /** Account targets; absent means no targeted restarts for hand-built plans. */
@@ -147,8 +150,8 @@ const BASE_RELOAD_RULES: ReloadRule[] = [
   { prefix: "mcp", kind: "hot", actions: ["dispose-mcp-runtimes"] },
   // The proxy listener, per-start CA, and run-token registry are Gateway-owned.
   { prefix: "secrets.egressProxy", kind: "restart" },
-  { prefix: "plugins.load", kind: "restart" },
-  { prefix: "plugins.installs", kind: "restart" },
+  { prefix: "plugins.load", kind: "hot", actions: ["reload-plugins"] },
+  { prefix: "plugins.installs", kind: "hot", actions: ["reload-plugins"] },
   // Capability ownership changes must replace the plugin generation that owns its routes.
   { prefix: "talk.provider", kind: "hot", actions: ["reload-plugins"] },
   { prefix: "talk.realtime.provider", kind: "hot", actions: ["reload-plugins"] },
@@ -180,13 +183,13 @@ const BASE_RELOAD_RULES_TAIL: ReloadRule[] = [
 ];
 
 let cachedReloadRules: ReloadRule[] | null = null;
-let cachedRegistry: ReturnType<typeof getActivePluginHttpRouteRegistry> | null = null;
+let cachedRegistry: ReturnType<typeof getActivePluginRegistry> | null = null;
 let cachedGatewayRegistryVersion = -1;
 
 function listReloadRules(): ReloadRule[] {
   // Reload metadata is gateway policy owned by the process-root registry.
-  const registry = getActivePluginHttpRouteRegistry();
-  const gatewayRegistryVersion = getActivePluginHttpRouteRegistryVersion();
+  const registry = getActivePluginRegistry();
+  const gatewayRegistryVersion = getActivePluginRegistryVersion();
   // Plugin/channel reload rules are process-stable until the root registry
   // version changes; cache them to keep every config diff cheap.
   if (registry !== cachedRegistry || gatewayRegistryVersion !== cachedGatewayRegistryVersion) {

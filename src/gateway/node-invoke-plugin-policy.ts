@@ -5,7 +5,7 @@ import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { recordRuntimeActionDecision } from "../audit/runtime-action-decision.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
-import { getActivePluginGatewayNodePolicyRegistry } from "../plugins/runtime.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import type {
   OpenClawPluginNodeInvokePolicyContext,
@@ -120,7 +120,7 @@ export async function applyPluginNodeInvokePolicy(params: {
   /** Internal callers carry an admitted run without inventing a client connection. */
   agentRuntimeIdentity?: AgentRuntimeIdentity;
 }): Promise<OpenClawPluginNodeInvokePolicyResult | null> {
-  const registry = getActivePluginGatewayNodePolicyRegistry();
+  const registry = getActivePluginRegistry();
   const callerIdentity =
     params.agentRuntimeIdentity ?? params.client?.internal?.agentRuntimeIdentity;
   const token = callerIdentity?.executionIdentity;
@@ -222,7 +222,7 @@ export async function applyPluginNodeInvokePolicy(params: {
   const pluginRecord = registry?.plugins.find((record) => record.id === entry.pluginId);
   const policy = entry.policy;
   const isPluginCurrent = () =>
-    getActivePluginGatewayNodePolicyRegistry() === registry &&
+    getActivePluginRegistry() === registry &&
     entry.policy === policy &&
     registry?.nodeInvokePolicies.includes(entry) === true &&
     (!pluginRecord ||
