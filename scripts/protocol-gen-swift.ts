@@ -10,6 +10,7 @@ import {
   PROTOCOL_VERSION,
 } from "../packages/gateway-protocol/src/version.js";
 import { writeGeneratedOutput } from "./lib/generated-output-utils.mts";
+import { protocolSchemaSignature } from "./lib/protocol-schema-signature.mts";
 
 type JsonSchema = {
   type?: string | string[];
@@ -136,28 +137,9 @@ const schemaNameByObject = new Map<object, string>();
 const schemaNameBySignature = new Map<string, string>();
 const duplicateSchemaSignatures = new Set<string>();
 
-function stableJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableJson);
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(record)
-        .toSorted()
-        .map((key) => [key, stableJson(record[key])]),
-    );
-  }
-  return value;
-}
-
-function schemaSignature(schema: JsonSchema): string {
-  return JSON.stringify(stableJson(schema));
-}
-
 function registerNamedSchema(name: string, schema: JsonSchema): void {
   schemaNameByObject.set(schema as object, name);
-  const signature = schemaSignature(schema);
+  const signature = protocolSchemaSignature(schema);
   if (duplicateSchemaSignatures.has(signature)) {
     return;
   }
@@ -172,7 +154,9 @@ function registerNamedSchema(name: string, schema: JsonSchema): void {
 function namedSchema(schema: JsonSchema, allowStructuralFallback = false): string | undefined {
   return (
     schemaNameByObject.get(schema as object) ??
-    (allowStructuralFallback ? schemaNameBySignature.get(schemaSignature(schema)) : undefined)
+    (allowStructuralFallback
+      ? schemaNameBySignature.get(protocolSchemaSignature(schema))
+      : undefined)
   );
 }
 

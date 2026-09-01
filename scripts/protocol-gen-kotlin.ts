@@ -9,6 +9,7 @@ import {
 } from "../packages/gateway-protocol/src/version.js";
 import { listCoreGatewayMethodNames } from "../src/gateway/methods/core-descriptors.js";
 import { extractGatewayEventNames } from "./check-protocol-event-coverage.mts";
+import { protocolSchemaSignature } from "./lib/protocol-schema-signature.mts";
 
 type JsonSchema = {
   type?: string | string[];
@@ -192,25 +193,6 @@ function lowerCamel(value: string): string {
   return name[0]!.toLowerCase() + name.slice(1);
 }
 
-function stableJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableJson);
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(record)
-        .toSorted()
-        .map((key) => [key, stableJson(record[key])]),
-    );
-  }
-  return value;
-}
-
-function schemaSignature(schema: JsonSchema): string {
-  return JSON.stringify(stableJson(schema));
-}
-
 function literalValue(schema: JsonSchema): boolean | number | string | null | undefined {
   if ("const" in schema) {
     return schema.const;
@@ -251,7 +233,7 @@ function emitWireModels(): string[] {
       throw new Error(`Missing ProtocolSchemas.${schemaName}`);
     }
     selectedSchemas.set(schema, kotlinName);
-    selectedSignatures.set(schemaSignature(schema), kotlinName);
+    selectedSignatures.set(protocolSchemaSignature(schema), kotlinName);
   }
 
   const nestedModels = new Map<string, JsonSchema>();
@@ -276,7 +258,7 @@ function emitWireModels(): string[] {
     }
     discriminatedUnions.set(kotlinName, discriminator);
     for (const branch of branches) {
-      const signature = schemaSignature(branch);
+      const signature = protocolSchemaSignature(branch);
       const literal = literalValue(branch.properties?.[discriminator] ?? {}) as string;
       if (!selectedSignatures.has(signature)) {
         throw new Error(
@@ -291,7 +273,8 @@ function emitWireModels(): string[] {
     }
   }
   const kotlinType = (schema: JsonSchema, nestedName: string): string => {
-    const selected = selectedSchemas.get(schema) ?? selectedSignatures.get(schemaSignature(schema));
+    const selected =
+      selectedSchemas.get(schema) ?? selectedSignatures.get(protocolSchemaSignature(schema));
     if (selected) {
       return selected;
     }
@@ -330,7 +313,7 @@ function emitWireModels(): string[] {
       throw new Error(`${name} must remain an object schema for Kotlin generation`);
     }
     const required = new Set(schema.required ?? []);
-    const variant = unionVariants.get(schemaSignature(schema));
+    const variant = unionVariants.get(protocolSchemaSignature(schema));
     const properties = Object.entries(schema.properties)
       .filter(([wireName]) => wireName !== variant?.discriminator)
       .map(([wireName, propertySchema]) => {
