@@ -505,6 +505,46 @@ describe("handleLoginCommand", () => {
     expect(sessionStore["agent:main:slack:channel:C123"]).toBe(previousEntry);
   });
 
+  it("does not pin the login profile after the session switches providers", async () => {
+    mockSuccessfulLoginFlow("openai:new-owner@example.com");
+    const previousEntry = {
+      providerOverride: "openai",
+      modelOverride: "gpt-5.4",
+      authProfileOverride: "openai:old-owner@example.com",
+      authProfileOverrideSource: "user" as const,
+      sessionId: "sess-owner",
+      updatedAt: 1,
+    };
+    const switchedEntry = {
+      ...previousEntry,
+      providerOverride: "anthropic",
+      modelOverride: "claude-sonnet-4-6",
+      updatedAt: 2,
+    };
+    updateSessionEntryMock.mockImplementationOnce(
+      async (params: { update: (entry: SessionEntry) => Partial<SessionEntry> | null }) => {
+        const patch = params.update({ ...switchedEntry });
+        return patch ? { ...switchedEntry, ...patch } : switchedEntry;
+      },
+    );
+    const sessionStore = {
+      "agent:main:slack:channel:C123": previousEntry,
+    };
+    const params = buildLoginParams("/login codex", {
+      opts: blockReplyOpts(),
+      sessionEntry: previousEntry,
+      sessionStore,
+      storePath: "/tmp/openclaw-login-sessions.json",
+    });
+
+    const result = await handleLoginCommand(params, true);
+
+    expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
+    expect(params.sessionEntry).toBe(switchedEntry);
+    expect(params.sessionEntry.authProfileOverride).toBe("openai:old-owner@example.com");
+    expect(params.sessionEntry.providerOverride).toBe("anthropic");
+  });
+
   it("revalidates an unchanged profile after device login", async () => {
     mockSuccessfulLoginFlow("openai:owner@example.com");
     const previousEntry = {
