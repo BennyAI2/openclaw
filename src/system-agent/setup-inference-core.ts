@@ -98,7 +98,7 @@ export type SetupInferenceDetection = {
   /** Interactive provider-owned browser and device-code sign-in methods. */
   authOptions: SetupInferenceAuthOption[];
   /** Provider-owned app-guided local model setup methods. */
-  prepareOptions?: SetupInferencePrepareOption[];
+  prepareOptions: SetupInferencePrepareOption[];
   /** Curated tools clients can offer when no existing AI access is detected. */
   recommendedInstalls: SetupRecommendedInstall[];
   /** Resolved workspace the setup apply would use (display + default). */

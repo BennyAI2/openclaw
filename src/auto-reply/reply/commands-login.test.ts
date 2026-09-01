@@ -193,7 +193,16 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(buildLoginParams("/login groq"), true);
 
     expect(result?.reply?.text).toBe(
-      "Groq API key needs secure input that chat must not store. Open Control UI → Models, find Groq, and choose “Sign in with Groq API key”.",
+      "Groq API key needs secure input that chat must not store. Open Control UI → Models → Connect, then choose “Groq API key” under Connect with an API key or token.",
+    );
+    expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it("hands browser sign-in to the Control UI sign-in section", async () => {
+    const result = await handleLoginCommand(buildLoginParams("/login github-copilot"), true);
+
+    expect(result?.reply?.text).toBe(
+      "GitHub Copilot needs provider sign-in. Open Control UI → Models → Connect, then choose “GitHub Copilot” under Sign in.",
     );
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });
@@ -202,7 +211,7 @@ describe("handleLoginCommand", () => {
     const result = await handleLoginCommand(buildLoginParams("/login vllm"), true);
 
     expect(result?.reply?.text).toBe(
-      "vLLM configures provider setup, not only a credential. Open Control UI → Models, find vLLM, and choose “Set up vLLM”.",
+      "vLLM needs provider setup. Open Control UI → Models → Connect, then choose “vLLM” under Provider setup.",
     );
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });

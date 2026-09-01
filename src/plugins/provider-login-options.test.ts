@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  listSetupInferenceAuthOptions,
+  listSetupInferenceManualProviders,
+  listSetupInferencePrepareOptions,
+} from "../system-agent/setup-inference-auth-options.js";
 import { resolveManifestDeclaredProviderAuthChoices } from "./provider-auth-choices.js";
 import {
   listProviderAccessOptions,
@@ -51,6 +56,38 @@ function choice(params: {
 }
 
 describe("provider channel login choices", () => {
+  it("routes every visible text-inference choice through Models and /login", () => {
+    const choices = resolveManifestDeclaredProviderAuthChoices().filter(
+      (choice) =>
+        choice.assistantVisibility !== "manual-only" &&
+        (!choice.onboardingScopes || choice.onboardingScopes.includes("text-inference")),
+    );
+    const accessChoiceIds = new Set(listProviderAccessOptions(choices).map((option) => option.id));
+    const missingModelsChoices = choices
+      .filter((choice) => !accessChoiceIds.has(choice.choiceId))
+      .map((choice) => choice.choiceId);
+    const connectChoiceIds = new Set(
+      [
+        ...listSetupInferenceAuthOptions(choices),
+        ...listSetupInferenceManualProviders(choices),
+        ...listSetupInferencePrepareOptions(choices),
+      ].map((option) => option.id),
+    );
+    const missingConnectChoices = choices
+      .filter((choice) => !connectChoiceIds.has(choice.choiceId))
+      .map((choice) => choice.choiceId);
+    const missingLoginChoices = choices
+      .filter((choice) => {
+        const resolution = resolveProviderChannelLoginChoice(choice.choiceId);
+        return resolution.status !== "resolved" || resolution.choice.choiceId !== choice.choiceId;
+      })
+      .map((choice) => choice.choiceId);
+
+    expect(missingModelsChoices).toEqual([]);
+    expect(missingConnectChoices).toEqual([]);
+    expect(missingLoginChoices).toEqual([]);
+  });
+
   it("lists the trusted bundled fixed-input login surface", () => {
     expect(listProviderChannelLoginChoices().filter((entry) => entry.mode === "chat")).toEqual([
       expect.objectContaining({ command: "codex", providerId: "openai", methodId: "device-code" }),
@@ -83,7 +120,27 @@ describe("provider channel login choices", () => {
       status: "resolved",
       choice: expect.objectContaining({
         command: "alpha",
-        mode: "control-ui",
+        mode: "secret",
+        providerId: "alpha",
+      }),
+    });
+  });
+
+  it("resolves browser and device login to the Control UI sign-in section", () => {
+    const snapshot = metadataSnapshot([
+      choice({
+        provider: "alpha",
+        method: "oauth",
+        choiceId: "alpha-oauth",
+        channelLogin: false,
+      }),
+    ]);
+
+    expect(resolveProviderChannelLoginChoice("alpha", { metadataSnapshot: snapshot })).toEqual({
+      status: "resolved",
+      choice: expect.objectContaining({
+        choiceId: "alpha-oauth",
+        mode: "sign-in",
         providerId: "alpha",
       }),
     });

@@ -1133,7 +1133,7 @@ describe("detectSetupInference", () => {
     ]);
   });
 
-  it("lists app-guided local model setup choices from provider metadata", () => {
+  it("lists every provider setup handoff on the Connect surface", () => {
     const choices: ProviderAuthChoiceMetadata[] = [
       {
         pluginId: "lmstudio",
@@ -1153,6 +1153,38 @@ describe("detectSetupInference", () => {
         choiceId: "ollama",
         choiceLabel: "Ollama",
         appGuidedDiscovery: true,
+      },
+      {
+        pluginId: "vllm",
+        providerId: "vllm",
+        methodId: "custom",
+        choiceId: "vllm",
+        choiceLabel: "vLLM",
+        choiceHint: "Local/self-hosted OpenAI-compatible server",
+      },
+      {
+        pluginId: "secret",
+        providerId: "secret",
+        methodId: "api-key",
+        choiceId: "secret-key",
+        choiceLabel: "Secret key",
+        appGuidedSecret: true,
+      },
+      {
+        pluginId: "oauth",
+        providerId: "oauth",
+        methodId: "oauth",
+        choiceId: "oauth-login",
+        choiceLabel: "OAuth login",
+        appGuidedAuth: "oauth",
+      },
+      {
+        pluginId: "image",
+        providerId: "image",
+        methodId: "api-key",
+        choiceId: "image-key",
+        choiceLabel: "Image key",
+        onboardingScopes: ["image-generation"],
       },
       {
         pluginId: "hidden",
@@ -1178,6 +1210,12 @@ describe("detectSetupInference", () => {
         id: "ollama",
         brandId: "ollama",
         label: "Ollama",
+      },
+      {
+        id: "vllm",
+        brandId: "vllm",
+        label: "vLLM",
+        hint: "Local/self-hosted OpenAI-compatible server",
       },
     ]);
   });

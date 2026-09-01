@@ -84,7 +84,15 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
     const page = await context.newPage();
     const config = { auth: { profiles: { "openai:chatgpt": { provider: "openai" } } } };
     const gateway = await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "models.probe", "openclaw.setup.detect"],
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "models.probe",
+        "openclaw.setup.detect",
+        "openclaw.setup.prepare.start",
+        "openclaw.setup.activate.start",
+        "wizard.next",
+      ],
       methodResponses: {
         "config.get": {
           config,
@@ -123,8 +131,24 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         "openclaw.setup.detect": {
           candidates: [],
           manualProviders: [{ id: "openai", label: "OpenAI" }],
+          prepareOptions: [{ id: "vllm", brandId: "vllm", label: "vLLM" }],
           workspace: "/tmp/openclaw-e2e",
           setupComplete: false,
+        },
+        "openclaw.setup.prepare.start": {
+          sessionId: "vllm-prepare",
+          done: false,
+          status: "running",
+        },
+        "wizard.next": {
+          done: true,
+          status: "done",
+          preparedModelRef: "vllm/test-model",
+        },
+        "openclaw.setup.activate.start": {
+          done: true,
+          status: "done",
+          modelActivation: { modelRef: "vllm/test-model" },
         },
         "usage.status": { updatedAt: NOW, providers: [] },
         "sessions.usage": { aggregates: { byProvider: [] } },
@@ -208,6 +232,15 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
       expect(await gateway.getRequests("models.authStatus")).toHaveLength(authStatusCount);
       expect(await gateway.getRequests("usage.status")).toHaveLength(usageCount);
       expect(await gateway.getRequests("sessions.usage")).toHaveLength(costCount);
+      const vllmSetup = setup.locator('[data-prepare-choice="vllm"]');
+      await vllmSetup.getByRole("button", { name: "Set up", exact: true }).click();
+      expect((await gateway.waitForRequest("openclaw.setup.prepare.start")).params).toEqual({
+        sessionId: expect.any(String),
+        agentId: "main",
+        authChoice: "vllm",
+      });
+      await page.getByRole("status").filter({ hasText: "Connection verified" }).waitFor();
+      expect(await gateway.getRequests("models.list")).toHaveLength(modelsListCount);
       await page.evaluate(
         () =>
           new Promise<void>((resolve) => {

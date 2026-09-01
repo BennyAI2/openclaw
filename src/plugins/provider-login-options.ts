@@ -19,6 +19,7 @@ export type ProviderLoginOption = {
 };
 
 export type ProviderAccessOption = Omit<ProviderLoginOption, "kind"> & {
+  actionLabel?: string;
   kind: ProviderLoginOption["kind"] | "setup";
   mode: "login" | "setup";
 };
@@ -31,7 +32,7 @@ export type ProviderChannelLoginChoice = {
   label: string;
   providerLabel: string;
   command: string;
-  mode: "chat" | "control-ui" | "setup";
+  mode: "chat" | "secret" | "setup" | "sign-in";
 };
 
 export type ProviderChannelLoginResolution =
@@ -135,6 +136,9 @@ function toProviderSetupOption(
     ...(choice.groupLabel?.trim() ? { groupLabel: choice.groupLabel.trim() } : {}),
     ...(choice.icon ? { icon: choice.icon } : {}),
     ...(choice.website ? { website: choice.website } : {}),
+    ...(choice.appGuidedActionLabel?.trim()
+      ? { actionLabel: choice.appGuidedActionLabel.trim() }
+      : {}),
     kind: "setup",
     mode: "setup",
     featured: choice.onboardingFeatured === true,
@@ -224,6 +228,7 @@ function projectProviderChannelLoginChoices(
     .map((choice): ProviderChannelLoginChoice => {
       const firstAlias = choice.channelLogin?.aliases?.[0];
       const provider = normalizeLoginInput(choice.providerId);
+      const login = toProviderLoginOption(choice);
       return {
         choiceId: choice.choiceId,
         pluginId: choice.pluginId,
@@ -237,7 +242,13 @@ function projectProviderChannelLoginChoices(
           (providerCounts.get(provider) ?? 0) === 1
             ? choice.providerId
             : choice.choiceId),
-        mode: choice.channelLogin ? "chat" : toProviderLoginOption(choice) ? "control-ui" : "setup",
+        mode: choice.channelLogin
+          ? "chat"
+          : login?.kind === "secret"
+            ? "secret"
+            : login
+              ? "sign-in"
+              : "setup",
       };
     })
     .toSorted(

@@ -2519,14 +2519,11 @@ export const en: TranslationMap & {
       more: "More sign-in options",
     },
     prepare: {
-      title: "Run a model locally",
-      intro: "Use a local model service or prepare a private GGUF model on this Gateway.",
-      ollamaButton: "Check & set up",
-      ollamaLabel: "Ollama",
-      ollamaHint: "Connect to the Ollama service on this Gateway and prepare a tools-capable model",
-      llamaCppLabel: "llama.cpp",
-      providerNotReady:
-        "{provider} did not expose a usable local model. Review the setup result, then retry.",
+      title: "Provider setup",
+      intro: "Complete any extra steps this provider needs.",
+      setup: "Set up",
+      configured:
+        "{provider} setup is saved. Available models will update automatically; your default is unchanged.",
     },
     manual: {
       title: "Connect with an API key or token",

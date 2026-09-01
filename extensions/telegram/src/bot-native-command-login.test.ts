@@ -268,7 +268,7 @@ describe("registerTelegramNativeCommands /login", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       100,
-      "Groq API key needs secure input that chat must not store. Open Control UI → Models, find Groq, and choose “Sign in with Groq API key”.",
+      "Groq API key needs secure input that chat must not store. Open Control UI → Models → Connect, then choose “Groq API key” under Connect with an API key or token.",
       {},
     );
     expect(loginFlow).not.toHaveBeenCalled();

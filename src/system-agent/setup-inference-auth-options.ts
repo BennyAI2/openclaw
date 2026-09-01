@@ -1,6 +1,7 @@
 import { compareProviderAuthChoiceGroups } from "../plugins/provider-auth-choice-order.js";
 import type { ProviderAuthChoiceMetadata } from "../plugins/provider-auth-choices.js";
 import {
+  listProviderAccessOptions,
   listProviderLoginOptions,
   supportsProviderAuthChoiceTextInference,
   type ProviderLoginOption,
@@ -87,52 +88,20 @@ export function listSetupInferenceAuthOptions(
 export function listSetupInferencePrepareOptions(
   authChoices: readonly ProviderAuthChoiceMetadata[],
 ): SetupInferencePrepareOption[] {
-  const choices = new Map<
-    string,
-    { metadata: ProviderAuthChoiceMetadata; option: SetupInferencePrepareOption }
-  >();
-  for (const choice of authChoices) {
-    const id = choice.choiceId.trim();
-    if (
-      !id ||
-      choices.has(id) ||
-      !supportsSetupTextInference(choice.onboardingScopes) ||
-      choice.assistantVisibility === "manual-only" ||
-      choice.appGuidedDiscovery !== true
-    ) {
-      continue;
+  return listProviderAccessOptions(authChoices).flatMap((option) => {
+    if (option.mode !== "setup") {
+      return [];
     }
-    choices.set(id, {
-      metadata: choice,
-      option: {
-        id,
-        brandId: choice.providerId,
-        label: choice.choiceLabel,
-        ...(choice.choiceHint?.trim() ? { hint: choice.choiceHint.trim() } : {}),
-        ...(choice.appGuidedActionLabel?.trim()
-          ? { actionLabel: choice.appGuidedActionLabel.trim() }
-          : {}),
-        ...(choice.icon ? { icon: choice.icon } : {}),
-        ...(choice.website ? { website: choice.website } : {}),
+    return [
+      {
+        id: option.id,
+        ...(option.brandId ? { brandId: option.brandId } : {}),
+        label: option.label,
+        ...(option.hint ? { hint: option.hint } : {}),
+        ...(option.actionLabel ? { actionLabel: option.actionLabel } : {}),
+        ...(option.icon ? { icon: option.icon } : {}),
+        ...(option.website ? { website: option.website } : {}),
       },
-    });
-  }
-  return [...choices.values()]
-    .toSorted(
-      (a, b) =>
-        compareProviderAuthChoiceGroups(
-          {
-            id: a.metadata.groupId ?? a.metadata.providerId,
-            label: a.metadata.groupLabel ?? a.metadata.choiceLabel,
-          },
-          {
-            id: b.metadata.groupId ?? b.metadata.providerId,
-            label: b.metadata.groupLabel ?? b.metadata.choiceLabel,
-          },
-        ) ||
-        (a.metadata.assistantPriority ?? 0) - (b.metadata.assistantPriority ?? 0) ||
-        a.option.label.localeCompare(b.option.label, "en") ||
-        a.option.id.localeCompare(b.option.id, "en"),
-    )
-    .map(({ option }) => option);
+    ];
+  });
 }

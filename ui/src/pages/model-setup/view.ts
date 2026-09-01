@@ -46,6 +46,7 @@ type ModelSetupViewProps = {
   modelConfigured?: boolean;
   gatewayTooOld: boolean;
   refreshWarning: string | null;
+  prepareMessage: string | null;
   activationUnresolved?: boolean;
   onUseCurrentModel?: () => void;
   actionsDisabled: boolean;
@@ -343,7 +344,7 @@ function renderPrepare(props: ModelSetupViewProps, result: SystemAgentSetupDetec
                 ?disabled=${props.actionsDisabled}
                 @click=${() => props.onStartPrepare(option)}
               >
-                ${option.actionLabel ?? t("modelSetup.prepare.ollamaButton")}
+                ${option.actionLabel ?? t("modelSetup.prepare.setup")}
               </button>
             </div>
           `,
@@ -662,6 +663,9 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
         : nothing}
       ${props.refreshWarning
         ? html`<div class="callout warning" role="alert">${props.refreshWarning}</div>`
+        : nothing}
+      ${props.prepareMessage
+        ? html`<div class="callout success" role="status">${props.prepareMessage}</div>`
         : nothing}
       ${props.activationUnresolved && !props.actionsDisabled && props.activation.phase !== "success"
         ? html`<div class="model-setup__recovery">

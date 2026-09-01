@@ -114,6 +114,7 @@ export function props(overrides: Partial<ModelSetupViewProps> = {}): ModelSetupV
     canPrepare: true,
     gatewayTooOld: false,
     refreshWarning: null,
+    prepareMessage: null,
     actionsDisabled: false,
     manualProviderId: "openai",
     manualApiKey: "",
