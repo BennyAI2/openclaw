@@ -4963,12 +4963,11 @@ export const en: TranslationMap = {
     },
     login: {
       action: "Sign in with {provider}",
-      actionFor: "Sign in to {provider}",
       again: "Sign in again with {provider}",
       done: "Signed in.",
-      failed: "Provider sign-in failed.",
-      cancelled: "Provider sign-in was cancelled.",
-      expired: "This sign-in session expired. Close this dialog and try again.",
+      failed: "Sign-in failed.",
+      cancelled: "Sign-in cancelled.",
+      expired: "Sign-in expired. Close and try again.",
     },
     add: {
       title: "Add provider",

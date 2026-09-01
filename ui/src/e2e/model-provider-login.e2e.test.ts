@@ -102,7 +102,7 @@ describeControlUiE2e("Control UI provider login", () => {
       await page.goto(`${server.baseUrl}settings/model-providers`);
       const xaiCard = page.locator('[data-provider-id="xai"]');
       await xaiCard.waitFor();
-      await xaiCard.getByRole("button", { name: "Sign in to xAI OAuth" }).click();
+      await xaiCard.getByRole("button", { name: "Sign in with xAI OAuth" }).click();
 
       const start = await gateway.waitForRequest("models.authLogin.start");
       expect(start.params).toEqual(
