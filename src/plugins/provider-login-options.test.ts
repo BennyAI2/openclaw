@@ -60,7 +60,11 @@ describe("provider channel login choices", () => {
 
     expect(resolveProviderChannelLoginChoice("shared", { metadataSnapshot: snapshot })).toEqual({
       status: "resolved",
-      choice: expect.objectContaining({ choiceId: "shared", providerId: "beta" }),
+      choice: expect.objectContaining({
+        choiceId: "shared",
+        pluginId: "test-provider",
+        providerId: "beta",
+      }),
     });
   });
 

@@ -237,6 +237,7 @@ function preferSetupAuthProviders(params: {
   config: OpenClawConfig;
   workspaceDir: string;
   requestedProvider?: string;
+  ownerPluginId?: string;
 }): ProviderPlugin[] {
   const requestedProvider = params.requestedProvider
     ? normalizeManualAuthProvider(params.requestedProvider)
@@ -246,8 +247,15 @@ function preferSetupAuthProviders(params: {
       provider: requestedProvider,
       config: params.config,
       workspaceDir: params.workspaceDir,
+      ...(params.ownerPluginId ? { pluginIds: [params.ownerPluginId] } : {}),
     });
-    return setupProvider ? [setupProvider] : [...params.providers];
+    return setupProvider
+      ? [
+          params.ownerPluginId
+            ? { ...setupProvider, pluginId: params.ownerPluginId }
+            : setupProvider,
+        ]
+      : [...params.providers];
   }
 
   const setupProviders = resolvePluginSetupRegistry({
@@ -259,6 +267,7 @@ function preferSetupAuthProviders(params: {
 
 async function resolveModelsAuthContext(params?: {
   requestedProvider?: string;
+  ownerPluginId?: string;
   rawAgentId?: string | null;
   config?: OpenClawConfig;
 }): Promise<ResolvedModelsAuthContext> {
@@ -270,23 +279,30 @@ async function resolveModelsAuthContext(params?: {
   const providerRef = requestedProvider
     ? normalizeManualAuthProvider(requestedProvider)
     : undefined;
+  const ownerPluginId = params?.ownerPluginId;
   const providers = resolvePluginProvidersCore({
     config,
     workspaceDir,
     mode: "setup",
     includeUntrustedWorkspacePlugins: false,
-    ...(providerRef
+    ...(ownerPluginId
       ? {
-          providerRefs: [providerRef],
+          onlyPluginIds: [ownerPluginId],
           activate: true,
         }
-      : {}),
+      : providerRef
+        ? {
+            providerRefs: [providerRef],
+            activate: true,
+          }
+        : {}),
   });
   const authProviders = preferSetupAuthProviders({
     providers,
     config,
     workspaceDir,
     requestedProvider: providerRef,
+    ownerPluginId,
   });
   return {
     config,
@@ -935,6 +951,8 @@ export type ModelsAuthLoginFlowResult = {
 };
 
 export type ModelsAuthLoginFlowOptions = LoginOptions & {
+  /** Manifest owner selected by a remote provider-login choice. */
+  ownerPluginId?: string;
   config?: OpenClawConfig;
   runtime: RuntimeEnv;
   prompter: WizardPrompter;
@@ -996,11 +1014,13 @@ function maybeLogOpenAICodexNativeSearchTip(runtime: RuntimeEnv, providerId: str
 export async function runModelsAuthLoginFlowCore(
   opts: ModelsAuthLoginFlowOptions,
 ): Promise<ModelsAuthLoginFlowResult> {
+  const ownerPluginId = opts.ownerPluginId?.trim() || undefined;
   const requestedProviderId = opts.provider
     ? normalizeManualAuthProvider(opts.provider)
     : undefined;
   let context = await resolveModelsAuthContext({
     requestedProvider: requestedProviderId,
+    ownerPluginId,
     rawAgentId: opts.agent,
     config: opts.config,
   });
@@ -1010,6 +1030,7 @@ export async function runModelsAuthLoginFlowCore(
     ? resolveProviderMatch(authProviders, requestedProviderId)
     : null;
   const useProviderPicker =
+    ownerPluginId === undefined &&
     requestedProviderId !== undefined &&
     requestedProvider === null &&
     isCliProvider(requestedProviderId, context.config);
@@ -1021,6 +1042,11 @@ export async function runModelsAuthLoginFlowCore(
     authProviders = listProvidersWithAuthMethods(context.providers);
   }
   if (authProviders.length === 0) {
+    if (ownerPluginId) {
+      throw new Error(
+        `Provider login plugin "${ownerPluginId}" is unavailable. Refresh the available provider logins and try again.`,
+      );
+    }
     throw new Error(
       `No provider plugins found. Install one via \`${formatCliCommand("openclaw plugins install")}\`.`,
     );
@@ -1031,6 +1057,11 @@ export async function runModelsAuthLoginFlowCore(
       "Provider auth",
     );
   } else if (requestedProviderId && !requestedProvider) {
+    if (ownerPluginId) {
+      throw new Error(
+        `Provider "${requestedProviderId}" is not available from plugin "${ownerPluginId}". Refresh the available provider logins and try again.`,
+      );
+    }
     requestedProvider = resolveRequestedLoginProviderOrThrow(authProviders, requestedProviderId);
   }
   const selectedProvider =

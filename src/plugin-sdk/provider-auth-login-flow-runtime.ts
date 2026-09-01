@@ -24,6 +24,10 @@ export type { ProviderChannelLoginChoice } from "../plugins/provider-login-optio
 type ProviderAuthLoginFlowRuntime = typeof import("../commands/models/auth.js");
 type RunModelsAuthLoginFlow = (opts: ModelsAuthLoginFlowOptions) => Promise<unknown>;
 
+const CODEX_LOGIN_PROVIDER = "openai";
+const CODEX_LOGIN_METHOD = "device-code";
+const CODEX_LOGIN_PROVIDER_ALIASES = new Set(["codex", "openai"]);
+
 export type ProviderLoginSessionEntry = {
   sessionId: string;
   authProfileOverride?: string;
@@ -68,6 +72,28 @@ const bindProviderAuthLoginFlowRuntime = createLazyRuntimeMethodBinder(
 
 export const runModelsAuthLoginFlow: ProviderAuthLoginFlowRuntime["runModelsAuthLoginFlowCore"] =
   bindProviderAuthLoginFlowRuntime((runtime) => runtime.runModelsAuthLoginFlowCore);
+
+function resolveCodexLoginProvider(rawProvider: string | undefined): string | null {
+  const normalized = normalizeLowercaseStringOrEmpty(rawProvider ?? "codex").replace(/_/gu, "-");
+  if (!normalized) {
+    return CODEX_LOGIN_PROVIDER;
+  }
+  return CODEX_LOGIN_PROVIDER_ALIASES.has(normalized) ? CODEX_LOGIN_PROVIDER : null;
+}
+
+function resolveProviderScopedProfileId(
+  authProfileOverride: string | undefined,
+  provider: string,
+): string | undefined {
+  const profileId = normalizeOptionalString(authProfileOverride);
+  if (!profileId) {
+    return undefined;
+  }
+  const providerPrefix = `${normalizeLowercaseStringOrEmpty(provider)}:`;
+  return normalizeLowercaseStringOrEmpty(profileId).startsWith(providerPrefix)
+    ? profileId
+    : undefined;
+}
 
 function hasConfiguredCommandOwnerAllowlist(cfg: OpenClawConfig): boolean {
   const owners = cfg.commands?.ownerAllowFrom;
@@ -141,6 +167,7 @@ function reserveProviderLoginFlow(params: {
   flows: Map<string, ProviderLoginFlowRecord>;
   flowKey: string;
   now?: number;
+  replacementMessage?: string;
 }): ProviderLoginFlowReservation {
   const now = params.now ?? Date.now();
   const activeFlow = params.flows.get(params.flowKey);
@@ -155,10 +182,24 @@ function reserveProviderLoginFlow(params: {
   const record = {
     expiresAt: now + PROVIDER_LOGIN_FLOW_TTL_MS,
     signal: abortController.signal,
-    cancel: () => abortController.abort(new Error("Provider login was replaced by a newer flow.")),
+    cancel: () =>
+      abortController.abort(
+        new Error(params.replacementMessage ?? "Provider login was replaced by a newer flow."),
+      ),
   };
   params.flows.set(params.flowKey, record);
   return { status: "reserved", record };
+}
+
+function reserveCodexLoginFlow(params: {
+  flows: Map<string, ProviderLoginFlowRecord>;
+  flowKey: string;
+  now?: number;
+}): ProviderLoginFlowReservation {
+  return reserveProviderLoginFlow({
+    ...params,
+    replacementMessage: "Codex login was replaced by a newer flow.",
+  });
 }
 
 function releaseProviderLoginFlow(params: {
@@ -277,6 +318,7 @@ async function runProviderChannelLoginFlow(params: {
   const result = await (params.runLoginFlow ?? runModelsAuthLoginFlow)({
     provider: params.choice.providerId,
     method: params.choice.methodId,
+    ownerPluginId: params.choice.pluginId,
     agent: params.agentId,
     ...(params.profileId ? { profileId: params.profileId } : {}),
     config: params.config,
@@ -292,6 +334,40 @@ async function runProviderChannelLoginFlow(params: {
     openUrl: async () => {},
   });
   return parseModelsAuthLoginFlowResult(result);
+}
+
+async function runCodexDeviceLoginFlow(params: {
+  provider: string;
+  agentId: string;
+  profileId?: string;
+  config: OpenClawConfig;
+  runtime: RuntimeEnv;
+  sendMessage: (message: string) => Promise<void>;
+  sendDeviceCode?: NonNullable<ModelsAuthLoginFlowOptions["prompter"]["deviceCode"]>;
+  signal?: AbortSignal;
+  unsupportedPromptMessage: string;
+  runLoginFlow?: RunModelsAuthLoginFlow;
+}): Promise<ModelsAuthLoginFlowResult> {
+  return await runProviderChannelLoginFlow({
+    choice: {
+      choiceId: "openai-device-code",
+      pluginId: params.provider,
+      providerId: params.provider,
+      methodId: CODEX_LOGIN_METHOD,
+      label: "ChatGPT Device Pairing",
+      providerLabel: "OpenAI",
+      command: "codex",
+    },
+    agentId: params.agentId,
+    ...(params.profileId ? { profileId: params.profileId } : {}),
+    config: params.config,
+    runtime: params.runtime,
+    signal: params.signal,
+    sendMessage: params.sendMessage,
+    sendDeviceCode: params.sendDeviceCode,
+    unsupportedPromptMessage: params.unsupportedPromptMessage,
+    runLoginFlow: params.runLoginFlow,
+  });
 }
 
 function formatProviderLoginCommand(choice: ProviderChannelLoginChoice): string {
@@ -330,4 +406,15 @@ export const providerChannelLoginRuntime = {
   formatSessionSwitchFailed: formatProviderLoginSessionSwitchFailed,
   formatFailed: formatProviderLoginFailed,
   formatChoices: formatProviderLoginChoices,
+};
+
+/** @deprecated Use providerChannelLoginRuntime. */
+export const codexChannelLoginRuntime = {
+  createFlowRegistry: createProviderLoginFlowRegistry,
+  resolveProvider: resolveCodexLoginProvider,
+  hasConfiguredCommandOwnerAllowlist,
+  resolveProviderScopedProfileId,
+  reserveFlow: reserveCodexLoginFlow,
+  releaseFlow: releaseProviderLoginFlow,
+  runDeviceLoginFlow: runCodexDeviceLoginFlow,
 };

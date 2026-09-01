@@ -144,6 +144,7 @@ describe("handleLoginCommand", () => {
       expect.objectContaining({
         provider: "openai",
         method: "device-code",
+        ownerPluginId: "openai",
         agent: "main",
         isRemote: true,
       }),
@@ -171,7 +172,12 @@ describe("handleLoginCommand", () => {
       expect.objectContaining({ text: expect.stringContaining("XAI-CODE") }),
     );
     expect(runModelsAuthLoginFlowMock).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: "xai", method: "oauth", isRemote: true }),
+      expect.objectContaining({
+        provider: "xai",
+        method: "oauth",
+        ownerPluginId: "xai",
+        isRemote: true,
+      }),
     );
   });
 

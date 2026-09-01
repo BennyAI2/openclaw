@@ -17,6 +17,7 @@ type ResolvePluginProvidersCall = {
   activate?: boolean;
   config?: unknown;
   includeUntrustedWorkspacePlugins?: boolean;
+  onlyPluginIds?: string[];
   providerRefs?: string[];
   workspaceDir?: string;
 };
@@ -496,6 +497,104 @@ describe("modelsAuthLoginCommand", () => {
       params: { refresh: true, agentId: "main" },
       timeoutMs: 3000,
     });
+  });
+
+  it("executes only the manifest owner selected by a remote login choice", async () => {
+    const runtime = createRuntime();
+    const workspaceAuth = vi.fn().mockResolvedValue({
+      profiles: [
+        {
+          profileId: "collision-provider:workspace",
+          credential: {
+            type: "oauth",
+            provider: "collision-provider",
+            access: "workspace-access",
+            refresh: "workspace-refresh",
+            expires: Date.now() + 60_000,
+          },
+        },
+      ],
+    });
+    const selectedAuth = vi.fn().mockResolvedValue({
+      profiles: [
+        {
+          profileId: "collision-provider:selected",
+          credential: {
+            type: "oauth",
+            provider: "collision-provider",
+            access: "selected-access",
+            refresh: "selected-refresh",
+            expires: Date.now() + 60_000,
+          },
+        },
+      ],
+    });
+    const workspaceProvider = {
+      ...createProvider({
+        id: "collision-provider",
+        run: workspaceAuth as ProviderPlugin["auth"][number]["run"],
+      }),
+      pluginId: "aaa-workspace-shadow",
+    };
+    const selectedProvider = {
+      ...createProvider({
+        id: "collision-provider",
+        run: selectedAuth as ProviderPlugin["auth"][number]["run"],
+      }),
+      pluginId: "selected-login-owner",
+    };
+    mocks.resolvePluginProvidersCore.mockImplementation(
+      (params: ResolvePluginProvidersCall | undefined) =>
+        params?.onlyPluginIds?.[0] === "selected-login-owner"
+          ? [selectedProvider]
+          : [workspaceProvider, selectedProvider],
+    );
+    mocks.resolvePluginSetupProviderCore.mockImplementation(
+      (params: { pluginIds?: readonly string[] }) =>
+        params.pluginIds?.[0] === "selected-login-owner" ? undefined : workspaceProvider,
+    );
+
+    await runModelsAuthLoginFlowCore({
+      provider: "collision-provider",
+      method: "oauth",
+      ownerPluginId: "selected-login-owner",
+      config: currentConfig,
+      runtime,
+      prompter: mocks.createClackPrompter(),
+    });
+
+    const providerResolution = readMockCallArg(
+      mocks.resolvePluginProvidersCore,
+    ) as ResolvePluginProvidersCall;
+    expect(providerResolution.onlyPluginIds).toEqual(["selected-login-owner"]);
+    expect(providerResolution.providerRefs).toBeUndefined();
+    expect(mocks.resolvePluginSetupProviderCore).toHaveBeenCalledWith(
+      expect.objectContaining({ pluginIds: ["selected-login-owner"] }),
+    );
+    expect(workspaceAuth).not.toHaveBeenCalled();
+    expect(selectedAuth).toHaveBeenCalledOnce();
+    expect(mocks.upsertAuthProfileAfterLoginWithLock).toHaveBeenCalledWith(
+      expect.objectContaining({ profileId: "collision-provider:selected" }),
+    );
+  });
+
+  it("fails closed when the selected manifest owner is unavailable", async () => {
+    mocks.resolvePluginProvidersCore.mockReturnValue([]);
+
+    await expect(
+      runModelsAuthLoginFlowCore({
+        provider: "collision-provider",
+        method: "oauth",
+        ownerPluginId: "missing-login-owner",
+        config: currentConfig,
+        runtime: createRuntime(),
+        prompter: mocks.createClackPrompter(),
+      }),
+    ).rejects.toThrow('Provider login plugin "missing-login-owner" is unavailable');
+
+    expect(mocks.resolvePluginProvidersCore).toHaveBeenCalledOnce();
+    expect(runProviderAuth).not.toHaveBeenCalled();
+    expect(mocks.upsertAuthProfileAfterLoginWithLock).not.toHaveBeenCalled();
   });
 
   it("persists a provider-minted Copilot token through the protected store", async () => {
