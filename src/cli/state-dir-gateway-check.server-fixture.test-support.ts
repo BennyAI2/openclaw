@@ -10,6 +10,10 @@ const server = await startGatewayServer(port, {
   controlUiEnabled: false,
 });
 await server.startupSettled;
+// Minimal startup skips maintenance, including its initial health refresh. Settle
+// that real work before readiness so it cannot starve the next test handshake.
+const { refreshGatewayHealthSnapshot } = await import("../gateway/server/health-state.js");
+await refreshGatewayHealthSnapshot({ probe: false });
 process.send?.({ port });
 
 const close = async () => {

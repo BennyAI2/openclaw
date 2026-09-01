@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getFreePort } from "../test-utils/ports.js";
 import { checkCliGatewayStateDir } from "./state-dir-gateway-check.js";
 
@@ -69,11 +69,14 @@ describe("state-dir guard with a real token Gateway", () => {
         reject(new Error(`Gateway fixture exited early: ${code}\n${childStderr}`));
       });
     });
+  }, 120_000);
+
+  beforeEach(() => {
     vi.stubEnv("HOME", path.join(root, "cli-home"));
     setCliStateDir(cliStateDir);
     vi.stubEnv("OPENCLAW_GATEWAY_PORT", String(port));
     vi.stubEnv("OPENCLAW_SYSTEMD_UNIT", `openclaw-state-dir-server-${process.pid}`);
-  }, 120_000);
+  });
 
   afterAll(async () => {
     vi.unstubAllEnvs();
@@ -95,7 +98,6 @@ describe("state-dir guard with a real token Gateway", () => {
         config: { gateway: { mode: "local", port, auth: { mode: "token", token } } },
       }),
     ).resolves.toEqual({ kind: "allow" });
-    setCliStateDir(cliStateDir);
   });
 
   it("refuses mismatched authenticated hello paths", async () => {
