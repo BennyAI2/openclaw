@@ -72,6 +72,12 @@ export type ModelProviderCard = {
   localCost?: ModelProviderLocalCost;
 };
 
+export type ModelProviderCardState = {
+  status: "auth" | "denied" | "unavailable" | "ready" | "not-set-up" | "available" | "configured";
+  sortTier: "active" | "inactive";
+  verified: boolean;
+};
+
 type ModelProviderCardsInput = {
   authStatus: ModelAuthStatusResult | null;
   models: ModelCatalogEntry[] | null;
@@ -110,19 +116,45 @@ function authKindForProvider(provider: ModelAuthStatusProvider): ModelProviderAu
   }
 }
 
-function hasActiveProviderAccess(card: ModelProviderCard): boolean {
+export function classifyModelProviderCard(card: ModelProviderCard): ModelProviderCardState {
   if (card.catalogStatus === "auth-rejected") {
-    return false;
+    return { status: "denied", sortTier: "inactive", verified: false };
   }
-  if (card.auth) {
-    return card.auth.kind === "ok" || card.auth.kind === "expiring" || card.auth.kind === "api-key";
+  if (card.auth?.kind === "expired" || card.auth?.kind === "missing") {
+    return { status: "auth", sortTier: "inactive", verified: false };
   }
-  return card.catalogStatus === "ready" || card.runtimeAvailableModelCount > 0;
+  if (card.auth?.kind === "expiring") {
+    return { status: "auth", sortTier: "active", verified: false };
+  }
+  const hasActiveAuth = card.auth?.kind === "ok" || card.auth?.kind === "api-key";
+  if (card.catalogStatus === "unavailable") {
+    return {
+      status: "unavailable",
+      sortTier: hasActiveAuth ? "active" : "inactive",
+      verified: false,
+    };
+  }
+  const verified = card.catalogStatus === "ready" || card.runtimeAvailableModelCount > 0;
+  if (verified) {
+    return {
+      status: card.availableModelCount > 0 ? "ready" : "available",
+      sortTier: "active",
+      verified: true,
+    };
+  }
+  const hasCredentials = card.hasConfigApiKey || Boolean(card.apiKey) || card.profiles.length > 0;
+  return {
+    status: hasCredentials ? "configured" : "not-set-up",
+    sortTier: hasActiveAuth ? "active" : "inactive",
+    verified: false,
+  };
 }
 
 function compareProviderCards(left: ModelProviderCard, right: ModelProviderCard): number {
+  const leftTier = classifyModelProviderCard(left).sortTier;
+  const rightTier = classifyModelProviderCard(right).sortTier;
   return (
-    Number(hasActiveProviderAccess(right)) - Number(hasActiveProviderAccess(left)) ||
+    Number(rightTier === "active") - Number(leftTier === "active") ||
     left.displayName.localeCompare(right.displayName) ||
     left.id.localeCompare(right.id)
   );

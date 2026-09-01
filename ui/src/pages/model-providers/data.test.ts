@@ -6,8 +6,10 @@ import {
   buildModelProviderCards,
   buildSelectableDefaultModels,
   buildUnconfiguredProviderOptions,
+  classifyModelProviderCard,
   modelCatalogRef,
   readModelProviderConfig,
+  type ModelProviderCard,
 } from "./data.ts";
 
 function catalogEntry(overrides: Partial<ModelCatalogEntry> & { provider: string }) {
@@ -28,6 +30,23 @@ function authStatus(
 
 function firstCard(cards: ReturnType<typeof buildModelProviderCards>) {
   return expectDefined(cards[0], "first model provider card");
+}
+
+function providerCard(overrides: Partial<ModelProviderCard> = {}): ModelProviderCard {
+  return {
+    id: "test",
+    displayName: "Test",
+    profiles: [],
+    credentialProviderIds: [],
+    logoutTargets: [],
+    accessOptions: [],
+    hasConfigApiKey: false,
+    modelCount: 0,
+    availableModelCount: 0,
+    runtimeAvailableModelCount: 0,
+    runtimeLabels: [],
+    ...overrides,
+  };
 }
 
 function providerConfig(value: string): { apiKey: string } {
@@ -392,6 +411,54 @@ describe("buildModelProviderCards", () => {
       "github-copilot",
       "mistral",
     ]);
+  });
+
+  it.each([
+    [
+      "healthy stored access",
+      providerCard({
+        auth: { kind: "ok", profileCount: 1 },
+        profiles: [{ profileId: "test:oauth", type: "oauth", status: "ok" }],
+      }),
+      { status: "configured", sortTier: "active", verified: false },
+    ],
+    [
+      "catalog rejection over expiring access",
+      providerCard({ auth: { kind: "expiring", profileCount: 1 }, catalogStatus: "auth-rejected" }),
+      { status: "denied", sortTier: "inactive", verified: false },
+    ],
+    [
+      "renewing static access",
+      providerCard({ auth: { kind: "expiring", profileCount: 1 } }),
+      { status: "auth", sortTier: "active", verified: false },
+    ],
+    [
+      "expired access despite a stale runtime model",
+      providerCard({ auth: { kind: "expired", profileCount: 1 }, runtimeAvailableModelCount: 1 }),
+      { status: "auth", sortTier: "inactive", verified: false },
+    ],
+    [
+      "verified native runtime",
+      providerCard({ runtimeAvailableModelCount: 1, availableModelCount: 1 }),
+      { status: "ready", sortTier: "active", verified: true },
+    ],
+    [
+      "verified runtime without a visible model",
+      providerCard({ runtimeAvailableModelCount: 1 }),
+      { status: "available", sortTier: "active", verified: true },
+    ],
+    [
+      "temporary provider failure with valid access",
+      providerCard({ auth: { kind: "api-key", profileCount: 0 }, catalogStatus: "unavailable" }),
+      { status: "unavailable", sortTier: "active", verified: false },
+    ],
+    [
+      "unconfigured provider",
+      providerCard(),
+      { status: "not-set-up", sortTier: "inactive", verified: false },
+    ],
+  ] as const)("classifies %s once for status and ordering", (_name, card, expected) => {
+    expect(classifyModelProviderCard(card)).toEqual(expected);
   });
 
   it("keeps API key provenance and config-only providers", () => {

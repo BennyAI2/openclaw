@@ -538,8 +538,8 @@ describe("renderModelProviders", () => {
       props({
         cards: [
           card({
-            auth: { kind: "ok", profileCount: 1 },
-            profiles: [{ profileId: "openai:chatgpt", type: "oauth", status: "ok" }],
+            auth: { kind: "expiring", profileCount: 1 },
+            profiles: [{ profileId: "openai:chatgpt", type: "oauth", status: "expiring" }],
             catalogStatus: "auth-rejected",
             modelCount: 0,
             availableModelCount: 0,
@@ -553,6 +553,7 @@ describe("renderModelProviders", () => {
     const provider = container.querySelector('[data-provider-id="openai"]');
     expect(text(provider)).toContain("Credentials rejected");
     expect(text(provider)).not.toContain("Signed in");
+    expect(text(provider)).not.toContain("Expiring");
   });
 
   it("does not report an unverified API key as ready", () => {
