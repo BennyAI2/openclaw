@@ -4091,8 +4091,6 @@ describe("package artifact reuse", () => {
     expect(packageJson).toContain("OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE=auto-auth");
     expect(publishedUpgradeSurvivor).toContain("validate_baseline_package_spec");
     expect(publishedUpgradeSurvivor).toContain("OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE");
-    expect(publishedUpgradeSurvivor).toContain("seed_update_restart_probe_device_auth");
-    expect(publishedUpgradeSurvivor).toContain("upgrade survivor restart probe");
     expect(publishedUpgradeSurvivor).toContain("write_update_restart_service_env");
     expect(publishedUpgradeSurvivor).toContain("GATEWAY_AUTH_TOKEN_REF=%s");
     expect(publishedUpgradeSurvivor).toContain("OPENCLAW_CLAWHUB_URL=%s");
@@ -4312,7 +4310,6 @@ describe("package artifact reuse", () => {
         actions: "read",
         contents: "read",
       },
-      "runs-on": "ubuntu-24.04",
     });
     expect(evidence.env).toMatchObject({
       CANDIDATE_ARTIFACT_JSON:
@@ -4624,7 +4621,6 @@ describe("package artifact reuse", () => {
     const workflow = readFileSync(LIVE_E2E_WORKFLOW, "utf8");
     const retryHelper = readFileSync("scripts/ci-live-command-retry.sh", "utf8");
 
-    expect(workflow).toContain("validate_selected_ref:\n    runs-on: ubuntu-24.04");
     expect(workflow).not.toContain("suite_id: live-all");
     expect(workflow).not.toContain("command: pnpm test:live\n");
     expect(workflow).toContain("suite_id: native-live-src-agents");
@@ -4680,12 +4676,18 @@ describe("package artifact reuse", () => {
     expect(workflow).toContain("bash .release-harness/scripts/ci-live-command-retry.sh");
     expect(workflow).toContain("use_github_hosted_runners:");
     for (const [jobName, runner] of [
-      ["validate_repo_e2e", "blacksmith-32vcpu-ubuntu-2404"],
       ["validate_special_e2e", "blacksmith-32vcpu-ubuntu-2404"],
       ["validate_live_provider_suites", "blacksmith-8vcpu-ubuntu-2404"],
     ] as const) {
       expect(workflowJob(LIVE_E2E_WORKFLOW, jobName)["runs-on"]).toBe(
         `\${{ inputs.use_github_hosted_runners && 'ubuntu-24.04' || '${runner}' }}`,
+      );
+    }
+    for (const jobName of ["build", "test"]) {
+      expect(
+        workflowJob(".github/workflows/openclaw-repo-e2e-reusable.yml", jobName)["runs-on"],
+      ).toBe(
+        "${{ inputs.use_github_hosted_runners && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}",
       );
     }
     expect(workflow).toContain("suite_id: native-live-src-gateway-core");

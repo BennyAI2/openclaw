@@ -85,6 +85,8 @@ const repositoryScriptEntries = [
   "scripts/ios-release-plan.ts!",
   "scripts/ios-release-signing.mts!",
   "scripts/lib/docker-plugin-selection.mjs!",
+  // CI loads the native Vitest reporter through its CLI path.
+  "scripts/lib/vitest-resource-reporter.mts!",
   // Invoked by scripts/lib/live-docker-stage.sh during container validation.
   "scripts/live-docker-normalize-config.ts!",
   "scripts/mcp-code-mode-gateway-e2e.ts!",
@@ -159,6 +161,8 @@ const rootEntries = [
   "src/commands/status.ts!",
   "src/cli/daemon-cli.ts!",
   "src/agents/code-mode.worker.ts!",
+  // The local exec bootstrap launches credential resolution by computed subprocess URL.
+  "src/agents/github-exec-launcher.ts!",
   // Worker-thread and script entrypoints import contracts that production Knip cannot trace.
   "src/agents/compaction-planning.worker.ts!",
   "scripts/print-cli-backend-live-metadata.ts!",

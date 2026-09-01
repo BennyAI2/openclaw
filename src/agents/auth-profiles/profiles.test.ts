@@ -17,6 +17,10 @@ import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db
 import { withEnvAsync } from "../../test-utils/env.js";
 import { AUTH_STORE_VERSION } from "./constants.js";
 import { testing as externalAuthTesting } from "./external-auth.test-support.js";
+import {
+  getRuntimeAuthProfileStoreCredentialMutationToken,
+  getRuntimeAuthProfileStoreStateMutationToken,
+} from "./mutation-lineage.js";
 import { resolveApiKeyForProfile } from "./oauth.js";
 import { loadPersistedAuthProfileStore } from "./persisted.js";
 import {
@@ -36,9 +40,7 @@ import {
 import {
   clearRuntimeAuthProfileStoreSnapshots,
   getRuntimeAuthProfileStoreSnapshotCore as getInternalRuntimeAuthProfileStoreSnapshot,
-  getRuntimeAuthProfileStoreCredentialMutationToken,
   getRuntimeAuthProfileStoreCredentialsRevision,
-  getRuntimeAuthProfileStoreStateMutationToken,
   listOwnedRuntimeAuthProfileStoreSnapshots,
   replaceRuntimeAuthProfileStoreSnapshots,
 } from "./runtime-snapshots.js";

@@ -1,3 +1,4 @@
+import type { PropertyValues } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../api/gateway.ts";
 import "../components/app-topbar.ts";
@@ -649,9 +650,13 @@ class OpenClawShell
     }
   }
 
-  override updated() {
+  override updated(changed: PropertyValues<this>) {
     this.syncDocumentTitle();
-    syncControlUiSystemChrome();
+    // Theme and breakpoint owners sync their changes; route/runtime changes
+    // can change whether the committed shell uses the chat background.
+    if (changed.has("routeState") || changed.has("runtime")) {
+      syncControlUiSystemChrome();
+    }
     // Render-gated pending lazy actions replay on the update that first
     // renders their element, independent of further context updates.
     this.restorePendingLazyAction();
@@ -739,7 +744,7 @@ class OpenClawShell
     snapshot: ApplicationContext["gateway"]["snapshot"],
     runtimeConfig = this.context?.runtimeConfig,
   ) {
-    this.shellGateway.ensureRuntimeConfig(snapshot, runtimeConfig);
+    void this.shellGateway.ensureRuntimeConfig(snapshot, runtimeConfig).catch(() => undefined);
   }
 
   enabledRouteIds(): readonly RouteId[] {
@@ -757,7 +762,7 @@ class OpenClawShell
     snapshot: ApplicationContext["gateway"]["snapshot"],
     agents = this.context?.agents,
   ) {
-    this.shellGateway.ensureAgentsList(snapshot, agents);
+    void this.shellGateway.ensureAgentsList(snapshot, agents).catch(() => undefined);
   }
 
   private updateRouteState(routeState: ShellRouteState) {
