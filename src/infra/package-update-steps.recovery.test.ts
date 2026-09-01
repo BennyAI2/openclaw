@@ -338,10 +338,14 @@ describe("package update recovery safety", () => {
           expect(result.recovery).toEqual({
             serviceRestartSafe: false,
             reason: "runtime-verification-failed",
+            packageRollbackVerified: true,
           });
           expect(
             result.steps.find((step) => step.name === "global install swap")?.stdoutTail,
-          ).toContain("restored previous openclaw");
+          ).toContain("restored previous openclaw package and affected launchers");
+          expect(
+            result.steps.find((step) => step.name === "global install swap")?.stdoutTail,
+          ).toContain("candidate Doctor may have changed persistent state");
         }
       });
     },
@@ -423,6 +427,7 @@ describe("package update recovery safety", () => {
       expect(result.recovery).toEqual({
         serviceRestartSafe: false,
         reason: "runtime-verification-failed",
+        packageRollbackVerified: false,
       });
       expect(result.afterVersion).toBe("1.0.0");
       await expect(fs.readFile(targetShim, "utf8")).resolves.toBe("old openclaw\n");

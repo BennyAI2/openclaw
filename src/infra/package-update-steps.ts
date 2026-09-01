@@ -83,7 +83,7 @@ type StagedNpmSwapResult =
       status: "failed";
       step: PackageUpdateStepResult;
       postVerifyStep: PackageUpdateStepResult | null;
-      rollbackVerified: boolean;
+      packageRollbackVerified: boolean;
     };
 
 type PackageUpdateStepsResult = {
@@ -775,7 +775,7 @@ async function swapStagedNpmInstall(params: {
       status: "failed",
       step: step(1, null, "cannot resolve npm global prefix layout"),
       postVerifyStep: null,
-      rollbackVerified: false,
+      packageRollbackVerified: false,
     };
   }
 
@@ -806,27 +806,27 @@ async function swapStagedNpmInstall(params: {
   let previousVersion: string | null = null;
   const shims: Array<{ source: string; destination: string; backup: string | null }> = [];
   const rollback: Array<() => Promise<void>> = [];
-  let rollbackVerified = false;
+  let packageRollbackVerified = false;
   const restoreSwap = async (): Promise<string[]> => {
     const messages: string[] = [];
     for (const restore of rollback.toReversed()) {
       try {
         await restore();
       } catch (restoreError) {
-        rollbackVerified = false;
+        packageRollbackVerified = false;
         messages.push(`rollback failed: ${formatErrorMessage(restoreError)}`);
       }
     }
     try {
       const restoredVersion = await readPackageVersionIfPresent(targetPackageRoot);
       if (!hadPackage || !previousVersion || restoredVersion !== previousVersion) {
-        rollbackVerified = false;
+        packageRollbackVerified = false;
         messages.push(
           `rollback verification failed: expected package version ${previousVersion ?? "<none>"}, found ${restoredVersion ?? "<none>"}`,
         );
       }
     } catch (verificationError) {
-      rollbackVerified = false;
+      packageRollbackVerified = false;
       messages.push(`rollback verification failed: ${formatErrorMessage(verificationError)}`);
     }
     for (const shim of shims) {
@@ -835,19 +835,19 @@ async function swapStagedNpmInstall(params: {
           ? await pathEntriesMatch(shim.backup, shim.destination)
           : !(await pathEntryExists(shim.destination));
         if (!restored) {
-          rollbackVerified = false;
+          packageRollbackVerified = false;
           messages.push(
             `rollback verification failed: launcher ${shim.destination} was not restored`,
           );
         }
       } catch (verificationError) {
-        rollbackVerified = false;
+        packageRollbackVerified = false;
         messages.push(
           `rollback verification failed for launcher ${shim.destination}: ${formatErrorMessage(verificationError)}`,
         );
       }
     }
-    if (!rollbackVerified) {
+    if (!packageRollbackVerified) {
       messages.push(
         `Installation recovery is unverified; inspect the installation and backups in ${targetLayout.globalRoot} before restarting.`,
       );
@@ -862,7 +862,7 @@ async function swapStagedNpmInstall(params: {
   try {
     hadPackage = await pathEntryExists(targetPackageRoot);
     previousVersion = hadPackage ? await readPackageVersionIfPresent(targetPackageRoot) : null;
-    rollbackVerified = hadPackage && previousVersion !== null;
+    packageRollbackVerified = hadPackage && previousVersion !== null;
     await fs.mkdir(targetLayout.globalRoot, { recursive: true });
     const shimNames = new Set([params.packageName, "openclaw"]);
     const shimEntries =
@@ -898,14 +898,14 @@ async function swapStagedNpmInstall(params: {
     }
     // A copy-fallback move can reject after committing its destination and
     // partially removing its source. Only a completed backup permits restoration.
-    rollbackVerified = false;
+    packageRollbackVerified = false;
     if (hadPackage) {
       await movePathWithCopyFallback({
         from: targetPackageRoot,
         sourceHardlinks: PACKAGE_MANAGER_SWAP_SOURCE_HARDLINKS,
         to: backupRoot,
       });
-      rollbackVerified = true;
+      packageRollbackVerified = true;
     }
     rollback.push(async () => {
       await removePath(targetPackageRoot);
@@ -957,11 +957,12 @@ async function swapStagedNpmInstall(params: {
       const rollbackMessages = await restoreSwap();
       return {
         status: "failed",
-        step: rollbackVerified
+        step: packageRollbackVerified
           ? step(
               0,
               [
-                `restored previous ${params.packageName} after verification failed`,
+                `restored previous ${params.packageName} package and affected launchers after verification failed`,
+                "candidate Doctor may have changed persistent state; managed Gateway remains stopped",
                 ...rollbackMessages,
               ]
                 .filter(Boolean)
@@ -970,7 +971,7 @@ async function swapStagedNpmInstall(params: {
             )
           : step(1, null, rollbackMessages.join("\n")),
         postVerifyStep,
-        rollbackVerified,
+        packageRollbackVerified,
       };
     }
     const cleanup = [
@@ -997,7 +998,7 @@ async function swapStagedNpmInstall(params: {
       status: "failed",
       step: step(1, null, errors.join("\n")),
       postVerifyStep: null,
-      rollbackVerified,
+      packageRollbackVerified,
     };
   }
 }
@@ -1382,6 +1383,11 @@ export async function runGlobalPackageUpdateSteps(params: {
           verifiedPackageRoot = params.installTarget.packageRoot ?? verifiedPackageRoot;
           afterVersion = candidateVersion;
         } else {
+          recovery = {
+            serviceRestartSafe: false,
+            reason: "runtime-verification-failed",
+            packageRollbackVerified: swap.packageRollbackVerified,
+          };
           afterVersion = await readPackageVersionIfPresent(livePackageRoot);
         }
       }

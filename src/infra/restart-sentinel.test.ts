@@ -823,6 +823,11 @@ describe("restart success continuation", () => {
 describe("control-plane update restart sentinel", () => {
   it.each([
     { serviceRestartSafe: false, reason: "runtime-verification-failed" },
+    {
+      serviceRestartSafe: false,
+      reason: "runtime-verification-failed",
+      packageRollbackVerified: true,
+    },
     { serviceRestartSafe: true, version: "1.0.0", service: "failed" },
     {
       serviceRestartSafe: true,
