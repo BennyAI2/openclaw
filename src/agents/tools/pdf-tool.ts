@@ -8,6 +8,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { Type } from "typebox";
+import { hasToolModelConfig } from "../../config/model-input.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { bindModelLlmRuntime } from "../../llm/model-runtime-binding.js";
 import { complete } from "../../llm/stream.js";
@@ -44,7 +45,6 @@ import {
   resolveRemoteMediaSsrfPolicy,
   type MediaToolSandbox,
 } from "./media-tool-shared.js";
-import { hasToolModelConfig } from "./model-config.helpers.js";
 import { anthropicAnalyzePdf, geminiAnalyzePdf } from "./pdf-native-providers.js";
 import {
   coercePdfAssistantText,

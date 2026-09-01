@@ -2,6 +2,7 @@ import { uniqueStrings } from "@openclaw/normalization-core/string-normalization
 import { findCapabilityProviderById } from "../../packages/media-generation-core/src/capability-model-ref.js";
 import { normalizeMediaProviderId } from "../../packages/media-understanding-common/src/provider-id.js";
 import {
+  hasToolModelConfig,
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
@@ -39,12 +40,6 @@ function coerceFactoryToolModelConfig(model?: AgentModelConfig): ToolModelConfig
     ...(primary?.trim() ? { primary: primary.trim() } : {}),
     ...(fallbacks.length > 0 ? { fallbacks } : {}),
   };
-}
-
-function hasToolModelConfig(model: ToolModelConfig | undefined): boolean {
-  return Boolean(
-    model?.primary?.trim() || (model?.fallbacks ?? []).some((entry) => entry.trim().length > 0),
-  );
 }
 
 function hasExplicitToolModelConfig(modelConfig: AgentModelConfig | undefined): boolean {

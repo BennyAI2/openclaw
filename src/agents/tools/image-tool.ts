@@ -2,6 +2,7 @@ import { resolve, isAbsolute } from "node:path";
 import { Type } from "typebox";
 import { findCapabilityProviderById } from "../../../packages/media-generation-core/src/capability-model-ref.js";
 import { normalizeMediaProviderId } from "../../../packages/media-understanding-common/src/provider-id.js";
+import { hasToolModelConfig } from "../../config/model-input.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { MediaUnderstandingModelConfig } from "../../config/types.tools.js";
 import {
@@ -71,7 +72,6 @@ import {
 } from "./media-tool-shared.js";
 import {
   buildToolModelConfigFromCandidates,
-  hasToolModelConfig,
   resolveDefaultModelRef,
   resolveOpenAiImageMediaCandidate,
 } from "./model-config.helpers.js";

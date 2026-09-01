@@ -10,6 +10,7 @@ import {
   findCapabilityProviderById,
   resolveCapabilityModelRefForProviders,
 } from "../../../packages/media-generation-core/src/capability-model-ref.js";
+import { hasToolModelConfig } from "../../config/model-input.js";
 import type { AgentModelConfig } from "../../config/types.agents-shared.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { safeFileURLToPath } from "../../infra/local-file-access.js";
@@ -47,7 +48,6 @@ import {
   buildToolModelConfigFromCandidates,
   coerceToolModelConfig,
   hasProviderAuthForTool,
-  hasToolModelConfig,
   resolveDefaultModelRef,
   type ToolModelConfig,
 } from "./model-config.helpers.js";

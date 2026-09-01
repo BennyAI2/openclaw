@@ -19,6 +19,15 @@ type AgentModelListLike = {
 
 type AgentModelInput = AgentModelConfig | AgentToolModelConfig;
 
+/** Returns whether a tool model config contains a primary or fallback model ref. */
+export function hasToolModelConfig(
+  model: Exclude<AgentToolModelConfig, string> | undefined,
+): boolean {
+  return Boolean(
+    model?.primary?.trim() || (model?.fallbacks ?? []).some((entry) => entry.trim().length > 0),
+  );
+}
+
 /** Returns the primary model ref from either string or object-style agent model config. */
 export function resolveAgentModelPrimaryValue(model?: AgentModelInput): string | undefined {
   return resolvePrimaryStringValue(model);

@@ -5,6 +5,7 @@
  * whether candidate providers have usable auth before exposing defaults.
  */
 import {
+  hasToolModelConfig,
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
   resolveAgentModelTimeoutMsValue,
@@ -42,13 +43,6 @@ type OpenAiImageMediaCandidateDecision =
   | { kind: "keep"; ref: string }
   | { kind: "substitute"; ref: string; provider: string }
   | { kind: "drop" };
-
-/** Returns whether a tool model config contains a primary or fallback model ref. */
-export function hasToolModelConfig(model: ToolModelConfig | undefined): boolean {
-  return Boolean(
-    model?.primary?.trim() || (model?.fallbacks ?? []).some((entry) => entry.trim().length > 0),
-  );
-}
 
 /** Resolves the configured default model ref, falling back to OpenClaw defaults. */
 export function resolveDefaultModelRef(cfg?: OpenClawConfig): { provider: string; model: string } {
