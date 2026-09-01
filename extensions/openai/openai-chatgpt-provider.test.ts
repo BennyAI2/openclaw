@@ -51,7 +51,11 @@ describe("OpenAI provider Codex transport hooks", () => {
         itemId: "auth:openai",
         credentialKind: "oauth",
       },
-      undefined,
+      {
+        migrationProviderId: "codex",
+        itemId: "auth:openai",
+        credentialKind: "api_key",
+      },
     ]);
     expect(provider.oauthProfileIdRepairs).toBeUndefined();
   });

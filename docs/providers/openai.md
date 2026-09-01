@@ -666,6 +666,8 @@ is available, the normal browser or device flow starts. This one-time pickup
 does not run during `/models` or model catalog discovery. The login fast path
 does not copy Codex model-cache entries into OpenClaw settings; current
 subscription models still come from Codex `model/list` catalog refreshes.
+The Control UI **OpenAI API Key** sign-in action also reuses an existing Codex
+CLI API-key credential before it asks for secure input.
 
 A local ChatGPT/Codex subscription sign-in is not replaced just because the
 gateway process also has `OPENAI_API_KEY` for direct OpenAI models or
