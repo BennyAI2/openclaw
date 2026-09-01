@@ -1346,12 +1346,6 @@ export function renderPlugins(props: PluginsViewProps) {
         </button>
       </div>
 
-      ${props.mutationBlockedReason
-        ? html`<div class="plugins-readonly oc-banner oc-banner-warning" role="note">
-            <span aria-hidden="true">${icons.alertTriangle}</span>
-            <span>${props.mutationBlockedReason}</span>
-          </div>`
-        : nothing}
       ${props.error
         ? html`<div class="plugins-page-error oc-banner oc-banner-error" role="alert">
             <span>${props.error}</span>
