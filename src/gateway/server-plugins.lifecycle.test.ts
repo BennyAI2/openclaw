@@ -356,7 +356,7 @@ describe("gateway plugin instance bindings", () => {
         .spyOn(startupTrace, "createGatewayStartupTrace")
         .mockImplementationOnce((...args) => {
           const trace = createTrace(...args);
-          const measure = trace.measure;
+          const measure = trace.measure.bind(trace);
           trace.measure = async (name, run, options) => {
             const result = await measure(name, run, options);
             if (name === "plugins.runtime-post-bind") {

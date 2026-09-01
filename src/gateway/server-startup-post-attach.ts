@@ -1264,6 +1264,7 @@ export async function startGatewayPostAttachRuntime(
           throw new AggregateError(
             [error, cleanupError],
             "Startup plugin attachment cleanup failed",
+            { cause: error },
           );
         });
         throw error;

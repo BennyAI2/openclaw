@@ -2015,6 +2015,7 @@ describe("loadGatewayPlugins", () => {
           );
         });
       });
+      const failures: unknown[] = [];
       try {
         channel = await runtimeOwner.api.runtime.nodes.openDuplex({
           nodeId: "node-1",
@@ -2058,6 +2059,8 @@ describe("loadGatewayPlugins", () => {
         await runtimeRegistryModule.clearActivePluginRegistry();
         closeGateway();
         expect(await sharedRuntime.gateway.isAvailable()).toBe(false);
+      } catch (error) {
+        failures.push(error);
       } finally {
         channel?.close();
         loaded.retireGatewayRuntimeBindings();
@@ -2069,12 +2072,12 @@ describe("loadGatewayPlugins", () => {
             ? [runtimeRegistryModule.disposePluginRegistryInstances(scoped.registry)]
             : []),
         ]);
-        const failures = settled.flatMap((result) =>
-          result.status === "rejected" ? [result.reason] : [],
+        failures.push(
+          ...settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
         );
-        if (failures.length) {
-          throw new AggregateError(failures, "Plugin duplex fixture cleanup failed");
-        }
+      }
+      if (failures.length) {
+        throw new AggregateError(failures, "Plugin duplex fixture or cleanup failed");
       }
     },
   );

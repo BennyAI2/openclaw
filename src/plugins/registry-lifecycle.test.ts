@@ -421,8 +421,8 @@ describe("concurrent Gateway registry owners", () => {
     "joins concurrent Gateway closes through cleanup %s",
     async (outcome) => {
       const fixture = ownedRegistry("A");
-      const disposing = createDeferredCore<void>();
-      const release = createDeferredCore<void>();
+      const disposing = createDeferredCore();
+      const release = createDeferredCore();
       fixture.plugin.onDispose(async () => {
         disposing.resolve();
         await release.promise;

@@ -284,7 +284,9 @@ export async function loadGatewayStartupPluginRuntime(params: {
   } catch (error) {
     loaded.retireGatewayRuntimeBindings();
     await disposePluginRegistryInstances(loaded.pluginRegistry).catch((cleanupError: unknown) => {
-      throw new AggregateError([error, cleanupError], "Startup plugin candidate cleanup failed");
+      throw new AggregateError([error, cleanupError], "Startup plugin candidate cleanup failed", {
+        cause: error,
+      });
     });
     throw error;
   }
