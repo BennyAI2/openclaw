@@ -1,4 +1,5 @@
 import {
+  isStringArray,
   normalizeBoundedOptionalString,
   normalizeStringifiedEntries,
   readNonBlankString,
@@ -8,6 +9,16 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("normalization-core/string-coerce", () => {
+  it.each([
+    { value: [], expected: true },
+    { value: ["", "  ", "value"], expected: true },
+    { value: ["value", 42], expected: false },
+    { value: "value", expected: false },
+    { value: null, expected: false },
+  ])("checks string arrays without normalizing them", ({ value, expected }) => {
+    expect(isStringArray(value)).toBe(expected);
+  });
+
   it("normalizes primitive stringified entries", () => {
     expect(normalizeStringifiedEntries([" a ", 42, true, 0n, "", "  ", null, {}])).toEqual([
       "a",

@@ -3,6 +3,11 @@ export function readStringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** Checks for an array whose entries are all strings without transforming them. */
+export function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
 /** Trims string input and returns null for non-strings or empty strings. */
 export function normalizeNullableString(value: unknown): string | null {
   if (typeof value !== "string") {

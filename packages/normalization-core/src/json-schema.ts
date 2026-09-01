@@ -2,6 +2,7 @@
 import { Guard } from "typebox/guard";
 import { Check } from "typebox/schema";
 import { isRecord } from "./record-coerce.js";
+import { isStringArray } from "./string-coerce.js";
 
 type JsonSchemaObject = Record<string, unknown>;
 export type JsonSchemaValue = JsonSchemaObject | boolean;
@@ -179,10 +180,6 @@ function normalizeJsonSchemaNode(schema: unknown): unknown {
       return [key, value];
     }),
   );
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
 function isJsonValue(

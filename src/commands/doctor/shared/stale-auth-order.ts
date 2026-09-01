@@ -1,6 +1,7 @@
 // Repairs configured auth orders whose referenced profiles no longer exist.
 import fs from "node:fs";
 import path from "node:path";
+import { isStringArray } from "@openclaw/normalization-core/string-coerce";
 import { listAgentIds, resolveAgentDir } from "../../../agents/agent-scope-config.js";
 import { listRuntimeExternalAuthProfiles } from "../../../agents/auth-profiles/external-auth.js";
 import {
@@ -57,10 +58,6 @@ const AUTH_PROFILE_MODES = new Set(["api_key", "aws-sdk", "oauth", "token"]);
 const INVALID_SQLITE_STORE_WARNING =
   "- Skipped auth.order repair because a SQLite auth profile store is unreadable, unavailable, or contains invalid credentials; repair or re-import that agent's auth store, then rerun doctor.";
 
-function isProfileIdList(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((profileId) => typeof profileId === "string");
-}
-
 function readValidConfiguredAuthOrder(cfg: OpenClawConfig): Record<string, string[]> | undefined {
   const order: unknown = cfg.auth?.order;
   if (!isRecord(order)) {
@@ -68,7 +65,7 @@ function readValidConfiguredAuthOrder(cfg: OpenClawConfig): Record<string, strin
   }
   const result: Record<string, string[]> = {};
   for (const [provider, profileIds] of Object.entries(order)) {
-    if (!isProfileIdList(profileIds)) {
+    if (!isStringArray(profileIds)) {
       return undefined;
     }
     result[provider] = profileIds;

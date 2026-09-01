@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { isStringArray } from "@openclaw/normalization-core/string-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { isUnresolvedShellReference } from "../config/state-dir-dotenv.js";
 import { hasErrnoCode } from "../infra/errno.js";
@@ -139,8 +140,6 @@ async function readSystemdManagerCommand(
   }
   const readProperties = (scope: "Unit" | "Service", names: string[], signatures: string[]) =>
     query(["get-property", manager, unitPath, `${manager}.${scope}`, ...names], signatures);
-  const isStringArray = (value: unknown): value is string[] =>
-    Array.isArray(value) && value.every((entry) => typeof entry === "string");
   const unitProperties = await readProperties(
     "Unit",
     ["FragmentPath", "DropInPaths", "NeedDaemonReload", "LoadState"],

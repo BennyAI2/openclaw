@@ -1,6 +1,7 @@
 // Gateway Smoke script supports OpenClaw repository automation.
 import { fileURLToPath } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { isStringArray } from "@openclaw/normalization-core/string-coerce";
 import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -107,10 +108,6 @@ function hasHealthSummaryPayload(response: unknown): boolean {
   );
 }
 
-function hasStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
 function connectHelloScopes(response: unknown): string[] | null {
   if (!isRecord(response) || !isRecord(response.payload)) {
     return null;
@@ -120,11 +117,11 @@ function connectHelloScopes(response: unknown): string[] | null {
     payload.type !== "hello-ok" ||
     typeof payload.protocol !== "number" ||
     !isRecord(payload.features) ||
-    !hasStringArray(payload.features.methods) ||
+    !isStringArray(payload.features.methods) ||
     !payload.features.methods.includes("health") ||
     !isRecord(payload.auth) ||
     payload.auth.role !== "operator" ||
-    !hasStringArray(payload.auth.scopes)
+    !isStringArray(payload.auth.scopes)
   ) {
     return null;
   }

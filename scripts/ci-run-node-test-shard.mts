@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { isStringArray } from "@openclaw/normalization-core/string-coerce";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { parsePositiveInt, readPositiveEnvInt } from "./lib/numeric-options.mjs";
 
@@ -60,10 +61,6 @@ type RunShardOptions = {
   runChild?: typeof runChild;
   scratchDir?: string;
 };
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
 
 function isShardGroupConfig(value: unknown): value is ShardGroupConfig {
   return isRecord(value) && isStringArray(value.configs);

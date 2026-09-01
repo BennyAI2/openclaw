@@ -205,6 +205,11 @@ const MIXED_CANONICAL_COERCION_MODULES = ["scripts/lib/arg-utils.runtime.mjs"] a
 
 export const DEFERRED_CANONICAL_COERCION_EXPORTS = [
   {
+    file: "packages/normalization-core/src/string-coerce.ts",
+    name: "isStringArray",
+    reason: "Plugin-local and domain-specific guards with this name remain intentional.",
+  },
+  {
     file: "packages/normalization-core/src/error-coercion.ts",
     name: "extractErrorCode",
     reason: "Provider adapters share this name for nested response-code extraction.",
