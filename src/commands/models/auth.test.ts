@@ -547,6 +547,35 @@ describe("modelsAuthLoginCommand", () => {
     });
   });
 
+  it("fails visibly when login cannot update the auth profile order", async () => {
+    const runtime = createRuntime();
+    currentConfig = {
+      auth: {
+        order: {
+          openai: ["openai:old-login"],
+        },
+      },
+    };
+    mocks.promoteAuthProfileInOrder.mockResolvedValueOnce(null);
+
+    await expect(modelsAuthLoginCommand({ provider: "openai" }, runtime)).rejects.toThrow(
+      "The auth profile was saved, but its order could not be updated because the auth store is busy. Wait a moment, then retry the login.",
+    );
+
+    expect(mocks.upsertAuthProfileAfterLoginWithLock).toHaveBeenCalledOnce();
+    expect(mocks.promoteAuthProfileInOrder).toHaveBeenCalledWith({
+      agentDir: "/tmp/openclaw/agents/main",
+      provider: "openai",
+      profileId: "openai:user@example.com",
+      createIfMissing: true,
+      createFromOrder: ["openai:old-login"],
+    });
+    expect(mocks.callGateway).not.toHaveBeenCalled();
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("Auth profile: openai:user@example.com"),
+    );
+  });
+
   it("executes only the manifest owner selected by a remote login choice", async () => {
     const runtime = createRuntime();
     const workspaceAuth = vi.fn().mockResolvedValue({
