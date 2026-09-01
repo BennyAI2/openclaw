@@ -23,6 +23,35 @@ function createTestProgressDraftCompositor(
 const DEFAULT_PROGRESS_DRAFT_INITIAL_DELAY_MS = 1_500;
 
 describe("createChannelProgressDraftCompositor", () => {
+  it.each([
+    {
+      name: "retains a complete filename in the reasoning body",
+      input: "review ".repeat(15) + "important.json next",
+      expected: "review ".repeat(15) + "important.json…",
+    },
+    {
+      name: "uses code-point positions for reasoning word backoff",
+      input: "𠮷".repeat(40) + " " + "x".repeat(100),
+      expected: "𠮷".repeat(40) + " " + "x".repeat(78) + "…",
+    },
+  ])("$name", async ({ input, expected }) => {
+    const update = vi.fn();
+    const progress = createTestProgressDraftCompositor({
+      entry: {
+        streaming: { mode: "progress", progress: { label: false, maxLineChars: 122 } },
+      },
+      update,
+    });
+    try {
+      await progress.start();
+      await progress.pushReasoningProgress(input, { snapshot: true });
+
+      expect(update.mock.lastCall?.[0]).toBe(`• _${expected}_`);
+    } finally {
+      progress.cancel();
+    }
+  });
+
   it("keeps summary presentation stable across tool activity and uses plain milestones", async () => {
     const update = vi.fn();
     const progress = createTestProgressDraftCompositor({
