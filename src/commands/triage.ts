@@ -322,26 +322,27 @@ export async function triageCommand(
   if (automatic && !automatic.diagnosticOnly) {
     automatic.assertCurrent();
   }
-  const inference = await verifySetupInference({ runtime, timeoutMs: 15_000 });
-  if (!inference.ok) {
-    const reason = scrubDoctorErrorMessage(redactSupportString(inference.error, redaction));
-    throw new Error(
-      `Embedded agent unavailable: ${reason}. Run \`openclaw onboard\` or use a suggested handoff command.`,
-    );
-  }
-  automatic?.signal.throwIfAborted();
-  const { agentExecCommand } = await import("./agent-exec.js");
-  if (automatic && !automatic.diagnosticOnly) {
-    automatic.assertCurrent();
-  }
-  const result = await withInstallationTarget(target, () =>
-    agentExecCommand(
+  // Preflight must validate the same installation and transport eligibility as the fixing turn.
+  const result = await withInstallationTarget(target, async () => {
+    const inference = await verifySetupInference({ runtime, timeoutMs: 15_000 });
+    if (!inference.ok) {
+      const reason = scrubDoctorErrorMessage(redactSupportString(inference.error, redaction));
+      throw new Error(
+        `Embedded agent unavailable: ${reason}. Run \`openclaw onboard\` or use a suggested handoff command.`,
+      );
+    }
+    automatic?.signal.throwIfAborted();
+    const { agentExecCommand } = await import("./agent-exec.js");
+    if (automatic && !automatic.diagnosticOnly) {
+      automatic.assertCurrent();
+    }
+    return await agentExecCommand(
       undefined,
       { messageFile: promptPath },
       runtime,
       automatic ? { abortSignal: automatic.signal } : {},
-    ),
-  );
+    );
+  });
   if (result.exitCode !== 0) {
     runtime.exit(result.exitCode);
   }

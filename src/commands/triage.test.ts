@@ -8,6 +8,10 @@ import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { HealthFinding } from "../flows/health-checks.js";
+import {
+  getInstallationTarget,
+  resolveInstallationTarget,
+} from "../infra/installation-target-context.js";
 import { triageAfterFailure } from "./triage-failure.js";
 import { renderTriagePrompt } from "./triage-prompt.js";
 import { triageCommand } from "./triage.js";
@@ -769,10 +773,11 @@ describe("triageCommand", () => {
         config: { agents: { defaults: { model: "openai/gpt-5.6-luna" } } },
       });
       mocks.select.mockResolvedValue({ kind: "embedded" });
-      mocks.verifySetupInference.mockResolvedValue({
-        ok: false,
-        status: "auth",
-        error: "The configured model is unavailable",
+      const target = resolveInstallationTarget();
+      let inferenceTarget: ReturnType<typeof getInstallationTarget>;
+      mocks.verifySetupInference.mockImplementation(async () => {
+        inferenceTarget = getInstallationTarget();
+        return { ok: false, status: "auth", error: "The configured model is unavailable" };
       });
       const runtime = createRuntime();
 
@@ -784,6 +789,12 @@ describe("triageCommand", () => {
 
       expect(mocks.verifySetupInference).toHaveBeenCalledWith({ runtime, timeoutMs: 15_000 });
       expect(mocks.agentExecCommand).not.toHaveBeenCalled();
+      expect(getInstallationTarget()).toBeUndefined();
+      expect(inferenceTarget).toEqual(target);
+      const output = runtime.log.mock.calls.flat().join("\n");
+      expect(output).toContain("Ready-to-run agent handoffs:");
+      const promptPath = output.match(/^Debugging prompt: (.+)$/mu)?.[1];
+      expect(await fs.readFile(promptPath!, "utf8")).toContain("## Privacy");
     },
   );
 
