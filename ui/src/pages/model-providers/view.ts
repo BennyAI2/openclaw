@@ -284,7 +284,7 @@ function renderProviderActions(card: ModelProviderCard, props: ModelProvidersVie
         (option) => html`
           <button
             class="btn btn--sm"
-            aria-label=${t("modelProviders.login.actionFor", { provider: option.label })}
+            aria-label=${t("modelProviders.login.action", { provider: option.label })}
             ?disabled=${mutationDisabled || props.providerLoginBusy}
             title=${blocked}
             @click=${() => props.onLogin(card.id, option)}
