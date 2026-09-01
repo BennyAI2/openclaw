@@ -4,7 +4,9 @@ import fsp from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { parseRemoteWorkspaceManifestCapture } from "../gateway/worker-environments/workspace-hash-memo.js";
 import {
   serializeWorkerWorkspaceManifest,
   type WorkerWorkspaceManifest,
@@ -127,6 +129,84 @@ async function fixture() {
 }
 
 describe("prepared node workspace ownership", () => {
+  it("reuses registration hashes only in the bound generation and revalidates later edits", async () => {
+    const f = await fixture();
+    await f.runtime.prepare(f.registration);
+    await expect(f.runtime.prepare({ ...binding, preparationKey: "b".repeat(64) })).rejects.toThrow(
+      "does not match",
+    );
+    await f.runtime.prepare(binding);
+    const capture = async (runtime = f.runtime) =>
+      parseRemoteWorkspaceManifestCapture(
+        (
+          await runtime.exec({
+            ...f.command,
+            capture: {
+              baseManifestRef: f.registration.sourceManifestRef,
+              referenceManifestRef: f.registration.sourceManifestRef,
+            },
+          })
+        ).stdout,
+      );
+    expect(await capture()).toMatchObject({
+      manifestRef: f.registration.sourceManifestRef,
+      metrics: { contentHashCount: 0, memoHitCount: 2 },
+    });
+    const sourcePath = path.join(f.workspaceDir, "source.txt");
+    const originalStat = await fsp.stat(sourcePath);
+    await fsp.writeFile(sourcePath, "modified source\n");
+    await fsp.utimes(sourcePath, originalStat.atime, originalStat.mtime);
+    const changed = await capture();
+    expect(changed.manifestRef).not.toBe(f.registration.sourceManifestRef);
+    expect(changed.metrics).toMatchObject({ contentHashCount: 1, memoHitCount: 1 });
+    await f.runtime.prepare(binding);
+    expect(await capture()).toMatchObject({
+      manifestRef: changed.manifestRef,
+      metrics: { contentHashCount: 0, memoHitCount: 2 },
+    });
+    expect(await capture(new NodeWorkerWorkspaceRuntime(f.options))).toMatchObject({
+      manifestRef: changed.manifestRef,
+      metrics: { contentHashCount: 2, memoHitCount: 0 },
+    });
+  });
+
+  it.each([false, true])("serializes bind behind registration (aborted: %s)", async (aborted) => {
+    const f = await fixture();
+    const controller = new AbortController();
+    const captured = createDeferred();
+    const released = createDeferred();
+    const capture = workspaceCommands.captureManifest;
+    vi.spyOn(workspaceCommands, "captureManifest").mockImplementationOnce(async (params) => {
+      const result = await capture(params);
+      captured.resolve();
+      await released.promise;
+      return result;
+    });
+    const registration = f.runtime.prepare(f.registration, controller.signal);
+    const registrationResult = registration.then(
+      () => "registered",
+      () => "rejected",
+    );
+    await captured.promise;
+    const bound = f.runtime.prepare(binding);
+    const bindingResult = bound.then(
+      () => "bound",
+      () => "rejected",
+    );
+    if (aborted) {
+      controller.abort();
+    }
+    released.resolve();
+    expect(await registrationResult).toBe(aborted ? "rejected" : "registered");
+    expect(await bindingResult).toBe(aborted ? "rejected" : "bound");
+    const row = new NodeWorkerPreparedWorkspaceStore({ env: f.env }).find(binding.environmentId);
+    if (aborted) {
+      expect(row).toBeUndefined();
+    } else {
+      expect(row).toMatchObject({ state: "bound", session_id: binding.sessionId });
+    }
+  });
+
   it("requires the bound host session key before launching a worker with prepared HOME", async () => {
     const f = await fixture();
     await f.runtime.prepare(f.registration);

@@ -178,7 +178,7 @@ export class NodeWorkerWorkspaceRuntime {
   private readonly acceptedSnapshots = new Map<string, AcceptedRetainSnapshot>();
   private readonly activeWorkspaceOperations = new Map<string, number>();
   private readonly latestTransferredManifest = new Map<string, string>();
-  // Per-generation capture hash memo; lets upload captures skip re-hashing unchanged trees.
+  // Registration hashes move from their prepared owner root to the bound generation.
   private readonly workspaceHashMemos = new Map<string, Map<string, string>>();
   private readonly deletingWorkspaceGenerations = new Set<string>();
   private readonly activeRetainProtections = new Map<string, Set<Set<string>>>();
@@ -220,7 +220,13 @@ export class NodeWorkerWorkspaceRuntime {
     if (!this.prepared) {
       throw new Error("INVALID_REQUEST: prepared workspaces require a dedicated ephemeral node");
     }
-    return await prepareNodeWorkerWorkspace(this.preparedRoot, this.prepared, input, signal);
+    return await prepareNodeWorkerWorkspace(
+      this.preparedRoot,
+      this.prepared,
+      input,
+      this.workspaceHashMemos,
+      signal,
+    );
   }
 
   acquirePreparedWorkspace(

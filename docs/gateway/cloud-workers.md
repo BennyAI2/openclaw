@@ -155,6 +155,8 @@ A snapshot fork provisions a fresh lease with fresh node enrollment. Ready reser
 
 Project preparation checks for the exact pristine seed before building or uploading a Git pack. A ready worker binds its registered fixed workspace in place and applies the current session's eligible file manifest. Other seed-backed workspaces copy only the seed's Git objects into a fresh repository, recreate its Git metadata, and apply that manifest. A matching seed skips both an origin fetch and a full Git pack download, including for private or unpublished commits. A missing seed uses the Gateway pack; an invalid prepared seed fails visibly. Workspaces without a prepared project keep the eligible origin/seed path. The Gateway builds transfer packs only on demand, and each transfer retains its original base commit even if local commits change later.
 
+Ready workers reuse file hashes collected during registration, and manifest downloads use gzip when both peers support it. Hash reuse stays bounded to the worker's current ownership generation and file identities; every capture still checks the current filesystem, and every downloaded manifest is verified before files change.
+
 #### Recover a paused capture
 
 Inspect local ownership without contacting the cloud:
