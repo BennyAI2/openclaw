@@ -45,6 +45,7 @@ import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
 import { formatCliCommand } from "./command-format.js";
 import { resolveGatewayAuthOptions } from "./gateway-secret-options.js";
 import { requestExitAfterOneShotOutput } from "./one-shot-exit.js";
+import { collectOption } from "./program/helpers.js";
 import { applyParentDefaultHelpAction } from "./program/parent-default-help.js";
 
 const createSessionMcpRuntime = createLazyRuntimeMethod(
@@ -77,10 +78,6 @@ function parseCsvList(value: string | undefined): string[] | undefined {
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
   return entries.length > 0 ? entries : undefined;
-}
-
-function collectOption(value: string, previous: string[] = []): string[] {
-  return [...previous, value];
 }
 
 function parseKeyValueEntries(values: readonly string[] | undefined, label: string) {
