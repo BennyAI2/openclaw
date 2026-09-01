@@ -619,7 +619,7 @@ describe("opencode-go provider plugin", () => {
           baseUrl: "https://opencode.ai/zen/go",
         } as never,
         {} as never,
-        { headers: { "X-Custom": "1" } },
+        { headers: { "User-Agent": "configured-client/1.0", "X-Custom": "1" } },
       );
       await streamFn?.(
         {
@@ -629,7 +629,7 @@ describe("opencode-go provider plugin", () => {
           baseUrl: "https://proxy.example.com",
         } as never,
         {} as never,
-        { headers: { "X-Custom": "2" } },
+        { headers: { "User-Agent": "configured-client/2.0", "X-Custom": "2" } },
       );
 
       expect(capturedHeaders).toEqual([
@@ -637,7 +637,7 @@ describe("opencode-go provider plugin", () => {
           "User-Agent": expect.stringMatching(/^openclaw\//),
           "X-Custom": "1",
         },
-        { "X-Custom": "2" },
+        { "User-Agent": "configured-client/2.0", "X-Custom": "2" },
       ]);
     }
   });
