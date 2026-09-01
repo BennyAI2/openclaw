@@ -7,6 +7,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- **Cloud worker preparation:** keep a configurable reserve of ready project workers, reuse checked-out and built snapshots at stable paths, and retire unused capacity without extending its idle deadline. (#134931)
 - **Release validation:** defer beta candidate Parallels smoke to postpublish `release:beta-smoke` by default, keep stable/full prepublish coverage, and bound nested release workflow monitors with explicit job timeouts.
 - **Developer workflow:** remove the obsolete scoped-commit helper and use standard Git commands in isolated worktrees.
 - Fixed Crabbox hydration on unprivileged cloud sandboxes by falling back to a user-writable pnpm store when the shared `/var/cache/crabbox` cache is unavailable, preserving the hardlink import mode after hydration, and making Docker an explicit routed capability instead of an implicit install requirement.
