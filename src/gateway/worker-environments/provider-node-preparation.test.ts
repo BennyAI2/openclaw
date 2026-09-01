@@ -22,6 +22,7 @@ import { hashWorkerBundleManifest } from "../../shared/worker-bundle-hash.js";
 import { parseNodeWorkerWorkspaceRetainInput } from "../../worker/node-workspace-retain-protocol.js";
 import type { NodeWorkerSupervisorTransport } from "../node-registry-private.js";
 import { createNodeWorkspaceRetainCoordinator } from "./node-workspace-retain-coordinator.js";
+import { createWorkerSessionPlacementStore } from "./placement-store.js";
 import { createWorkerNodeProvisioning } from "./provider-node-provisioning.js";
 import { createWorkerEnvironmentService } from "./service.js";
 import * as support from "./service.test-support.js";
@@ -275,7 +276,7 @@ describe("prepared node registration ownership", () => {
   });
 
   it("retains both reserve slots after foreground timeouts until their raw provider calls settle", async () => {
-    const { store, config, root } = support.testState;
+    const { store, config, root, stateDb } = support.testState;
     support.getDevelopmentProfile().readyWorkers = 3;
     const repository = path.join(root, "source");
     await fs.mkdir(repository);
@@ -285,7 +286,6 @@ describe("prepared node registration ownership", () => {
     await fs.writeFile(path.join(repository, "input.txt"), "committed source\n");
     await requireGit(repository, ["add", "."]);
     await requireGit(repository, ["commit", "--quiet", "-m", "source"]);
-    const entered = createDeferredCore();
     const release = createDeferredCore();
     let active = 0;
     let maximumActive = 0;
@@ -293,9 +293,6 @@ describe("prepared node registration ownership", () => {
     const provision = vi.fn(async () => {
       active += 1;
       maximumActive = Math.max(maximumActive, active);
-      if (provision.mock.calls.length === 2) {
-        entered.resolve();
-      }
       try {
         await release.promise;
         throw new Error("provider fixture settled without returning a lease");
@@ -361,16 +358,43 @@ describe("prepared node registration ownership", () => {
         ...support.readyPatch("source"),
       },
     });
-    store.transition({
+    const attached = store.transition({
       environmentId: "source",
       from: "ready",
       to: "attached",
       patch: support.attachedPatch("source", "source-session"),
     });
+    const placements = createWorkerSessionPlacementStore({
+      database: stateDb,
+      now: () => support.testState.nowMs,
+    });
+    let placement = placements.startDispatch({
+      sessionId: "source-session",
+      sessionKey: "agent:main:source-session",
+      agentId: "main",
+      executionMode: "worker-turn",
+    });
+    // Attachment precedes successful activation, which owns reserve demand.
+    for (const step of [
+      { to: "provisioning", patch: { environmentId: attached.environmentId } },
+      { to: "syncing", patch: { workerBundleHash: support.BUNDLE_HASH } },
+      {
+        to: "starting",
+        patch: { remoteWorkspaceDir: "/workspace", workspaceBaseManifestRef: "manifest" },
+      },
+      { to: "active", patch: { activeOwnerEpoch: attached.ownerEpoch } },
+    ] as const) {
+      placement = placements.transition({
+        sessionId: placement.sessionId,
+        from: placement.state,
+        to: step.to,
+        expectedGeneration: placement.generation,
+        patch: step.patch,
+      });
+    }
     service.schedulePreparedRefill();
     try {
-      await entered.promise;
-      expect(provision).toHaveBeenCalledTimes(2);
+      await support.waitForFast(() => expect(provision).toHaveBeenCalledTimes(2));
       await support.waitForFast(() => {
         expect(
           store
