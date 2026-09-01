@@ -75,7 +75,7 @@ function getResetWindowKysely(database: OpenClawAgentDatabase) {
   return getNodeSqliteKysely<ResetWindowDatabase>(database.db);
 }
 
-function parseMessageEventRow(row: {
+export function decodeVisibleMessageRow(row: {
   event_seq: number;
   event_json: string;
   message_position: number | null;
@@ -391,7 +391,7 @@ export function readVisibleMessageRange(
     executeSqliteQuerySync(
       projection.database.db,
       range.query.select(["active.event_seq", "active.message_position", "event.event_json"]),
-    ).rows.map(parseMessageEventRow),
+    ).rows.map(decodeVisibleMessageRow),
   );
 }
 

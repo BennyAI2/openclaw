@@ -15,6 +15,7 @@ import type {
   TranscriptEvent,
 } from "./session-accessor.sqlite-contract.js";
 import {
+  decodeVisibleMessageRow,
   readTranscriptProjectionGeneration,
   readVisibleMessageMetadata,
   readVisibleMessageRange,
@@ -73,23 +74,6 @@ export type SessionTranscriptBoundedMessageTailPage = SessionTranscriptMessageEv
     indexedSeq: number;
   };
 };
-
-function parseMessageEventRow(row: {
-  event_seq: number;
-  event_json: string;
-  message_position: number | null;
-}): SessionTranscriptMessageEvent {
-  if (row.message_position === null) {
-    throw new Error("Active transcript message row is missing its message position");
-  }
-  return {
-    event: JSON.parse(row.event_json) as TranscriptEvent,
-    eventSeq: row.event_seq,
-    // Gateway cursors use the visible-message ordinal, matching the JSONL index.
-    // Raw event seq includes headers/control rows and would make pages overlap.
-    seq: row.message_position + 1,
-  };
-}
 
 /** Reads every message event on the active path. Full callers remain intentionally O(output). */
 export function readSessionTranscriptMessageEvents(
@@ -329,14 +313,12 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
               .where("active.message_position", "<=", lastMessagePosition)
               .orderBy("active.message_position", "asc"),
           ).rows.map((row) => {
-            if (row.message_position === null) {
-              throw new Error("Active transcript message row is missing its message position");
-            }
+            const decoded = decodeVisibleMessageRow(row);
             return {
-              event: JSON.parse(row.event_json) as TranscriptEvent,
-              eventSeq: row.event_seq,
+              event: decoded.event,
+              eventSeq: decoded.eventSeq,
               parentId: row.parent_id,
-              seq: row.message_position + 1,
+              seq: decoded.seq,
             };
           });
     const requiredBytes =
@@ -498,7 +480,7 @@ export function readSessionTranscriptBoundedMessageTailPage(
               .where("active.session_id", "=", projection.resolved.sessionId)
               .where("active.message_position", "in", selectedPositions)
               .orderBy("active.message_position", "asc"),
-          ).rows.map(parseMessageEventRow);
+          ).rows.map(decodeVisibleMessageRow);
     return {
       activeLeafEntryId: projection.state.leafEventId,
       events,

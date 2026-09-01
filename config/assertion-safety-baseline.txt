@@ -2651,7 +2651,7 @@ src/config/sessions/metadata.ts	1
 src/config/sessions/restart-recovery-state.ts	6
 src/config/sessions/session-accessor.entry-mutation.ts	2
 src/config/sessions/session-accessor.entry.ts	1
-src/config/sessions/session-accessor.sqlite-active-events.ts	3
+src/config/sessions/session-accessor.sqlite-active-events.ts	1
 src/config/sessions/session-accessor.sqlite-archive-store.ts	1
 src/config/sessions/session-accessor.sqlite-archive.ts	3
 src/config/sessions/session-accessor.sqlite-archive.worker.ts	7
