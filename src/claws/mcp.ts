@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
+import { coerceErrorMessage } from "@openclaw/normalization-core";
 import { setConfiguredMcpServer } from "../agents/mcp-config-mutation.js";
 import { withClawMcpLifecycleLease } from "../agents/mcp-lifecycle-lease.js";
 import { canonicalizeConfiguredMcpServer } from "../config/mcp-config-normalize.js";
@@ -9,6 +8,7 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import type { ClawReferencedCleanup } from "./package-remove.js";
 import type { ClawAddPlan, ClawMcpServer } from "./types.js";
 
@@ -76,7 +76,7 @@ function rowToRef(row: McpRefRow): PersistedClawMcpServerRef {
 
 export function digestClawMcpServer(server: Record<string, unknown>): string {
   const canonical = canonicalizeConfiguredMcpServer(server);
-  return `sha256:${createHash("sha256").update(stableStringify(canonical)).digest("hex")}`;
+  return digestClawCanonicalValue(canonical);
 }
 
 function persistPendingRef(

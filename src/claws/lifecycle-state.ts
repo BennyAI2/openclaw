@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
+import { coerceErrorMessage } from "@openclaw/normalization-core";
 import { unsetConfiguredMcpServer } from "../agents/mcp-config-mutation.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { listConfiguredMcpServers } from "../config/mcp-config.js";
@@ -9,6 +8,7 @@ import {
   resolveOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import {
   clawCronGatewayJobMatchesRef,
   deleteClawCronRef,
@@ -405,9 +405,7 @@ export async function buildClawRemovePlan(
     stability: CLAW_OUTPUT_STABILITY,
     dryRun: true,
     mutationAllowed: false,
-    planIntegrity: `sha256:${createHash("sha256")
-      .update(stableStringify(planIdentity))
-      .digest("hex")}`,
+    planIntegrity: digestClawCanonicalValue(planIdentity),
     target,
     ...(record ? { agentId: record.install.agentId } : {}),
     actions,

@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
-import { stableStringify } from "@openclaw/normalization-core";
 import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import {
   toPackageRefExtensionSqlParams,
   type PersistedClawPackageRef,
@@ -27,7 +26,7 @@ export function digestClawPackageRef(ref: PersistedClawPackageRef): string {
     installedAtMs: ref.installedAtMs,
     updatedAtMs: ref.updatedAtMs,
   };
-  return `sha256:${createHash("sha256").update(stableStringify(persisted)).digest("hex")}`;
+  return digestClawCanonicalValue(persisted);
 }
 
 export function replaceClawPackageRefExpected(

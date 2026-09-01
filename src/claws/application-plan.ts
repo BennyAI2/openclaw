@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { stableStringify } from "@openclaw/normalization-core";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import type {
   ClawAddCapabilityChange,
   ClawAddPlanAction,
@@ -87,7 +86,7 @@ function extensionCapabilityChange(params: {
     ...change,
     classification: "escalation",
     requiresDistinctConsent: true,
-    digest: `sha256:${createHash("sha256").update(stableStringify(effect)).digest("hex")}`,
+    digest: digestClawCanonicalValue(effect),
   };
 }
 

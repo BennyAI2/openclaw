@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { stableStringify } from "@openclaw/normalization-core";
 import { beginAgentDeletion } from "../agents/agent-lifecycle-registry.js";
 import { listAgentEntries } from "../agents/agent-scope.js";
 import { getRuntimeConfig } from "../config/config.js";
@@ -19,6 +17,7 @@ import type {
   OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db-contract.js";
 import { digestClawAgentConfig } from "./agent-config-digest.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import {
   deletionEffects,
   type ClawCleanupTargets,
@@ -59,7 +58,7 @@ export function digestClawAgentRemovalSurface(config: OpenClawConfig, agentId: s
       (entry) => entry === normalizedId,
     ),
   };
-  return `sha256:${createHash("sha256").update(stableStringify(surface)).digest("hex")}`;
+  return digestClawCanonicalValue(surface);
 }
 
 async function commitClawAgentConfigRemoval(

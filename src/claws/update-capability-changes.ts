@@ -1,5 +1,4 @@
 // Builds field-level capability change summaries for Claw update previews.
-import { createHash } from "node:crypto";
 import { stableStringify } from "@openclaw/normalization-core";
 import { listAgentEntries, toAgentEntriesRecord } from "../agents/agent-scope.js";
 import { resolveSandboxConfigForAgent } from "../agents/sandbox/config.js";
@@ -8,6 +7,7 @@ import { parseDurationMs } from "../cli/parse-duration.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveHeartbeatSummaryForAgent } from "../infra/heartbeat-summary.js";
 import { resolveRememberAcrossConversations } from "../memory-host-sdk/host/config-utils.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import { resolveClawToolProfileSnapshot } from "./tool-profile-consent.js";
 
 type ClawUpdateCapabilityValue = {
@@ -34,7 +34,7 @@ function capabilityValue(
 ): ClawUpdateCapabilityValue {
   return {
     summary,
-    digest: `sha256:${createHash("sha256").update(stableStringify(digestSource)).digest("hex")}`,
+    digest: digestClawCanonicalValue(digestSource),
   };
 }
 

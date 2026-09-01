@@ -1,7 +1,6 @@
 // Claw doctor diagnostics project the lifecycle ownership ledger into health findings.
-import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
+import { coerceErrorMessage } from "@openclaw/normalization-core";
 import { listConfiguredMcpServers } from "../config/mcp-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveDefaultCronStaggerMs } from "../cron/stagger.js";
@@ -13,6 +12,7 @@ import {
   type OpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import { isExperimentalClawsEnabled } from "./experimental.js";
 import { readClawStatus, type ClawStatusRecord } from "./lifecycle-state.js";
 
@@ -49,7 +49,7 @@ type CronInventorySnapshot =
   | undefined;
 
 function cronExecutionDigest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
+  return digestClawCanonicalValue(value);
 }
 
 function expectedCronExecutionDigest(

@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
-import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
+import { coerceErrorMessage } from "@openclaw/normalization-core";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import {
   CLAW_CRON_REF_SCHEMA_VERSION,
   clawCronGatewayJobMatchesRef,
@@ -29,10 +29,6 @@ export class ClawCronUpdateError extends Error {
     super(message);
     this.name = "ClawCronUpdateError";
   }
-}
-
-function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
 }
 
 function targetRef(params: {
@@ -113,7 +109,11 @@ export async function applyClawCronUpdate(
   try {
     for (const action of actions) {
       const previous = currentRefs.get(action.id);
-      if (previous && action.currentDigest && digest(previous.job) !== action.currentDigest) {
+      if (
+        previous &&
+        action.currentDigest &&
+        digestClawCanonicalValue(previous.job) !== action.currentDigest
+      ) {
         throw new ClawCronUpdateError(
           `Cron declaration ${JSON.stringify(action.id)} changed after planning.`,
         );

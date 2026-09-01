@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
-import { stableStringify } from "@openclaw/normalization-core";
 import { resolvePathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { assertNoSymlinkParents } from "../infra/fs-safe-advanced.js";
 import { FsSafeError, root as fsSafeRoot, type Root } from "../infra/fs-safe.js";
 import { resolveUserPath } from "../utils.js";
 import { findClawExtensionPackageCollisions, planClawExtensions } from "./application-plan.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import { digestClawMcpServer } from "./mcp.js";
 import { clawManifestWorkspaceConflictsWithPath } from "./schema.js";
 import { MAX_MANAGED_FILE_BYTES, MAX_MANAGED_WORKSPACE_BYTES } from "./source-limits.js";
@@ -39,7 +39,7 @@ function capabilityChange(
     ...change,
     classification: "escalation",
     requiresDistinctConsent: true,
-    digest: `sha256:${createHash("sha256").update(stableStringify(change.effect)).digest("hex")}`,
+    digest: digestClawCanonicalValue(change.effect),
   };
 }
 
@@ -667,20 +667,16 @@ export async function buildClawAddPlan(params: {
     `${left.kind}:${left.id}:${left.path}`.localeCompare(`${right.kind}:${right.id}:${right.path}`),
   );
 
-  const planIntegrity = `sha256:${createHash("sha256")
-    .update(
-      stableStringify({
-        manifestSchemaVersion: params.manifest.schemaVersion,
-        clawIntegrity: source.integrity,
-        finalId,
-        workspace,
-        actions,
-        capabilityChanges,
-        blockers,
-        extensions,
-      }),
-    )
-    .digest("hex")}`;
+  const planIntegrity = digestClawCanonicalValue({
+    manifestSchemaVersion: params.manifest.schemaVersion,
+    clawIntegrity: source.integrity,
+    finalId,
+    workspace,
+    actions,
+    capabilityChanges,
+    blockers,
+    extensions,
+  });
 
   return {
     schemaVersion: CLAW_ADD_PLAN_SCHEMA_VERSION,

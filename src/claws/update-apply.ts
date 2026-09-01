@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
 import { listAgentEntries } from "../agents/agent-scope.js";
 import { transformConfigFileWithRetry } from "../config/config.js";
@@ -6,7 +5,9 @@ import type { AgentConfig } from "../config/types.agents.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
+import { digestClawAgentConfig } from "./agent-config-digest.js";
 import { clawTargetPackages } from "./application-provenance.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import {
   applyClawCronUpdate,
   ClawCronUpdateError,
@@ -47,10 +48,6 @@ import {
 export const CLAW_UPDATE_RESULT_SCHEMA_VERSION = "openclaw.clawUpdateResult.v1" as const;
 
 type ConfigCommit = (transform: (config: OpenClawConfig) => OpenClawConfig) => Promise<void>;
-
-function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
-}
 
 export class ClawUpdateMutationError extends Error {
   constructor(
@@ -280,7 +277,7 @@ export async function applyClawUpdatePlan(
     if (
       !target ||
       action.desiredDigest !==
-        digest({
+        digestClawCanonicalValue({
           package: target,
           integrity: details?.integrity,
           installId: details?.installId,
@@ -411,10 +408,8 @@ export async function applyClawUpdatePlan(
     }
     await commit((config) => {
       const current = listAgentEntries(config).find((agent) => agent.id === fresh.agentId);
-      const targetDigest = `sha256:${createHash("sha256").update(stableStringify(targetAddPlan.agent.config)).digest("hex")}`;
-      const liveDigest = current
-        ? `sha256:${createHash("sha256").update(stableStringify(current)).digest("hex")}`
-        : undefined;
+      const targetDigest = digestClawAgentConfig(targetAddPlan.agent.config);
+      const liveDigest = current ? digestClawAgentConfig(current) : undefined;
       if (liveDigest !== targetDigest) {
         throw new Error("The agent changed before rollback.");
       }
@@ -441,7 +436,7 @@ export async function applyClawUpdatePlan(
               "The owned agent entry disappeared during update.",
             );
           }
-          const liveDigest = `sha256:${createHash("sha256").update(stableStringify(current)).digest("hex")}`;
+          const liveDigest = digestClawAgentConfig(current);
           if (liveDigest !== agentAction.currentDigest) {
             throw new ClawUpdateMutationError(
               "agent_changed",

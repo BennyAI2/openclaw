@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { coerceErrorMessage, stableStringify } from "@openclaw/normalization-core";
+import { coerceErrorMessage } from "@openclaw/normalization-core";
 import { preflightPluginInstall } from "../plugins/plugin-install-preflight.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
@@ -34,10 +33,6 @@ export class ClawPackageUpdateError extends Error {
     super(message);
     this.name = "ClawPackageUpdateError";
   }
-}
-
-function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
 }
 
 function packageKey(value: Pick<ClawPackage, "kind" | "ref">): string {
@@ -258,7 +253,7 @@ export async function applyClawPackageUpdate(
           true,
         );
       }
-      if (digest(installed) !== digest(claimed)) {
+      if (digestClawPackageRef(installed) !== digestClawPackageRef(claimed)) {
         replaceExpected(claimed, installed, options);
         claimed = installed;
       }

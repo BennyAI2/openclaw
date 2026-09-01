@@ -1,7 +1,5 @@
 // Builds read-only, agent-centric Claw update plans from grouped manifests and ownership state.
-import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
-import { stableStringify } from "@openclaw/normalization-core";
 import { normalizeConfiguredMcpServers } from "../config/mcp-config-normalize.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { root as fsSafeRoot } from "../infra/fs-safe.js";
@@ -9,6 +7,7 @@ import {
   openExistingOpenClawStateDatabaseReadOnly,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { digestClawAgentConfig } from "./agent-config-digest.js";
 import {
   clawExtensionProvenanceChanged,
   clawPackageActionsById,
@@ -18,6 +17,7 @@ import {
   isApplicationUpdateBlocker,
   recordingClawPackagePreflight,
 } from "./application-provenance.js";
+import { digestClawCanonicalValue } from "./canonical-value-digest.js";
 import { readClawStatus } from "./lifecycle-state.js";
 import { buildClawAddPlan } from "./lifecycle.js";
 import { digestClawMcpServer, readClawMcpServerRefsByName } from "./mcp.js";
@@ -53,10 +53,6 @@ export {
   type ClawUpdateAction,
   type ClawUpdatePlan,
 } from "./update-plan-types.js";
-
-function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
-}
 
 function diagnostic(code: string, path: string, message: string): ClawDiagnostic {
   return { level: "error", code, phase: "plan", path, message };
@@ -94,7 +90,7 @@ export async function buildClawUpdatePlan(params: {
         ),
       ],
       diagnostics: params.diagnostics,
-      digest,
+      digest: digestClawCanonicalValue,
     });
   }
   if (
@@ -116,7 +112,7 @@ export async function buildClawUpdatePlan(params: {
         ),
       ],
       diagnostics: params.diagnostics,
-      digest,
+      digest: digestClawCanonicalValue,
     });
   }
   const readOnlyStateOptions: OpenClawStateDatabaseOptions & {
@@ -145,7 +141,7 @@ export async function buildClawUpdatePlan(params: {
           ),
         ],
         diagnostics: params.diagnostics,
-        digest,
+        digest: digestClawCanonicalValue,
       });
     }
     if (status.records.length > 1) {
@@ -161,7 +157,7 @@ export async function buildClawUpdatePlan(params: {
           ),
         ],
         diagnostics: params.diagnostics,
-        digest,
+        digest: digestClawCanonicalValue,
       });
     }
     const record = status.records[0]!;
@@ -184,7 +180,7 @@ export async function buildClawUpdatePlan(params: {
           ),
         ],
         diagnostics: params.diagnostics,
-        digest,
+        digest: digestClawCanonicalValue,
       });
     }
 
@@ -214,7 +210,7 @@ export async function buildClawUpdatePlan(params: {
     const actions: ClawUpdateAction[] = [];
     const capabilityChanges: ClawUpdateCapabilityChange[] = [];
 
-    const desiredAgentDigest = digest(targetPlan.agent.config);
+    const desiredAgentDigest = digestClawAgentConfig(targetPlan.agent.config);
     const agentAction =
       record.agentState === "modified"
         ? "manual"
@@ -422,7 +418,7 @@ export async function buildClawUpdatePlan(params: {
                   ? "Target profile changes extension provenance without reinstalling the package."
                   : "Target manifest changes the exact package version.",
         ...(current ? { currentDigest: digestClawPackageRef(current) } : {}),
-        desiredDigest: digest({
+        desiredDigest: digestClawCanonicalValue({
           package: target,
           integrity: preflight?.integrity,
           installId: preflight?.installId,
@@ -586,13 +582,13 @@ export async function buildClawUpdatePlan(params: {
     const currentCron = new Map(record.cronJobs.map((cron) => [cron.manifestId, cron] as const));
     for (const target of params.targetManifest.cronJobs) {
       const current = currentCron.get(target.id);
-      const desiredDigest = digest(target);
+      const desiredDigest = digestClawCanonicalValue(target);
       const unresolved = current && (current.status !== "complete" || !current.schedulerJobId);
       const action = !current
         ? "add"
         : unresolved
           ? "manual"
-          : digest(current.job) === desiredDigest
+          : digestClawCanonicalValue(current.job) === desiredDigest
             ? "unchanged"
             : "change";
       actions.push({
@@ -607,7 +603,7 @@ export async function buildClawUpdatePlan(params: {
             : action === "unchanged"
               ? "Recorded cron declaration already matches the target manifest."
               : `Target manifest ${action === "add" ? "adds" : "changes"} this cron declaration.`,
-        ...(current ? { currentDigest: digest(current.job) } : {}),
+        ...(current ? { currentDigest: digestClawCanonicalValue(current.job) } : {}),
         desiredDigest,
       });
       const capabilityChange = cronCapabilityChange({
@@ -635,7 +631,7 @@ export async function buildClawUpdatePlan(params: {
         reason: manual
           ? "Target removes this cron declaration, but scheduler ownership is unresolved."
           : "Target manifest removes this owned cron declaration.",
-        currentDigest: digest(current.job),
+        currentDigest: digestClawCanonicalValue(current.job),
       });
       const capabilityChange = cronCapabilityChange({
         id: current.manifestId,
@@ -679,7 +675,7 @@ export async function buildClawUpdatePlan(params: {
       blockers,
       diagnostics: params.diagnostics ?? [],
     };
-    return { ...plan, planIntegrity: digest(plan) };
+    return { ...plan, planIntegrity: digestClawCanonicalValue(plan) };
   } finally {
     if (ownsDatabase) {
       database.walMaintenance.close();
