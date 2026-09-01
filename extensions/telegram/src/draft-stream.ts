@@ -276,6 +276,13 @@ export function createTelegramDraftStream(params: {
     page: PlannedTelegramDraftPage,
     sendMessageParams: ReturnType<typeof reserveReplyTargetForSend>,
   ) => {
+    const sendPlainFallback = async (plan: { plainText: string }) => ({
+      message: await params.api.sendMessage(chatId, plan.plainText, {
+        ...sendMessageParams,
+        ...linkPreviewParams,
+      }),
+      snapshot: fallbackSnapshot(plan.plainText),
+    });
     if (page.richMessage) {
       const richMessage = page.richMessage;
       warnTelegramRichBlocksDegradations({
@@ -299,13 +306,7 @@ export function createTelegramDraftStream(params: {
           }),
           snapshot: toDraftSnapshot(page),
         }),
-        sendPlain: async (plan) => ({
-          message: await params.api.sendMessage(chatId, plan.plainText, {
-            ...sendMessageParams,
-            ...linkPreviewParams,
-          }),
-          snapshot: fallbackSnapshot(plan.plainText),
-        }),
+        sendPlain: sendPlainFallback,
       });
     }
     if (page.sourceTextMode !== "html") {
@@ -333,13 +334,7 @@ export function createTelegramDraftStream(params: {
         }),
         snapshot: toDraftSnapshot(page),
       }),
-      sendPlain: async (plan) => ({
-        message: await params.api.sendMessage(chatId, plan.plainText, {
-          ...sendMessageParams,
-          ...linkPreviewParams,
-        }),
-        snapshot: fallbackSnapshot(plan.plainText),
-      }),
+      sendPlain: sendPlainFallback,
     });
   };
   const sendMessageTransportPreview = async (
@@ -356,6 +351,10 @@ export function createTelegramDraftStream(params: {
     if (typeof targetMessageId === "number") {
       streamVisibleSinceMs ??= Date.now();
       let acceptedSnapshot = toDraftSnapshot(page);
+      const editPlainFallback = async (plan: { plainText: string }) => {
+        await editMessageTextWithPreview(targetMessageId, plan.plainText);
+        return fallbackSnapshot(plan.plainText);
+      };
       if (page.richMessage) {
         const richMessage = page.richMessage;
         warnTelegramRichBlocksDegradations({
@@ -376,10 +375,7 @@ export function createTelegramDraftStream(params: {
             });
             return toDraftSnapshot(page);
           },
-          sendPlain: async (plan) => {
-            await editMessageTextWithPreview(targetMessageId, plan.plainText);
-            return fallbackSnapshot(plan.plainText);
-          },
+          sendPlain: editPlainFallback,
         });
       } else if (page.sourceTextMode === "html") {
         acceptedSnapshot = await withTelegramPlainFallback<TelegramDraftMessageSnapshot>({
@@ -393,10 +389,7 @@ export function createTelegramDraftStream(params: {
             });
             return toDraftSnapshot(page);
           },
-          sendPlain: async (plan) => {
-            await editMessageTextWithPreview(targetMessageId, plan.plainText);
-            return fallbackSnapshot(plan.plainText);
-          },
+          sendPlain: editPlainFallback,
         });
       } else {
         await editMessageTextWithPreview(targetMessageId, page.sourceText);

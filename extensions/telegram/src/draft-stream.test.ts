@@ -1299,6 +1299,30 @@ describe("createTelegramDraftStream", () => {
     expect(warn).toHaveBeenCalledWith(
       "telegram stream preview degrade=plain-fallback:rich-entity-invalid: 400: Bad Request: RICH_MESSAGE_URL_INVALID",
     );
+
+    api.raw.editMessageText.mockRejectedValueOnce(
+      new Error("400: Bad Request: RICH_MESSAGE_URL_INVALID"),
+    );
+    stream.update("| Rank | Model |\n| --- | --- |\n| 1 | GPT-5.6 |");
+    await stream.flush();
+
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(api.raw.editMessageText).toHaveBeenCalledTimes(1);
+    expect(api.editMessageText).toHaveBeenCalledTimes(1);
+    const editedPlain = api.editMessageText.mock.calls[0]?.[2] ?? "";
+    expect(editedPlain).toContain("Rank");
+    expect(editedPlain).toContain("GPT-5.6");
+    expect(api.editMessageText).toHaveBeenCalledWith(123, 17, editedPlain);
+    expect(api.deleteMessage).not.toHaveBeenCalled();
+    expect(stream.messageId()).toBe(17);
+    expect(stream.currentMessageSnapshot?.()).toEqual({
+      text: editedPlain,
+      sourceText: editedPlain,
+      sourceTextMode: "html",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "telegram stream preview edit degrade=plain-fallback:rich-entity-invalid: 400: Bad Request: RICH_MESSAGE_URL_INVALID",
+    );
   });
 
   it("skips rich entity detection for draft text with provider-prefixed email addresses", async () => {
