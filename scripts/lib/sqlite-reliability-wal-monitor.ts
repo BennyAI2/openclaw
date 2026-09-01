@@ -1,14 +1,6 @@
-import fs from "node:fs";
+import { readSqliteMetricBytes } from "./sqlite-file-metrics.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 25;
-
-function fileSize(pathname: string): number {
-  try {
-    return fs.statSync(pathname).size;
-  } catch {
-    return 0;
-  }
-}
 
 export async function monitorSqliteWalDuring<T>(params: {
   maxWalBytes: number;
@@ -17,10 +9,10 @@ export async function monitorSqliteWalDuring<T>(params: {
   pollIntervalMs?: number;
   walPath: string;
 }): Promise<{ peakWalBytes: number; result: T }> {
-  let peakWalBytes = fileSize(params.walPath);
+  let peakWalBytes = readSqliteMetricBytes(params.walPath);
   let limitExceeded = false;
   const sample = () => {
-    const currentWalBytes = fileSize(params.walPath);
+    const currentWalBytes = readSqliteMetricBytes(params.walPath);
     peakWalBytes = Math.max(peakWalBytes, currentWalBytes);
     if (!limitExceeded && currentWalBytes > params.maxWalBytes) {
       limitExceeded = true;

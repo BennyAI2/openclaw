@@ -16,6 +16,7 @@ import {
   openOpenClawStateDatabase,
 } from "../src/state/openclaw-state-db.js";
 import { parseStrictIntegerOption } from "./lib/dev-tooling-safety.ts";
+import { readSqliteMetricBytes } from "./lib/sqlite-file-metrics.ts";
 import {
   collectSqliteQueryPlanEvidence,
   type SqliteQueryPlanEvidence,
@@ -180,16 +181,8 @@ function nowMs(): number {
   return Number(process.hrtime.bigint()) / 1e6;
 }
 
-function fileSize(pathname: string): number {
-  try {
-    return fs.statSync(pathname).size;
-  } catch {
-    return 0;
-  }
-}
-
 function walSize(pathname: string): number {
-  return fileSize(`${pathname}-wal`);
+  return readSqliteMetricBytes(`${pathname}-wal`);
 }
 
 function stateRowCount(config: ProfileConfig): number {

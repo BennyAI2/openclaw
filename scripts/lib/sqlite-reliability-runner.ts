@@ -18,6 +18,7 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../../src/state/openclaw-state-db.js";
+import { readSqliteMetricBytes } from "./sqlite-file-metrics.ts";
 import { runVacuumInterruptionProof } from "./sqlite-reliability-compaction.js";
 import {
   COMMITTED_WAL_SENTINEL,
@@ -89,14 +90,6 @@ function percentile(values: number[], pct: number): number {
   const sorted = values.toSorted((left, right) => left - right);
   const index = Math.min(sorted.length - 1, Math.ceil((pct / 100) * sorted.length) - 1);
   return Number((sorted[index] ?? 0).toFixed(3));
-}
-
-function fileSize(pathname: string): number {
-  try {
-    return fs.statSync(pathname).size;
-  } catch {
-    return 0;
-  }
 }
 
 function resolveTargetDatabase(options: CliOptions, env: NodeJS.ProcessEnv): TargetDatabase {
@@ -713,7 +706,7 @@ export async function runReliabilityStress(options: CliOptions): Promise<Reliabi
     });
     writer = startWriter(target.path, profile);
     await waitForWriterMessage(writer, "ready");
-    const walBytesBefore = fileSize(`${target.path}-wal`);
+    const walBytesBefore = readSqliteMetricBytes(`${target.path}-wal`);
     let peakWalBytes = walBytesBefore;
     const partial = await waitForWriterMessage(writer, "partial", () => {
       writer?.child.send?.({ kind: "hold-partial" });
@@ -863,7 +856,7 @@ export async function runReliabilityStress(options: CliOptions): Promise<Reliabi
         visibleAfterRestore: false,
       },
       walBytes: {
-        after: fileSize(`${target.path}-wal`),
+        after: readSqliteMetricBytes(`${target.path}-wal`),
         before: walBytesBefore,
         limit: profile.maxWalBytes,
         peak: peakWalBytes,
