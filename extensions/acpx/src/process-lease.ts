@@ -7,7 +7,7 @@ import type {
   OpenKeyedStoreOptions,
   PluginStateKeyedStore,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
-import { splitCommandParts } from "./command-line.js";
+import { quoteAcpxCommandPart, splitCommandParts } from "./command-line.js";
 import { ACPX_PROCESS_LEASE_MAX_ENTRIES, ACPX_PROCESS_LEASE_NAMESPACE } from "./state.js";
 
 /** CLI argument carrying the ACPX process lease id. */
@@ -185,10 +185,6 @@ export function hashAcpxProcessCommand(command: string): string {
   return createHash("sha256").update(command).digest("hex");
 }
 
-function quoteEnvValue(value: string): string {
-  return /^[A-Za-z0-9_./:=@+-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
-}
-
 function appendAcpxLeaseArgs(params: {
   command: string;
   leaseId: string;
@@ -197,9 +193,9 @@ function appendAcpxLeaseArgs(params: {
   return [
     params.command,
     OPENCLAW_ACPX_LEASE_ID_ARG,
-    quoteEnvValue(params.leaseId),
+    quoteAcpxCommandPart(params.leaseId),
     OPENCLAW_GATEWAY_INSTANCE_ID_ARG,
-    quoteEnvValue(params.gatewayInstanceId),
+    quoteAcpxCommandPart(params.gatewayInstanceId),
   ].join(" ");
 }
 

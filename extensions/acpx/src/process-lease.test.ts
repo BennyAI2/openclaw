@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createAcpxProcessLeaseStore,
+  hashAcpxProcessCommand,
   openAcpxProcessLeaseStateStore,
   OPENCLAW_ACPX_LEASE_ID_ARG,
   OPENCLAW_GATEWAY_INSTANCE_ID_ARG,
@@ -117,18 +118,25 @@ describe("withAcpxLeaseEnvironment", () => {
   it("quotes portable lease wrapper args", () => {
     const command = withAcpxLeaseEnvironment({
       command: "node C:/openclaw/acpx/codex-acp-wrapper.mjs",
-      leaseId: "lease test",
-      gatewayInstanceId: "gateway-test",
+      leaseId: "lease owner's",
+      gatewayInstanceId: "gateway test",
     });
 
     expect(command).toBe(
       [
         "node C:/openclaw/acpx/codex-acp-wrapper.mjs",
         OPENCLAW_ACPX_LEASE_ID_ARG,
-        "'lease test'",
+        "'lease owner'\\''s'",
         OPENCLAW_GATEWAY_INSTANCE_ID_ARG,
-        "gateway-test",
+        "'gateway test'",
       ].join(" "),
+    );
+    expect(readAcpxProcessLeaseIdentity(command)).toEqual({
+      leaseId: "lease owner's",
+      gatewayInstanceId: "gateway test",
+    });
+    expect(hashAcpxProcessCommand(command)).toBe(
+      "6f32cded06e0918f184947aa85b4f20e173d1d3a69a4cb14e786902db142af94",
     );
   });
 });

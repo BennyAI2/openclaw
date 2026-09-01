@@ -7,6 +7,11 @@ export function quoteCommandPart(value: string): string {
   return JSON.stringify(value);
 }
 
+/** Preserve OpenClaw's persisted ACPX command identity when appending one argument. */
+export function quoteAcpxCommandPart(value: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /** Split a command string into argv-like parts using simple quote/backslash rules. */
 export function splitCommandParts(value: string): string[] {
   const parts: string[] = [];

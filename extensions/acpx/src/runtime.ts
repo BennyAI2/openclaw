@@ -29,7 +29,7 @@ import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtim
 import { sliceUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { AcpRuntimeError, type AcpRuntime, type AcpRuntimeErrorCode } from "../runtime-api.js";
 import { CODEX_ACP_PACKAGE, OPENCLAW_CODEX_CONFIG_ARG } from "./codex-adapter.js";
-import { splitCommandParts } from "./command-line.js";
+import { quoteAcpxCommandPart, splitCommandParts } from "./command-line.js";
 import {
   ACPX_PROBE_LEASE_SESSION_KEY,
   createAcpxProcessLeaseId,
@@ -695,16 +695,9 @@ async function ensureDelegateSessionWithModelFallback(
   }
 }
 
-function quoteShellArg(value: string): string {
-  if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) {
-    return value;
-  }
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
 function normalizeAgentCommand(command: string | string[]): string | undefined {
   const normalized = Array.isArray(command)
-    ? command.map((part) => quoteShellArg(part)).join(" ")
+    ? command.map((part) => quoteAcpxCommandPart(part)).join(" ")
     : command;
   return normalized.trim() || undefined;
 }
@@ -717,7 +710,7 @@ function appendCodexAcpConfigOverrides(command: string, override: CodexAcpModelO
   if (Object.keys(config).length === 0) {
     return command;
   }
-  return `${command} ${OPENCLAW_CODEX_CONFIG_ARG} ${quoteShellArg(JSON.stringify(config))}`;
+  return `${command} ${OPENCLAW_CODEX_CONFIG_ARG} ${quoteAcpxCommandPart(JSON.stringify(config))}`;
 }
 
 function createModelScopedAgentRegistry(params: {
