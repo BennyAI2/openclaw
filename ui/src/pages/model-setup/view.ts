@@ -54,6 +54,7 @@ type ModelSetupViewProps = {
   manualError: string | null;
   moreSignInOpen: boolean;
   firstRun: boolean;
+  embedded: boolean;
   iconUrls: Readonly<Record<string, string>>;
   onDetect: () => void;
   onVerify: () => void;
@@ -636,7 +637,9 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
     <div class="model-setup">
       <div class="model-setup__intro">
         <div>
-          <h1>${t("modelSetup.heading")}</h1>
+          ${props.embedded
+            ? html`<h2>${t("modelSetup.heading")}</h2>`
+            : html`<h1>${t("modelSetup.heading")}</h1>`}
           <p>${t("modelSetup.intro")}</p>
         </div>
         ${props.page.phase === "ready" &&
@@ -694,6 +697,9 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
         )
       : nothing}
   `;
+  if (props.embedded) {
+    return content;
+  }
   return html`
     <section class="content-header">
       <div>

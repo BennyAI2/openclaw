@@ -31,6 +31,7 @@ import {
 } from "../../lib/sessions/session-key.ts";
 import { showToast } from "../../lib/toast.ts";
 import { resolveComposerAvailability } from "./chat-composer-availability.ts";
+import { MODELS_CONNECT_NAVIGATION } from "../model-providers/location.ts";
 import { mutateChatGoal, submitChatGoalDraft } from "./chat-goals.ts";
 import { clearChatHistory } from "./chat-history-actions.ts";
 import { getChatHistoryVersion } from "./chat-history-state.ts";
@@ -280,7 +281,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           effortAccess: mutationAccess.effort,
           permissionAccess: mutationAccess.permission,
           canSelectFull: hasOperatorAdminAccess(gatewaySnapshot.hello?.auth ?? null),
-          onModelSetup: () => this.context.navigate("model-setup"),
+          onModelSetup: () => this.context.navigate("model-providers", MODELS_CONNECT_NAVIGATION),
         });
     const composerState = getChatComposerState(this.presentationId);
     const publicationScope = this.captureConnectionScope();
@@ -435,7 +436,8 @@ export class ChatPane extends ChatPaneLayoutRender {
         state.settings = patchSettings({ composerHoldToRecord: enabled });
       },
       onOpenTalkSettings: () => this.context.navigate("talk"),
-      onOpenDictationSettings: () => this.context.navigate("model-setup"),
+      onOpenDictationSettings: () =>
+        this.context.navigate("model-providers", MODELS_CONNECT_NAVIGATION),
       suggestionComposer: suggestionViewer,
       typingActors: multiIdentity ? this.typingActorViews() : [],
       onTypingChange: typingEnabled
@@ -444,7 +446,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       ...composerAvailability,
       modelSetupRequired:
         modelSetupRequired && !selectedSessionArchived && !restartRecoveryTombstoned,
-      onModelSetup: () => this.context.navigate("model-setup"),
+      onModelSetup: () => this.context.navigate("model-providers", MODELS_CONNECT_NAVIGATION),
       error: state.lastError,
       diskSpace: placementComposer.diskSpace,
       runError: catalogKey ? null : (state.chatRunError ?? placementComposer.runError),

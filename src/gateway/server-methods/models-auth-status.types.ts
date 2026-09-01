@@ -50,7 +50,6 @@ export type ModelAuthStatusProvider = {
 export type ModelProviderCapability = {
   provider: string;
   apiKeySupported: boolean;
-  quickApiKeySetup: boolean;
   accessOptions?: Array<{
     id: string;
     label: string;

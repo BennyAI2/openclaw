@@ -4589,8 +4589,8 @@ export const en: TranslationMap & {
   },
   modelProviders: {
     title: "Configured providers",
-    configureModels: "Configure Models",
-    subtitle: "Provider auth, plans, quotas, and costs.",
+    configureModels: "Connect a model",
+    subtitle: "Choose models, connect providers, and manage usage and cost.",
     updated: "Updated {time}",
     refreshing: "Refreshing…",
     disconnected: "Connect to the gateway to see configured model providers.",
@@ -4682,16 +4682,6 @@ export const en: TranslationMap & {
     setup: {
       action: "Set up {provider}",
     },
-    add: {
-      title: "Add provider",
-      subtitle: "Choose a known model provider and save its API key.",
-      action: "Add provider",
-      none: "All known providers are already configured.",
-      provider: "Provider",
-      selectProvider: "Select a provider",
-      save: "Save provider",
-      saved: "Provider {provider} added.",
-    },
     defaults: {
       title: "Defaults",
       subtitle: "Applies across all providers and models where applicable.",
@@ -4727,7 +4717,6 @@ export const en: TranslationMap & {
     notes: {
       saveKey: "Save API key for {provider} from Control UI",
       removeKey: "Remove API key for {provider} from Control UI",
-      addProvider: "Add model provider {provider} from Control UI",
       defaultModel: "Update defaults from Control UI",
     },
   },

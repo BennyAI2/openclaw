@@ -5,7 +5,6 @@ import type { ModelAuthStatusResult, ModelCatalogEntry } from "../../api/types.t
 import {
   buildModelProviderCards,
   buildSelectableDefaultModels,
-  buildUnconfiguredProviderOptions,
   classifyModelProviderCard,
   modelCatalogRef,
   readModelProviderConfig,
@@ -107,10 +106,7 @@ describe("buildModelProviderCards", () => {
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,
       models: [catalogEntry({ provider: "github-copilot", available: true })],
-      authStatus: authStatus(
-        [],
-        [{ provider: "github-copilot", apiKeySupported: false, quickApiKeySetup: false }],
-      ),
+      authStatus: authStatus([], [{ provider: "github-copilot", apiKeySupported: false }]),
     });
     expect(firstCard(cards).apiKeySupported).toBe(false);
   });
@@ -124,7 +120,6 @@ describe("buildModelProviderCards", () => {
           {
             provider: "xai",
             apiKeySupported: true,
-            quickApiKeySetup: true,
             accessOptions: [
               {
                 id: "xai-oauth",
@@ -397,7 +392,6 @@ describe("buildModelProviderCards", () => {
           {
             provider: "github-copilot",
             apiKeySupported: false,
-            quickApiKeySetup: false,
             accessOptions: [{ id: "copilot", label: "GitHub Copilot", mode: "login" }],
           },
         ],
@@ -569,17 +563,5 @@ describe("model provider configuration data", () => {
         models: { providers: { OpenAI: { auth: "oauth" } } },
       }).providerAuthModes,
     ).toEqual({ OpenAI: "oauth" });
-  });
-
-  it("lists known providers that are not configured", () => {
-    const options = buildUnconfiguredProviderOptions(
-      [
-        { provider: "openai", apiKeySupported: true, quickApiKeySetup: true },
-        { provider: "anthropic", apiKeySupported: true, quickApiKeySetup: true },
-        { provider: "github-copilot", apiKeySupported: true, quickApiKeySetup: false },
-      ],
-      ["openai"],
-    );
-    expect(options).toEqual([{ id: "anthropic", displayName: "Anthropic" }]);
   });
 });

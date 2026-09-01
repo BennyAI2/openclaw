@@ -25,10 +25,10 @@ import {
   type ModelProviderConfigMutation,
   type ModelProviderConfigMutationResult,
 } from "./config-mutation.ts";
+import { ModelConnectController } from "./connect-controller.ts";
 import {
   buildModelProviderCards,
   buildSelectableDefaultModels,
-  buildUnconfiguredProviderOptions,
   readModelProviderConfig,
   type DefaultModelSelection,
   type ModelProviderLogoutTarget,
@@ -70,9 +70,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   @state() private keyEditorProvider: string | null = null;
   @state() private keyDraft = "";
   @state() private pendingLogoutProvider: string | null = null;
-  @state() private addProviderOpen = false;
-  @state() private addProviderId = "";
-  @state() private addProviderKey = "";
   @state() private defaultsDraft: DefaultsDraft | null = null;
   @state() private selectedAgentId = "";
   /** Client the current data was loaded from; a new client means stale data. */
@@ -113,6 +110,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     onIncompleteUsageExhausted: () => this.requestUpdate(),
   });
   private readonly supplemental = new ModelProviderSupplementalLoader(this, {
+    canLoad: () => this.routeData?.view !== "connect",
     getGateway: () => this.gateway,
     getData: () => this.data,
     getDataClient: () => this.dataClient,
@@ -169,6 +167,11 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     refresh: () => this.refresh({ force: false }),
     setMessage: (key, message) => this.setMessage(key, message),
   });
+  private readonly connect = new ModelConnectController(this, {
+    getContext: () => this.context,
+    getRouteData: () => this.routeData,
+    getSelectedAgentId: () => this.selectedAgentId,
+  });
 
   override disconnectedCallback() {
     this.subscriptions.clear();
@@ -202,6 +205,9 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       !this.context.agents.state.agentsError
     ) {
       void this.context.agents.ensureList();
+    }
+    if (this.routeData?.view === "connect") {
+      return;
     }
     if (!this.routeDataObserved && this.routeData !== undefined) {
       return;
@@ -248,9 +254,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     this.probeResults = {};
     this.closeKeyEditor();
     this.pendingLogoutProvider = null;
-    this.addProviderOpen = false;
-    this.addProviderId = "";
-    this.addProviderKey = "";
   }
 
   private isCurrentClient(client: GatewayBrowserClient, epoch: number): boolean {
@@ -289,7 +292,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   }
 
   private refresh(opts: { force: boolean }): Promise<void> {
-    if (!this.selectedAgentId) {
+    if (this.routeData?.view === "connect" || !this.selectedAgentId) {
       return Promise.resolve();
     }
     const client = this.gateway.client;
@@ -542,36 +545,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     }
   }
 
-  private async addProvider() {
-    const provider = this.addProviderId;
-    const apiKey = this.addProviderKey.trim();
-    if (!provider || !apiKey) {
-      return;
-    }
-    const result = await this.patchConfig({
-      key: "add",
-      raw: buildProviderApiKeyPatch(provider, apiKey),
-      note: t("modelProviders.notes.addProvider", { provider }),
-      success: t("modelProviders.add.saved", { provider }),
-    });
-    if (result.ok && this.agentEpoch === result.agentEpoch) {
-      if (this.addProviderId === provider && this.addProviderKey.trim() === apiKey) {
-        // A failed refresh leaves a new provider without a card. Keep its
-        // success + warning visible in the open form instead of losing both.
-        this.addProviderOpen = Boolean(result.warning);
-        if (!result.warning) {
-          this.addProviderId = "";
-        }
-        this.addProviderKey = "";
-      }
-      this.setMessage(provider, {
-        kind: "success",
-        text: t("modelProviders.add.saved", { provider }),
-        ...(result.warning ? { warning: result.warning } : {}),
-      });
-    }
-  }
-
   private async saveDefaults(defaults = this.defaultsDraft) {
     if (!defaults) {
       return;
@@ -595,6 +568,9 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   }
 
   override render() {
+    if (this.routeData?.view === "connect") {
+      return this.connect.render();
+    }
     const gatewaySnapshot = this.context.gateway.snapshot;
     const agentsState = this.context.agents.state;
     const agents = agentsState.agentsList?.agents ?? [];
@@ -630,12 +606,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       configApiKeyProviderIds: config.apiKeyProviderIds,
       configProviderAuthModes: config.providerAuthModes,
     });
-    const configuredProviderIds = new Set([
-      ...config.providerIds,
-      ...(data.authStatus?.providers
-        .filter((provider) => Boolean(provider.apiKey) || provider.profiles.length > 0)
-        .map((provider) => provider.provider) ?? []),
-    ]);
     const advertised = isGatewayMethodAdvertised(gatewaySnapshot, "models.probe");
     const body = renderModelProviders({
       connected: gatewaySnapshot.phase === "connected",
@@ -655,11 +625,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       fastMode: defaults.fastMode,
       fastModeOverridden: defaults.fastModeOverridden,
       configBusy: this.configBusy(),
-      quickAddSupported: data.authStatus?.providerCapabilities !== undefined,
-      unconfiguredProviders: buildUnconfiguredProviderOptions(
-        data.authStatus?.providerCapabilities,
-        configuredProviderIds,
-      ),
       canMutate: this.canMutate(),
       mutationBlockedReason: this.mutationBlockedReason(),
       providerUsageStalled: this.refreshPolicy.incompleteUsageExhausted,
@@ -671,9 +636,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       keyDraft: this.keyDraft,
       pendingLogoutProvider: this.pendingLogoutProvider,
       providerLoginBusy: this.providerLogin.busy,
-      addProviderOpen: this.addProviderOpen,
-      addProviderId: this.addProviderId,
-      addProviderKey: this.addProviderKey,
       onRefresh: () =>
         void (rosterError ? this.context.agents.refreshList() : this.refresh({ force: true })),
       onOpenKeyEditor: (provider) => this.openKeyEditor(provider),
@@ -686,14 +648,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       onCancelLogout: () => (this.pendingLogoutProvider = null),
       onLogout: (cardId, providers) => void this.logout(cardId, providers),
       onLogin: (cardId, option) => this.providerLogin.start(cardId, option),
-      onAddProviderToggle: () => {
-        this.addProviderOpen = !this.addProviderOpen;
-        this.addProviderKey = "";
-        this.setMessage("add", null);
-      },
-      onAddProviderIdChange: (provider) => (this.addProviderId = provider),
-      onAddProviderKeyChange: (value) => (this.addProviderKey = value),
-      onAddProvider: () => void this.addProvider(),
       onPrimaryChange: (model) => {
         const current = this.defaultsDraft ?? configuredDefaults;
         stageDefaults({
@@ -715,7 +669,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       onThinkingReset: () => stageDefaults({ thinkingLevel: undefined, thinkingOverridden: false }),
       onFastModeChange: (mode) => stageDefaults({ fastMode: mode, fastModeOverridden: true }),
       onFastModeReset: () => stageDefaults({ fastMode: undefined, fastModeOverridden: false }),
-      onOpenModelSetup: () => this.context.navigate("model-setup"),
+      onOpenModelSetup: () => this.connect.open(),
     });
     return html`
       ${renderSettingsPageHeader({
@@ -729,7 +683,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
             allowAll: false,
             selectedId: this.selectedAgentId,
           })}
-          <button class="btn" @click=${() => this.context.navigate("model-setup")}>
+          <button class="btn primary" data-models-connect @click=${() => this.connect.open()}>
             ${icons.settings}<span>${t("modelProviders.configureModels")}</span>
           </button>
         `,

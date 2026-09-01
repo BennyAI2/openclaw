@@ -8,6 +8,7 @@ import { createRuntimeConfigCapability } from "../../lib/config/runtime-config-c
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import type { DefaultModelSelection } from "./data.ts";
 import { EMPTY_MODEL_PROVIDERS_DATA } from "./load.ts";
+import { MODELS_CONNECT_NAVIGATION } from "./location.ts";
 import {
   appendPage,
   createHarness,
@@ -243,17 +244,61 @@ describe("ModelProvidersPage agent scope", () => {
     expect(link?.href).toBe("https://docs.openclaw.ai/concepts/model-providers");
   });
 
-  it("opens model setup from the Configure Models action", async () => {
+  it("opens the Connect flow inside Models", async () => {
     const { context } = createHarness("main");
     const page = appendPage(context);
     await page.updateComplete;
 
     const action = [
       ...page.querySelectorAll<HTMLButtonElement>(".page-header-actions button"),
-    ].find((button) => button.textContent?.includes("Configure Models"));
+    ].find((button) => button.textContent?.includes("Connect a model"));
     expect(action?.querySelector("svg")).not.toBeNull();
     action?.click();
-    expect(context.navigate).toHaveBeenCalledWith("model-setup");
+    expect(context.navigate).toHaveBeenCalledWith("model-providers", MODELS_CONNECT_NAVIGATION);
+  });
+
+  it("renders regular Connect as one embedded Models flow", async () => {
+    const { context, snapshot } = createHarness("main");
+    const page = appendPage(context);
+    page.routeData = {
+      view: "connect",
+      firstRun: false,
+      gateway: context.gateway,
+      gatewaySnapshot: context.gateway.snapshot,
+      data: EMPTY_MODEL_PROVIDERS_DATA,
+      client: snapshot.client,
+      agentId: "main",
+    };
+
+    await waitForFast(() => expect(page.querySelector("openclaw-model-setup-page")).not.toBeNull());
+    const setup = page.querySelector<HTMLElement & { embedded: boolean }>(
+      "openclaw-model-setup-page",
+    );
+    expect(setup?.embedded).toBe(true);
+    expect(page.querySelector(".page-title")?.textContent?.trim()).toBe("Models");
+    expect(page.querySelector("[data-models-manage]")).not.toBeNull();
+    expect(page.querySelector(".model-providers__defaults")).toBeNull();
+  });
+
+  it("keeps first-run Connect focused without Models management chrome", async () => {
+    const { context, snapshot } = createHarness("main");
+    const page = appendPage(context);
+    page.routeData = {
+      view: "connect",
+      firstRun: true,
+      gateway: context.gateway,
+      gatewaySnapshot: context.gateway.snapshot,
+      data: EMPTY_MODEL_PROVIDERS_DATA,
+      client: snapshot.client,
+      agentId: "main",
+    };
+
+    await waitForFast(() => expect(page.querySelector("openclaw-model-setup-page")).not.toBeNull());
+    const setup = page.querySelector<HTMLElement & { embedded: boolean }>(
+      "openclaw-model-setup-page",
+    );
+    expect(setup?.embedded).toBe(false);
+    expect(page.querySelector("[data-models-manage]")).toBeNull();
   });
 
   it("autosaves model behavior changes", async () => {
@@ -417,29 +462,6 @@ describe("ModelProvidersPage agent scope", () => {
     });
   });
 
-  it("keeps committed provider-add feedback visible when its refresh fails", async () => {
-    const { context, runtimeConfig } = createHarness("main");
-    runtimeConfig.refresh.mockImplementationOnce(async () => {
-      runtimeConfig.state.lastError = "config.get failed after provider add";
-    });
-    const page = appendPage(context);
-    await waitForFast(() => expect(page.data?.config).toEqual({}));
-    page.addProviderOpen = true;
-    page.addProviderId = "anthropic";
-    page.addProviderKey = "new-provider-key";
-
-    await page.addProvider();
-    await page.updateComplete;
-
-    expect(runtimeConfig.patch).toHaveBeenCalledOnce();
-    expect(page.addProviderOpen).toBe(true);
-    expect(page.addProviderKey).toBe("");
-    const form = page.querySelector(".model-providers__add-form")?.parentElement;
-    expect(
-      [...form!.querySelectorAll('[role="status"]')].map((message) => message.textContent?.trim()),
-    ).toEqual(["Provider anthropic added.", "config.get failed after provider add"]);
-  });
-
   it("keeps committed default models visible until their authoritative refresh succeeds", async () => {
     const { context, runtimeConfig } = createHarness("main");
     runtimeConfig.refresh.mockImplementationOnce(async () => {
@@ -521,35 +543,6 @@ describe("ModelProvidersPage agent scope", () => {
     expect(page.keyEditorProvider).toBe("anthropic");
     expect(page.keyDraft).toBe("writer-agent-unsaved-key");
     expect(page.messages.openai).toBeUndefined();
-  });
-
-  it("keeps a replacement agent's matching add-provider draft after a global write", async () => {
-    const { agentSelection, context, notifySelection, runtimeConfig } = createHarness("main");
-    const gate = deferred<void>();
-    runtimeConfig.ensureLoaded.mockImplementationOnce(async () => gate.promise);
-    const page = appendPage(context);
-    await waitForFast(() => expect(page.data?.config).toEqual({}));
-    page.addProviderOpen = true;
-    page.addProviderId = "anthropic";
-    page.addProviderKey = "shared-provider-key";
-
-    const adding = page.addProvider();
-    await vi.waitFor(() => expect(runtimeConfig.ensureLoaded).toHaveBeenCalledOnce());
-    agentSelection.state.selectedId = "writer";
-    agentSelection.state.scopeId = "writer";
-    notifySelection();
-    await vi.waitFor(() => expect(page.selectedAgentId).toBe("writer"));
-    page.addProviderOpen = true;
-    page.addProviderId = "anthropic";
-    page.addProviderKey = "shared-provider-key";
-    gate.resolve();
-    await adding;
-
-    expect(runtimeConfig.patch).toHaveBeenCalledOnce();
-    expect(page.addProviderOpen).toBe(true);
-    expect(page.addProviderId).toBe("anthropic");
-    expect(page.addProviderKey).toBe("shared-provider-key");
-    expect(page.messages.add).toBeUndefined();
   });
 
   it("stops queued agent-scoped logouts after the selected agent changes", async () => {
@@ -746,9 +739,6 @@ describe("ModelProvidersPage agent scope", () => {
     };
     page.keyEditorProvider = "openai";
     page.keyDraft = "synthetic-route-agent-key";
-    page.addProviderOpen = true;
-    page.addProviderId = "anthropic";
-    page.addProviderKey = "synthetic-route-provider-key";
     page.defaultsDraft = defaultsDraft;
     page.pendingLogoutProvider = "openai";
     page.messages = { openai: { kind: "error", text: "Previous agent failure" } };
@@ -772,9 +762,6 @@ describe("ModelProvidersPage agent scope", () => {
     expect(page.probeResults).toEqual({});
     expect(page.keyEditorProvider).toBeNull();
     expect(page.keyDraft).toBe("");
-    expect(page.addProviderOpen).toBe(false);
-    expect(page.addProviderId).toBe("");
-    expect(page.addProviderKey).toBe("");
     expect(page.defaultsDraft).toBe(defaultsDraft);
     firstLogout.resolve({});
     await loggingOut;
@@ -803,16 +790,10 @@ describe("ModelProvidersPage agent scope", () => {
     page.busy = { "logout:openai": true };
     page.keyEditorProvider = "openai";
     page.keyDraft = "synthetic-selected-agent-key";
-    page.addProviderOpen = true;
-    page.addProviderId = "anthropic";
-    page.addProviderKey = "synthetic-selected-provider-key";
     page.defaultsDraft = defaultsDraft;
     notifySelection();
     expect(page.keyEditorProvider).toBe("openai");
     expect(page.keyDraft).toBe("synthetic-selected-agent-key");
-    expect(page.addProviderOpen).toBe(true);
-    expect(page.addProviderId).toBe("anthropic");
-    expect(page.addProviderKey).toBe("synthetic-selected-provider-key");
     expect(page.defaultsDraft).toBe(defaultsDraft);
     agentSelection.state.selectedId = "writer";
     agentSelection.state.scopeId = "writer";
@@ -829,9 +810,6 @@ describe("ModelProvidersPage agent scope", () => {
     expect(page.busy).toEqual({});
     expect(page.keyEditorProvider).toBeNull();
     expect(page.keyDraft).toBe("");
-    expect(page.addProviderOpen).toBe(false);
-    expect(page.addProviderId).toBe("");
-    expect(page.addProviderKey).toBe("");
     expect(page.defaultsDraft).toBe(defaultsDraft);
   });
 

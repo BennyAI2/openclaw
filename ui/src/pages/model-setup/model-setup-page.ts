@@ -55,6 +55,7 @@ export class ModelSetupPage extends OpenClawLightDomElement {
   private context!: ApplicationContext;
 
   @property({ attribute: false }) routeData: ModelSetupRouteData | undefined;
+  @property({ type: Boolean }) embedded = false;
 
   @state() private pageState: ModelSetupPageState = { phase: "loading" };
   @state() private activationState: ModelSetupActivationState = { phase: "idle" };
@@ -617,6 +618,7 @@ export class ModelSetupPage extends OpenClawLightDomElement {
       manualError: this.manualError,
       moreSignInOpen: this.moreSignInOpen,
       firstRun: this.routeData?.firstRun === true,
+      embedded: this.embedded,
       iconUrls: this.iconUrls,
       onDetect: () => {
         if (this.firstRun.retryDetection()) {

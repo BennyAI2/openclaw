@@ -2,6 +2,7 @@ import { vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ModelsProbeResult } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";
 import type { DefaultModelSelection, ModelProviderLogoutTarget } from "./data.ts";
 import type { ModelProvidersData } from "./load.ts";
 import type { ModelBehaviorConfig } from "./model-behavior.ts";
@@ -13,10 +14,6 @@ export type ModelProvidersPageTestElement = HTMLElement & {
   updateComplete: Promise<boolean>;
   busy: Record<string, boolean>;
   data: ModelProvidersData | null;
-  addProvider: () => Promise<void>;
-  addProviderId: string;
-  addProviderKey: string;
-  addProviderOpen: boolean;
   defaultsDraft: (DefaultModelSelection & Partial<ModelBehaviorConfig>) | null;
   keyDraft: string;
   keyEditorProvider: string | null;
@@ -70,9 +67,7 @@ export function createHarness(initialScopeId: string) {
         return {
           ts: 1,
           providers: [],
-          providerCapabilities: [
-            { provider: "anthropic", apiKeySupported: true, quickApiKeySetup: true },
-          ],
+          providerCapabilities: [{ provider: "anthropic", apiKeySupported: true }],
         };
       }
       case "models.list":
@@ -237,10 +232,12 @@ export function focusDocument(): void {
 }
 
 export function appendPage(context: ApplicationContext) {
+  const provider = createApplicationContextProvider(context);
   const page = document.createElement(
     "openclaw-model-providers-page",
   ) as ModelProvidersPageTestElement;
   page.context = context;
-  document.body.append(page);
+  provider.append(page);
+  document.body.append(provider);
   return page;
 }

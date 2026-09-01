@@ -520,22 +520,3 @@ export function readModelProviderConfig(config: Record<string, unknown> | null):
     },
   };
 }
-
-export type ProviderOption = { id: string; displayName: string };
-
-type ModelProviderCapability = NonNullable<ModelAuthStatusResult["providerCapabilities"]>[number];
-
-export function buildUnconfiguredProviderOptions(
-  capabilities: ModelProviderCapability[] | undefined,
-  configuredProviderIds: Iterable<string>,
-): ProviderOption[] {
-  const configured = new Set(Array.from(configuredProviderIds, canonicalProviderId));
-  const options = new Map<string, ProviderOption>();
-  for (const capability of capabilities ?? []) {
-    const id = canonicalProviderId(capability.provider);
-    if (capability.quickApiKeySetup && id && !configured.has(id) && !options.has(id)) {
-      options.set(id, { id, displayName: providerDisplayLabel(id) });
-    }
-  }
-  return [...options.values()].toSorted((a, b) => a.displayName.localeCompare(b.displayName));
-}

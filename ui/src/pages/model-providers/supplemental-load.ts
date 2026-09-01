@@ -12,6 +12,7 @@ type SupplementalGateway = {
 };
 
 type SupplementalOptions = {
+  canLoad: () => boolean;
   getGateway: () => SupplementalGateway;
   getData: () => ModelProvidersData | null;
   getDataClient: () => GatewayBrowserClient | null;
@@ -114,6 +115,9 @@ export class ModelProviderSupplementalLoader {
     explicitClient: GatewayBrowserClient | undefined,
     includeCost: boolean,
   ): Promise<void> {
+    if (!this.options.canLoad()) {
+      return;
+    }
     const gateway = this.options.getGateway();
     const client = explicitClient ?? gateway.client;
     if (!gateway.connected || !client) {

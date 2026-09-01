@@ -50,7 +50,6 @@ describeControlUiE2e("Control UI provider login", () => {
       {
         provider: "xai",
         apiKeySupported: true,
-        quickApiKeySetup: true,
         accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" }],
       },
     ];
@@ -172,13 +171,11 @@ describeControlUiE2e("Control UI provider login", () => {
       {
         provider: "groq",
         apiKeySupported: true,
-        quickApiKeySetup: true,
         accessOptions: [{ id: "groq-api-key", label: "Groq API key", mode: "login" }],
       },
       {
         provider: "vllm",
         apiKeySupported: false,
-        quickApiKeySetup: false,
         accessOptions: [{ id: "vllm", label: "vLLM", mode: "setup" }],
       },
     ];

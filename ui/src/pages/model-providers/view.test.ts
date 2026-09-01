@@ -29,19 +29,6 @@ describe("renderModelProviders", () => {
     await i18n.setLocale("en");
   });
 
-  it("hides quick API-key setup when provider capabilities are unavailable", () => {
-    const container = mount(
-      props({
-        configuredModels: [],
-        quickAddSupported: false,
-        unconfiguredProviders: [],
-      }),
-    );
-
-    expect(text(container)).not.toContain("Add provider");
-    expect(container.querySelector('[data-model-readiness="model-required"]')).not.toBeNull();
-  });
-
   it("renders each configured provider as a separate standard card", () => {
     const container = mount(
       props({
@@ -295,9 +282,6 @@ describe("renderModelProviders", () => {
         ],
         keyEditorProvider: "openai",
         keyDraft: "replacement",
-        addProviderOpen: true,
-        addProviderId: "anthropic",
-        addProviderKey: "new-provider-key",
       }),
     );
 
@@ -321,25 +305,11 @@ describe("renderModelProviders", () => {
     expect(button(provider!, "Replace key")?.disabled).toBe(true);
     expect(button(provider!, "Remove key")?.disabled).toBe(true);
     expect(button(provider!, "Log out")?.disabled).toBe(true);
-
-    const addForm = container.querySelector(".model-providers__add-form");
-    expect(
-      [
-        ...(addForm?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-          "select, input, button",
-        ) ?? []),
-      ].map((control) => control.disabled),
-    ).toEqual([true, true, true]);
   });
 
-  it("locks an already-open provider form after mutation access is revoked", () => {
-    const onAddProvider = vi.fn();
-    const onAddProviderToggle = vi.fn();
+  it("locks defaults after mutation access is revoked", () => {
     const container = mount(
       props({
-        addProviderOpen: true,
-        addProviderId: "anthropic",
-        addProviderKey: "new-provider-key",
         canMutate: false,
         mutationBlockedReason: "Operator admin access required",
         messages: {
@@ -348,18 +318,9 @@ describe("renderModelProviders", () => {
             text: "Configuration changes require operator.admin access.",
           },
         },
-        onAddProvider,
-        onAddProviderToggle,
       }),
     );
-    const addForm = container.querySelector(".model-providers__add-form");
-    const controls = [
-      ...(addForm?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-        "select, input, button",
-      ) ?? []),
-    ];
 
-    expect(controls.map((control) => control.disabled)).toEqual([true, true, true]);
     const defaults = container.querySelector(".model-providers__defaults");
     expect(
       [...(defaults?.querySelectorAll("wa-select, wa-radio-group") ?? [])].every((control) =>
@@ -367,31 +328,6 @@ describe("renderModelProviders", () => {
       ),
     ).toBe(true);
     expect(text(defaults)).not.toContain("operator.admin access");
-    addForm?.querySelector<HTMLButtonElement>("button")?.click();
-    expect(onAddProvider).not.toHaveBeenCalled();
-
-    const cancel = button(addForm!.closest(".settings-section")!, "Cancel");
-    expect(cancel?.disabled).toBe(false);
-    cancel?.click();
-    expect(onAddProviderToggle).toHaveBeenCalledOnce();
-  });
-
-  it("freezes provider and credential fields while adding a provider", () => {
-    const container = mount(
-      props({
-        addProviderOpen: true,
-        addProviderId: "anthropic",
-        addProviderKey: "new-provider-key",
-        busy: { add: true },
-      }),
-    );
-    const addForm = container.querySelector(".model-providers__add-form");
-
-    expect(
-      [
-        ...(addForm?.querySelectorAll<HTMLInputElement | HTMLSelectElement>("select, input") ?? []),
-      ].map((control) => control.disabled),
-    ).toEqual([true, true]);
   });
 
   it("keeps committed credential success visible beside its refresh warning", () => {

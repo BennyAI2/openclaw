@@ -120,6 +120,7 @@ export function props(overrides: Partial<ModelSetupViewProps> = {}): ModelSetupV
     manualError: null,
     moreSignInOpen: false,
     firstRun: false,
+    embedded: false,
     iconUrls: {
       "https://cdn.example.com/codex.png": "blob:codex",
       "https://cdn.example.com/openai.png": "blob:openai",

@@ -6,6 +6,7 @@ import {
   beginChatMetadataPublication,
 } from "../../lib/chat/chat-metadata-store.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import { MODELS_CONNECT_NAVIGATION } from "../model-providers/location.ts";
 import { contextWith, deferred, renderControl } from "./model-control.test-support.ts";
 import { NewSessionModelControl } from "./model-control.ts";
 
@@ -533,7 +534,7 @@ describe("new-session model runtime", () => {
     expect([...options].every((option) => option.dataset.chatModelSetup === "true")).toBe(true);
     expect(container.textContent).toContain("No models available");
     container.querySelector<HTMLButtonElement>('[data-chat-model-setup="true"]')?.click();
-    expect(navigate).toHaveBeenCalledWith("model-setup");
+    expect(navigate).toHaveBeenCalledWith("model-providers", MODELS_CONNECT_NAVIGATION);
   });
 
   it("keeps a successful empty catalog explicit when its refresh fails", async () => {

@@ -153,7 +153,6 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
           params: { agentId: "main", preparedOnly: true, view: "configured" },
         }),
       ]);
-      expect(await page.getByRole("heading", { name: "Add provider" }).count()).toBe(0);
       expect(await page.locator(".model-providers__defaults").count()).toBe(1);
 
       if (recordVisuals) {
@@ -192,8 +191,32 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
       ).toHaveLength(0);
       expect(await gateway.getRequests("models.list")).toHaveLength(2);
 
+      expect(await gateway.getRequests("openclaw.setup.detect")).toHaveLength(0);
+      const modelsListCount = (await gateway.getRequests("models.list")).length;
+      const authStatusCount = (await gateway.getRequests("models.authStatus")).length;
+      const usageCount = (await gateway.getRequests("usage.status")).length;
+      const costCount = (await gateway.getRequests("sessions.usage")).length;
       await readiness.getByRole("button", { name: "Connect a verified AI model" }).click();
-      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/model-setup");
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/model-providers");
+      await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("connect");
+      const setup = page.locator("openclaw-model-setup-page");
+      await setup.waitFor();
+      await gateway.waitForRequest("openclaw.setup.detect");
+      await expect.poll(() => setup.evaluate((element) => Boolean(element.embedded))).toBe(true);
+      expect(await gateway.getRequests("openclaw.setup.detect")).toHaveLength(1);
+      expect(await gateway.getRequests("models.list")).toHaveLength(modelsListCount);
+      expect(await gateway.getRequests("models.authStatus")).toHaveLength(authStatusCount);
+      expect(await gateway.getRequests("usage.status")).toHaveLength(usageCount);
+      expect(await gateway.getRequests("sessions.usage")).toHaveLength(costCount);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            window.dispatchEvent(new Event("focus"));
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      expect(await gateway.getRequests("usage.status")).toHaveLength(usageCount);
+      expect(await gateway.getRequests("sessions.usage")).toHaveLength(costCount);
     } finally {
       await context.close();
     }
@@ -272,9 +295,9 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         "models.authStatus": {
           ts: NOW,
           providerCapabilities: [
-            { provider: "openai", apiKeySupported: true, quickApiKeySetup: true },
-            { provider: "anthropic", apiKeySupported: true, quickApiKeySetup: true },
-            { provider: "google", apiKeySupported: true, quickApiKeySetup: true },
+            { provider: "openai", apiKeySupported: true },
+            { provider: "anthropic", apiKeySupported: true },
+            { provider: "google", apiKeySupported: true },
           ],
           providers: [
             {
@@ -569,9 +592,13 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         "models.authStatus": {
           ts: NOW,
           providerCapabilities: [
-            { provider: "openai", apiKeySupported: true, quickApiKeySetup: true },
-            { provider: "anthropic", apiKeySupported: true, quickApiKeySetup: true },
-            { provider: "google", apiKeySupported: true, quickApiKeySetup: true },
+            { provider: "openai", apiKeySupported: true },
+            { provider: "anthropic", apiKeySupported: true },
+            {
+              provider: "google",
+              apiKeySupported: true,
+              accessOptions: [{ id: "google-api-key", label: "Google API key", mode: "login" }],
+            },
           ],
           providers: [
             {
@@ -679,12 +706,11 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         },
       });
 
-      const addSection = page.locator(".settings-section", {
-        has: page.getByRole("heading", { name: "Add provider" }),
-      });
-      await addSection.getByRole("button", { name: "Add provider", exact: true }).click();
-      await addSection.getByLabel("Provider").selectOption("google");
-      await addSection.getByLabel("API key").fill(googleInputValue);
+      const googleCard = page.locator('[data-provider-id="google"]');
+      await googleCard.getByRole("button", { name: "Set API key" }).click();
+      await googleCard
+        .getByRole("textbox", { name: "API key", exact: true })
+        .fill(googleInputValue);
       const savedConfig = {
         ...updatedDefaultsConfig,
         models: {
@@ -705,9 +731,13 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
       await gateway.setMethodResponse("models.authStatus", {
         ts: NOW,
         providerCapabilities: [
-          { provider: "openai", apiKeySupported: true, quickApiKeySetup: true },
-          { provider: "anthropic", apiKeySupported: true, quickApiKeySetup: true },
-          { provider: "google", apiKeySupported: true, quickApiKeySetup: true },
+          { provider: "openai", apiKeySupported: true },
+          { provider: "anthropic", apiKeySupported: true },
+          {
+            provider: "google",
+            apiKeySupported: true,
+            accessOptions: [{ id: "google-api-key", label: "Google API key", mode: "login" }],
+          },
         ],
         providers: [
           {
@@ -733,13 +763,13 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         ],
       });
       const addPatchCount = (await gateway.getRequests("config.patch")).length;
-      await addSection.getByRole("button", { name: "Save provider" }).click();
+      await googleCard.getByRole("button", { name: "Save" }).click();
       expect(
         requestRaw(await gateway.waitForRequest("config.patch", { after: addPatchCount })),
       ).toEqual({
         models: { providers: { google: providerConfig(googleInputValue) } },
       });
-      await page.locator('[data-provider-id="google"]').waitFor();
+      await expect.poll(async () => googleCard.textContent()).toContain("Secret saved.");
 
       if (recordVisuals) {
         await page.screenshot({ path: path.join(artifactDir, "02-probed.png"), fullPage: true });
