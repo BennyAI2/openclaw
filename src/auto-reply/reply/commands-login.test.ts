@@ -543,8 +543,8 @@ describe("handleLoginCommand", () => {
 
     expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
     expect(params.sessionEntry).toBe(switchedEntry);
-    expect(params.sessionEntry.authProfileOverride).toBe("openai:old-owner@example.com");
-    expect(params.sessionEntry.providerOverride).toBe("anthropic");
+    expect(params.sessionEntry?.authProfileOverride).toBe("openai:old-owner@example.com");
+    expect(params.sessionEntry?.providerOverride).toBe("anthropic");
   });
 
   it("revalidates an unchanged profile after device login", async () => {
