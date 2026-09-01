@@ -9,12 +9,12 @@ import {
   type RealtimeTranscriptionWebSocketTransport,
 } from "openclaw/plugin-sdk/realtime-transcription";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { resolveXaiBaseUrl } from "./base-url.js";
 import {
   createXaiRealtimeTranscriptionProviderMetadata,
   normalizeXaiRealtimeTranscriptionProviderConfig,
   type XaiRealtimeTranscriptionEncoding,
 } from "./capability-provider-metadata.js";
-import { XAI_BASE_URL } from "./model-definitions.js";
 import { xaiUserAgentHeaderFor } from "./src/xai-user-agent.js";
 
 type XaiRealtimeTranscriptionSessionConfig = RealtimeTranscriptionSessionCreateRequest & {
@@ -48,12 +48,8 @@ const XAI_REALTIME_STT_MAX_RECONNECT_ATTEMPTS = 5;
 const XAI_REALTIME_STT_RECONNECT_DELAY_MS = 1000;
 const XAI_REALTIME_STT_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 
-function normalizeXaiRealtimeBaseUrl(value?: string): string {
-  return normalizeOptionalString(value ?? process.env.XAI_BASE_URL) ?? XAI_BASE_URL;
-}
-
 function toXaiRealtimeWsUrl(config: XaiRealtimeTranscriptionSessionConfig): string {
-  const url = new URL(normalizeXaiRealtimeBaseUrl(config.baseUrl));
+  const url = new URL(resolveXaiBaseUrl(config.baseUrl));
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/stt`;
   url.searchParams.set("sample_rate", String(config.sampleRate));
@@ -182,7 +178,7 @@ export function buildXaiRealtimeTranscriptionProvider(): RealtimeTranscriptionPr
         ...req,
         apiKey: seedApiKey ?? "",
         resolveApiKey: () => resolveXaiRealtimeApiKey(config.apiKey, req.cfg),
-        baseUrl: normalizeXaiRealtimeBaseUrl(config.baseUrl),
+        baseUrl: resolveXaiBaseUrl(config.baseUrl),
         sampleRate: config.sampleRate ?? XAI_REALTIME_STT_DEFAULT_SAMPLE_RATE,
         encoding: config.encoding ?? XAI_REALTIME_STT_DEFAULT_ENCODING,
         interimResults: config.interimResults ?? true,

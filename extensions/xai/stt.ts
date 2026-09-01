@@ -12,12 +12,9 @@ import {
   resolveProviderHttpRequestConfig,
 } from "openclaw/plugin-sdk/provider-http";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { resolveXaiBaseUrl } from "./base-url.js";
 import { createXaiMediaUnderstandingProviderMetadata } from "./capability-provider-metadata.js";
 import { XAI_BASE_URL } from "./model-definitions.js";
-
-function resolveXaiSttBaseUrl(value?: string): string {
-  return normalizeOptionalString(value ?? process.env.XAI_BASE_URL) ?? XAI_BASE_URL;
-}
 
 async function transcribeXaiAudio(
   params: AudioTranscriptionRequest,
@@ -25,7 +22,7 @@ async function transcribeXaiAudio(
   const fetchFn = params.fetchFn ?? fetch;
   const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
     resolveProviderHttpRequestConfig({
-      baseUrl: resolveXaiSttBaseUrl(params.baseUrl),
+      baseUrl: resolveXaiBaseUrl(params.baseUrl),
       defaultBaseUrl: XAI_BASE_URL,
       headers: params.headers,
       request: params.request,

@@ -1,14 +1,12 @@
 import type { RealtimeVoiceProviderPlugin } from "openclaw/plugin-sdk/realtime-voice";
+import { resolveXaiBaseUrl } from "./base-url.js";
 import {
   assertXaiRealtimeVoiceRequestSupported,
   createXaiRealtimeVoiceProviderMetadata,
 } from "./capability-provider-metadata.js";
 import { resolveXaiRealtimeApiKey } from "./realtime-voice-auth.runtime.js";
 import { XaiRealtimeVoiceBridge } from "./realtime-voice-bridge.js";
-import {
-  normalizeXaiRealtimeBaseUrl,
-  normalizeXaiRealtimeProviderConfig,
-} from "./realtime-voice-config.js";
+import { normalizeXaiRealtimeProviderConfig } from "./realtime-voice-config.js";
 
 export function buildXaiRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin {
   return {
@@ -19,7 +17,7 @@ export function buildXaiRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin {
       return new XaiRealtimeVoiceBridge({
         ...req,
         apiKey: config.apiKey,
-        baseUrl: normalizeXaiRealtimeBaseUrl(config.baseUrl),
+        baseUrl: resolveXaiBaseUrl(config.baseUrl),
         model: config.model,
         voice: config.voice,
         vadThreshold: config.vadThreshold,

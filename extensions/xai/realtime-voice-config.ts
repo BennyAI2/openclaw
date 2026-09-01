@@ -16,7 +16,6 @@ import {
   normalizeOptionalString,
   parseBooleanValue,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { XAI_BASE_URL } from "./model-definitions.js";
 
 type XaiRealtimeVoice = "eve" | "ara" | "rex" | "sal" | "leo";
 type XaiRealtimeReasoningEffort = "high" | "none";
@@ -150,10 +149,6 @@ function readNestedXaiConfig(rawConfig: RealtimeVoiceProviderConfig) {
   return readXaiObjectRecord(providers?.xai ?? raw?.xai ?? raw) ?? {};
 }
 
-export function normalizeXaiRealtimeBaseUrl(value?: string): string {
-  return normalizeOptionalString(value ?? process.env.XAI_BASE_URL) ?? XAI_BASE_URL;
-}
-
 function normalizeXaiRealtimeVoice(value: unknown): string | undefined {
   const normalized = normalizeOptionalString(value);
   if (!normalized) {
@@ -222,7 +217,7 @@ export function toXaiRealtimeWsUrl(
   model: string,
   conversationId?: string,
 ): string {
-  const url = new URL(normalizeXaiRealtimeBaseUrl(baseUrl));
+  const url = new URL(baseUrl);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/realtime`;
   url.searchParams.set("model", model);
