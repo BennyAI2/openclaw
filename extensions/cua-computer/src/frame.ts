@@ -18,6 +18,7 @@ export type CuaScreenSize = {
 
 export type CuaLastFrame = {
   id: string;
+  referenceWidth: number;
   nativeWidth: number;
   nativeHeight: number;
   deliveredWidth: number;
@@ -358,29 +359,23 @@ export function clearDialogRef(state: CuaFrameState): void {
 export function issueFrame(
   state: CuaFrameState,
   geometry: CuaDesktopGeometry,
-  delivered: { width: number; height: number },
+  capture: { width: number; height: number; referenceWidth: number },
 ): string {
+  // projectScreenshotResult caps the encoded image's longest edge to this same
+  // reference width. Keep the cap separate from the rounded pixels the model
+  // sees: small displays are not enlarged, and portrait captures shrink again.
+  const scale = Math.min(1, capture.referenceWidth / Math.max(capture.width, capture.height));
   const digest = createHash("sha256")
-    .update(
-      JSON.stringify([
-        state.generation,
-        geometry.platform,
-        geometry.display,
-        geometry.screenWidth,
-        geometry.screenHeight,
-        geometry.scaleFactor,
-        geometry.screenshotWidth,
-        geometry.screenshotHeight,
-      ]),
-    )
+    .update(JSON.stringify([state.generation, geometry, capture]))
     .digest("hex");
   const id = `cua:v1:${digest}`;
   state.lastFrame = {
     id,
+    referenceWidth: capture.referenceWidth,
     nativeWidth: geometry.screenshotWidth,
     nativeHeight: geometry.screenshotHeight,
-    deliveredWidth: delivered.width,
-    deliveredHeight: delivered.height,
+    deliveredWidth: Math.max(1, Math.round(capture.width * scale)),
+    deliveredHeight: Math.max(1, Math.round(capture.height * scale)),
     geometry: {
       width: geometry.screenWidth,
       height: geometry.screenHeight,
@@ -398,6 +393,7 @@ export function verifyFrame(
   state: CuaFrameState,
   echoedId: string | undefined,
   currentScreenSize: CuaScreenSize,
+  refWidth: number | undefined,
 ): CuaLastFrame {
   const frame = state.lastFrame;
   if (!frame || !echoedId || echoedId !== frame.id) {
@@ -412,17 +408,9 @@ export function verifyFrame(
     state.lastFrame = undefined;
     throw staleFrame("the primary display geometry changed");
   }
-  return frame;
-}
-
-export function verifyReferenceWidth(
-  state: CuaFrameState,
-  frame: CuaLastFrame,
-  refWidth: number | undefined,
-): void {
-  if (refWidth === frame.deliveredWidth) {
-    return;
+  if (refWidth !== frame.referenceWidth) {
+    state.lastFrame = undefined;
+    throw staleFrame("the coordinate reference width changed");
   }
-  state.lastFrame = undefined;
-  throw staleFrame("the coordinate reference width changed");
+  return frame;
 }

@@ -25,7 +25,6 @@ import {
   adoptGeneration,
   issueFrame,
   verifyFrame,
-  verifyReferenceWidth,
   type CuaDesktopGeometry,
   type CuaFrameState,
   type CuaLastFrame,
@@ -264,9 +263,7 @@ async function currentFrame(
     frameState.lastFrame = undefined;
     throw new Error("COMPUTER_STALE_FRAME: the computer driver reconnected; take a new screenshot");
   }
-  const frame = verifyFrame(frameState, params.displayFrameId, current);
-  verifyReferenceWidth(frameState, frame, params.refWidth);
-  return frame;
+  return verifyFrame(frameState, params.displayFrameId, current, params.refWidth);
 }
 
 async function handleDesktopAct(
@@ -568,7 +565,11 @@ export function createCuaComputerProvider(
               height = result.height;
             }
             adoptGeneration(frameState, executionDriver.generation);
-            const displayFrameId = issueFrame(frameState, geometry, { width, height });
+            const displayFrameId = issueFrame(frameState, geometry, {
+              width,
+              height,
+              referenceWidth: maxWidth,
+            });
             return JSON.stringify({
               format,
               base64: encoded.toString("base64"),
