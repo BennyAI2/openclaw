@@ -42,6 +42,10 @@ describe("prepared worker reserve lifecycle", () => {
     database = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: root } });
     store = createWorkerEnvironmentStore({ database, now: () => nowMs });
   };
+  const reopenStore = () => {
+    closeOpenClawStateDatabaseForTest();
+    openStore();
+  };
 
   beforeEach(async () => {
     root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "openclaw-prepared-pool-"));
@@ -51,9 +55,7 @@ describe("prepared worker reserve lifecycle", () => {
     operations = new Set();
     service = undefined;
     developmentProfile = { provider: "test-provider", settings: {} };
-    config = {
-      cloudWorkers: { profiles: { development: developmentProfile } },
-    };
+    config = { cloudWorkers: { profiles: { development: developmentProfile } } };
     provider = {
       id: "test-provider",
       resolvePreparedIdleTimeoutMs: () => IDLE_TIMEOUT_MS,
@@ -112,24 +114,28 @@ describe("prepared worker reserve lifecycle", () => {
       profileId: "development",
       provisionOperationId: `provision:${environmentId}`,
       profileSnapshot: profile(options.projectKey, options.preparationKey),
-      ...(options.reserve
+      preparation: options.reserve
         ? {
-            preparation: {
-              key: options.preparationKey ?? PREPARATION_KEY,
-              demandAtMs: nowMs,
-              expiresAtMs: nowMs + IDLE_TIMEOUT_MS,
-            },
+            key: options.preparationKey ?? PREPARATION_KEY,
+            demandAtMs: nowMs,
+            expiresAtMs: nowMs + IDLE_TIMEOUT_MS,
           }
-        : {}),
+        : undefined,
     });
   }
 
+  function credential(value: string, sessionId: string | null = value) {
+    return {
+      credentialHash: hashWorkerCredential(value),
+      sessionId,
+      rpcSetVersion: 1,
+      expiresAtMs: nowMs + 10_000,
+    };
+  }
+
   function ready(record: WorkerEnvironmentRecord) {
-    store.transition({
-      environmentId: record.environmentId,
-      from: "requested",
-      to: "provisioning",
-    });
+    const environmentId = record.environmentId;
+    store.transition({ environmentId, from: "requested", to: "provisioning" });
     return store.transition({
       environmentId: record.environmentId,
       from: "provisioning",
@@ -139,70 +145,108 @@ describe("prepared worker reserve lifecycle", () => {
         nodeDeviceId: `node:${record.environmentId}`,
         sharedHost: false,
         bootstrapReceipt: RECEIPT,
-        credential: {
-          credentialHash: hashWorkerCredential(record.environmentId),
-          sessionId: null,
-          rpcSetVersion: 1,
-          expiresAtMs: nowMs + 10_000,
-        },
+        credential: credential(record.environmentId, null),
       },
     });
   }
 
-  function attach(record: WorkerEnvironmentRecord) {
+  function attach(
+    record: WorkerEnvironmentRecord,
+    stage: "provisioning" | "syncing" | "active" = "active",
+    activatedAtMs = nowMs,
+  ) {
     const sessionId = `session:${record.environmentId}`;
-    const identity = {
-      sessionId,
-      sessionKey: `agent:main:${sessionId}`,
-      agentId: "main",
-      executionMode: "worker-turn" as const,
-    };
-    let placementBinding;
-    if (record.preparation) {
-      const placements = createWorkerSessionPlacementStore({ database, now: () => nowMs });
-      const requested = placements.startDispatch(identity);
-      const assigned = placements.bindPreparedEnvironment({
-        ...identity,
-        expectedGeneration: requested.generation,
-        environmentId: record.environmentId,
-        ownerEpoch: record.ownerEpoch,
-        providerId: record.providerId,
-        profileId: record.profileId,
-        preparationKey: record.preparation.key,
-        nodeDeviceId: record.nodeDeviceId!,
-        leaseId: record.leaseId!,
-        bundleHash: BUNDLE_HASH,
-        assertCurrent: () => {},
-      })!;
-      const syncing = placements.transition({
-        sessionId,
-        from: "provisioning",
-        to: "syncing",
-        expectedGeneration: assigned.generation,
-        patch: { workerBundleHash: BUNDLE_HASH },
-      });
-      placementBinding = {
-        ...identity,
-        generation: syncing.generation,
-        preparationKey: record.preparation.key,
-        assertCurrent: () => {},
-      };
+    const sessionKey = `agent:main:${sessionId}`;
+    const executionMode = "worker-turn";
+    const identity = { sessionId, sessionKey, agentId: "main", executionMode } as const;
+    const placements = createWorkerSessionPlacementStore({ database, now: () => nowMs });
+    const requested = placements.startDispatch(identity);
+    const assigned = record.preparation
+      ? placements.bindPreparedEnvironment({
+          ...identity,
+          expectedGeneration: requested.generation,
+          environmentId: record.environmentId,
+          ownerEpoch: record.ownerEpoch,
+          providerId: record.providerId,
+          profileId: record.profileId,
+          preparationKey: record.preparation.key,
+          nodeDeviceId: record.nodeDeviceId!,
+          leaseId: record.leaseId!,
+          bundleHash: BUNDLE_HASH,
+          assertCurrent: () => {},
+        })!
+      : placements.transition({
+          sessionId,
+          from: "requested",
+          to: "provisioning",
+          expectedGeneration: requested.generation,
+          patch: { environmentId: record.environmentId },
+        });
+    if (stage === "provisioning") {
+      return store.get(record.environmentId)!;
     }
-    return store.transition({
+    const syncing = placements.transition({
+      sessionId,
+      from: "provisioning",
+      to: "syncing",
+      expectedGeneration: assigned.generation,
+      patch: { workerBundleHash: BUNDLE_HASH },
+    });
+    const placementBinding = record.preparation
+      ? {
+          ...identity,
+          generation: syncing.generation,
+          preparationKey: record.preparation.key,
+          assertCurrent: () => {},
+        }
+      : undefined;
+    const attached = store.transition({
       environmentId: record.environmentId,
       from: "ready",
       to: "attached",
       placementBinding,
       patch: {
         attachedSessionIds: [sessionId],
-        credential: {
-          credentialHash: hashWorkerCredential(sessionId),
-          sessionId,
-          rpcSetVersion: 1,
-          expiresAtMs: nowMs + 10_000,
-        },
+        credential: credential(sessionId),
       },
     });
+    if (stage === "active") {
+      const starting = placements.transition({
+        sessionId,
+        from: "syncing",
+        to: "starting",
+        expectedGeneration: syncing.generation,
+        patch: { workspaceBaseManifestRef: "manifest", remoteWorkspaceDir: "/workspace" },
+      });
+      nowMs = activatedAtMs;
+      placements.transition({
+        sessionId,
+        from: "starting",
+        to: "active",
+        expectedGeneration: starting.generation,
+        patch: { activeOwnerEpoch: attached.ownerEpoch },
+      });
+    }
+    return attached;
+  }
+
+  function teardown(record: WorkerEnvironmentRecord) {
+    const environmentId = record.environmentId;
+    const sessionId = `session:${environmentId}`;
+    const placements = createWorkerSessionPlacementStore({ database, now: () => nowMs });
+    const placement = placements.get(sessionId)!;
+    if (placement.state === "active") {
+      const ownerEpoch = placement.activeOwnerEpoch;
+      const owner = { sessionId, environmentId, ownerEpoch };
+      const expectedGeneration = placement.generation;
+      const draining = placements.startDrain({ ...owner, expectedGeneration });
+      placements.startReconcile({ ...owner, expectedGeneration: draining.generation });
+    }
+    placements.fail({ sessionId, recoveryError: "session teardown" });
+    store.requestDestroy({ environmentId, state: record.state });
+    store.transition({ environmentId, from: record.state, to: "draining" });
+    store.transition({ environmentId, from: "draining", to: "destroying" });
+    store.transition({ environmentId, from: "destroying", to: "destroyed" });
   }
 
   function pool(overrides: Partial<PoolOptions> = {}) {
@@ -246,8 +290,7 @@ describe("prepared worker reserve lifecycle", () => {
     expect(reserves()).toEqual([reserve]);
     expect(provider.notePreparedDemand).not.toHaveBeenCalled();
 
-    closeOpenClawStateDatabaseForTest();
-    openStore();
+    reopenStore();
     nowMs = 2_000;
     await schedule(pool({ reconcile }));
     expect(reserves()).toHaveLength(1);
@@ -261,7 +304,7 @@ describe("prepared worker reserve lifecycle", () => {
     expect(reserves()).toHaveLength(1);
   });
 
-  it("records actual attachment demand and gives its replacement a new fixed deadline", async () => {
+  it("retains activated demand after consumed worker teardown and database reopen", async () => {
     const source = attach(ready(seed("source")));
     const owner = pool();
     await schedule(owner);
@@ -280,7 +323,10 @@ describe("prepared worker reserve lifecycle", () => {
       { leaseId: consumed.leaseId, profile: {} },
       { preparationKey: PREPARATION_KEY, demandAtMs: 1_500 },
     );
-    await schedule(owner);
+    teardown(source);
+    teardown(consumed);
+    reopenStore();
+    await schedule(pool());
     expect(
       reserves().find((record) => record.preparation?.consumedAtMs === null)?.preparation,
     ).toMatchObject({ demandAtMs: 1_500, expiresAtMs: 2_500 });
@@ -290,37 +336,92 @@ describe("prepared worker reserve lifecycle", () => {
     });
   });
 
-  it("starts a full idle window after a long first checkout without extending it on detach", async () => {
-    const idleWindow = 15 * 60_000;
-    provider.resolvePreparedIdleTimeoutMs = () => idleWindow;
-    const allocated = ready(seed("slow-first-checkout"));
-    nowMs += 16 * 60_000;
-    const attached = attach(allocated);
+  it.each([
+    ["provisioning", true, 1_950],
+    ["provisioning", true, 2_050],
+    ["syncing", false, 1_950],
+    ["syncing", true, 2_050],
+  ] as const)(
+    "does not renew consumed %s demand (failed=%s) during maintenance at %s",
+    async (stage, fail, maintenanceAtMs) => {
+      const source = attach(ready(seed("source")));
+      await schedule(pool());
+      teardown(source);
+      const reserve = ready(reserves()[0]!);
+      nowMs = 1_900;
+      const consumed = attach(reserve, stage);
+      if (fail) {
+        teardown(consumed);
+      }
+      reopenStore();
+      nowMs = maintenanceAtMs;
+      const owner = pool();
+      await owner.noteDemand(consumed.environmentId);
+      await schedule(owner);
+      expect(provider.notePreparedDemand).not.toHaveBeenCalled();
+      const replacement = reserves().filter((record) => record.preparation?.consumedAtMs === null);
+      if (maintenanceAtMs < 2_000) {
+        expect(replacement).toHaveLength(1);
+        expect(replacement[0]?.preparation).toMatchObject({
+          demandAtMs: 1_000,
+          expiresAtMs: 2_000,
+        });
+        nowMs = 2_050;
+        await schedule(owner);
+        expect(reserves()).toHaveLength(2);
+        expect(store.get(replacement[0]!.environmentId)?.destroyRequestedAtMs).toBe(2_050);
+      } else {
+        expect(replacement).toEqual([]);
+      }
+    },
+  );
+
+  it("does not seed demand from a cold attachment still syncing after database reopen", async () => {
+    const attached = attach(ready(seed("syncing-cold")), "syncing");
+    reopenStore();
     const owner = pool();
     await owner.noteDemand(attached.environmentId);
     await schedule(owner);
-    const reserve = reserves()[0]!;
-    expect(reserve.preparation).toMatchObject({
-      demandAtMs: attached.stateChangedAtMs,
-      expiresAtMs: attached.stateChangedAtMs + idleWindow,
-    });
-    expect(provider.notePreparedDemand).toHaveBeenCalledWith(
-      { leaseId: attached.leaseId, profile: {} },
-      { preparationKey: PREPARATION_KEY, demandAtMs: attached.stateChangedAtMs },
-    );
-    expect(attached.stateChangedAtMs - attached.createdAtMs).toBeGreaterThan(idleWindow);
-
-    nowMs += 60_000;
-    store.transition({ environmentId: attached.environmentId, from: "attached", to: "idle" });
-    await owner.noteDemand(attached.environmentId);
-    await schedule(owner);
-    expect(provider.notePreparedDemand).toHaveBeenCalledOnce();
-    expect(store.get(reserve.environmentId)?.preparation).toEqual(reserve.preparation);
-    nowMs = attached.stateChangedAtMs + idleWindow;
-    await schedule(owner);
-    expect(reserves()).toHaveLength(1);
-    expect(store.get(reserve.environmentId)?.destroyRequestedAtMs).toBe(nowMs);
+    expect(provider.notePreparedDemand).not.toHaveBeenCalled();
+    expect(reserves()).toEqual([]);
   });
+
+  it.each(["checkout", "sync"])(
+    "starts a full idle window after a long first %s without extending it on detach",
+    async (phase) => {
+      const idleWindow = 15 * 60_000;
+      provider.resolvePreparedIdleTimeoutMs = () => idleWindow;
+      const allocated = ready(seed("slow-first-checkout"));
+      const activatedAtMs = nowMs + 16 * 60_000;
+      if (phase === "checkout") {
+        nowMs = activatedAtMs;
+      }
+      const attached = attach(allocated, "active", activatedAtMs);
+      const owner = pool();
+      await owner.noteDemand(attached.environmentId);
+      await schedule(owner);
+      const reserve = reserves()[0]!;
+      expect(reserve.preparation).toMatchObject({
+        demandAtMs: activatedAtMs,
+        expiresAtMs: activatedAtMs + idleWindow,
+      });
+      expect(provider.notePreparedDemand).toHaveBeenCalledWith(
+        { leaseId: attached.leaseId, profile: {} },
+        { preparationKey: PREPARATION_KEY, demandAtMs: activatedAtMs },
+      );
+
+      nowMs += 60_000;
+      store.transition({ environmentId: attached.environmentId, from: "attached", to: "idle" });
+      await owner.noteDemand(attached.environmentId);
+      await schedule(owner);
+      expect(provider.notePreparedDemand).toHaveBeenCalledOnce();
+      expect(store.get(reserve.environmentId)?.preparation).toEqual(reserve.preparation);
+      nowMs = activatedAtMs + idleWindow;
+      await schedule(owner);
+      expect(reserves()).toHaveLength(1);
+      expect(store.get(reserve.environmentId)?.destroyRequestedAtMs).toBe(nowMs);
+    },
+  );
 
   it("does not allocate when source preparation finishes after its demand deadline", async () => {
     attach(ready(seed("source")));
@@ -361,8 +462,7 @@ describe("prepared worker reserve lifecycle", () => {
       leaseId: "uncertain-lease",
       lastError: "provider cleanup response lost",
     });
-    closeOpenClawStateDatabaseForTest();
-    openStore();
+    reopenStore();
     const warn = vi.fn();
     const reconcile = vi.fn<PoolOptions["reconcile"]>(async (record) => {
       if (record.environmentId === uncertain.environmentId) {

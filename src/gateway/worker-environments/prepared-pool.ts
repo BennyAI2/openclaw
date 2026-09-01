@@ -41,7 +41,7 @@ type PoolOptions = {
   warn: (message: string) => void;
 };
 
-/** Prepared capacity uses environment rows as its only durable inventory and demand history. */
+/** Environment rows own reserve inventory; placement activation establishes fresh demand. */
 export function createPreparedWorkerPool(options: PoolOptions) {
   const { store, signal, now } = options;
   let inFlight: Promise<void> | undefined;
@@ -62,13 +62,32 @@ export function createPreparedWorkerPool(options: PoolOptions) {
     const project = readWorkerProjectSnapshot(record.profileSnapshot.project);
     return project ? JSON.stringify([record.providerId, record.profileId, project.key]) : undefined;
   };
-  const demandAt = (record: WorkerEnvironmentRecord): number | undefined => {
-    if (record.preparation) {
-      return record.preparation.consumedAtMs ?? record.preparation.demandAtMs;
+  const activatedPlacements = (environmentId?: string) =>
+    new Map(
+      store
+        .listActivatedPlacements(environmentId)
+        .map((placement) => [placement.environmentId, placement]),
+    );
+  const demandAt = (
+    record: WorkerEnvironmentRecord,
+    placements: ReturnType<typeof activatedPlacements>,
+    requireActivation = false,
+  ): number | undefined => {
+    const inherited = requireActivation ? undefined : record.preparation?.demandAtMs;
+    if (record.preparation?.consumedAtMs === null) {
+      return inherited;
     }
-    // The first checkout may exceed the entire idle window. Anchor its reserve to
-    // the recorded successful attachment; later detach/maintenance is not demand.
-    return record.state === "attached" ? record.stateChangedAtMs : undefined;
+    const placement = placements.get(record.environmentId);
+    if (!placement) {
+      // A failed claim retains the old deadline and never renews provider demand.
+      return inherited;
+    }
+    if (record.state === "attached" && placement.state === "active") {
+      return placement.stateChangedAtMs;
+    }
+    // Terminal transitions retain activation proof, but their timestamps are cleanup,
+    // not new demand. The bound claim time is a conservative retained deadline anchor.
+    return record.preparation?.consumedAtMs ?? undefined;
   };
   const retire = (record: WorkerEnvironmentRecord, reason: "expired" | "invalidated") => {
     if (!record.preparation) {
@@ -92,9 +111,10 @@ export function createPreparedWorkerPool(options: PoolOptions) {
   const runPass = async () => {
     current();
     const records = store.list();
+    const placements = activatedPlacements();
     const sources = new Map<string, { record: WorkerEnvironmentRecord; demandAtMs: number }>();
     for (const record of records) {
-      const demandAtMs = demandAt(record);
+      const demandAtMs = demandAt(record, placements);
       const key = groupKey(record);
       if (
         key &&
@@ -315,12 +335,16 @@ export function createPreparedWorkerPool(options: PoolOptions) {
     if (record?.state !== "attached" || !record.leaseId || !preparation) {
       return;
     }
+    const demandAtMs = demandAt(record, activatedPlacements(environmentId), true);
+    if (demandAtMs === undefined) {
+      return;
+    }
     const provider = options.resolveProvider(record.providerId);
     await provider?.notePreparedDemand?.(
       { leaseId: record.leaseId, profile: snapshotSettings(record) },
       {
         preparationKey: preparation.key,
-        demandAtMs: record.preparation?.consumedAtMs ?? record.stateChangedAtMs,
+        demandAtMs,
       },
     );
   };

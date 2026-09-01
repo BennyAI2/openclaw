@@ -881,7 +881,7 @@ export function createWorkerEnvironmentStore(
     return getRequired(db, environmentId);
   };
   return {
-    ...createPreparedEnvironmentStoreOps({ now, write, createIntent, get: find }),
+    ...createPreparedEnvironmentStoreOps({ now, read, write, createIntent, get: find }),
     createIntent: (input: WorkerEnvironmentIntentInput): WorkerEnvironmentRecord =>
       write((db) => createIntent(db, input)),
     get: (environmentId: string) => find(read(), required(environmentId, "id")),

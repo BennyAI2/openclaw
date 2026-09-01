@@ -100,11 +100,29 @@ function snapshotProjectKey(snapshot: unknown): string {
 
 export function createPreparedEnvironmentStoreOps(options: {
   now: () => number;
+  read: () => DatabaseSync;
   write: <T>(operation: (db: DatabaseSync) => T) => T;
   createIntent: (db: DatabaseSync, input: WorkerEnvironmentIntentInput) => WorkerEnvironmentRecord;
   get: (db: DatabaseSync, environmentId: string) => WorkerEnvironmentRecord | undefined;
 }) {
   return {
+    listActivatedPlacements(environmentId?: string) {
+      const db = options.read();
+      let statement = query(db)
+        .selectFrom("worker_session_placements")
+        .select([
+          "environment_id as environmentId",
+          "state",
+          "state_changed_at_ms as stateChangedAtMs",
+        ])
+        .where("active_owner_epoch", "is not", null)
+        .orderBy("active_owner_epoch");
+      if (environmentId !== undefined) {
+        statement = statement.where("environment_id", "=", environmentId);
+      }
+      // The newest successful owner wins when a reusable environment has prior placements.
+      return executeSqliteQuerySync(db, statement).rows;
+    },
     ensurePreparedIntent(input: {
       intent: WorkerEnvironmentIntentInput & { preparation: WorkerEnvironmentPreparationIntent };
       projectKey: string;
