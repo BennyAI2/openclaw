@@ -18,6 +18,11 @@ const CODEX_OAUTH_IMPORT = {
   itemId: "auth:openai",
   credentialKind: "oauth",
 } as const;
+const CODEX_API_KEY_IMPORT = {
+  migrationProviderId: "codex",
+  itemId: "auth:openai",
+  credentialKind: "api_key",
+} as const;
 
 export function createOpenAIProvider(): ProviderPlugin {
   return {
@@ -63,6 +68,7 @@ export function createOpenAIProvider(): ProviderPlugin {
         kind: "api_key",
         label: OPENAI_API_KEY_LABEL,
         hint: "Use your OpenAI API key directly",
+        credentialImport: CODEX_API_KEY_IMPORT,
         run: noopAuth,
         wizard: {
           choiceId: "openai-api-key",
