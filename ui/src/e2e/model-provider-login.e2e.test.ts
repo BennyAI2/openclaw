@@ -131,9 +131,11 @@ describeControlUiE2e("Control UI provider login", () => {
           },
         ],
       });
+      await gateway.deferNext("models.authStatus");
       await page.getByRole("button", { name: "Continue" }).click();
 
       await page.getByRole("status").filter({ hasText: "Signed in." }).waitFor();
+      await gateway.resolveDeferred("models.authStatus");
       await expect.poll(async () => xaiCard.textContent()).toContain("Signed in");
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
       if (artifactDir) {

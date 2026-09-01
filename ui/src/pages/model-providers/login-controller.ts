@@ -114,7 +114,6 @@ export class ModelProviderLoginController implements ReactiveController {
     this.cardId = null;
     this.runner.close();
     this.state = { phase: "idle" };
-    await this.options.refresh();
     if (cardId) {
       this.options.setMessage(cardId, {
         kind: "success",
@@ -125,6 +124,8 @@ export class ModelProviderLoginController implements ReactiveController {
         ),
       });
     }
+    this.host.requestUpdate();
+    await this.options.refresh();
     this.host.requestUpdate();
   }
 }
