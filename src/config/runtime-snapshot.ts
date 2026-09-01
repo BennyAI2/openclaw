@@ -1,5 +1,6 @@
 // Produces redacted runtime config snapshots for diagnostics and UI surfaces.
 import { sha256Base64Url } from "../infra/crypto-digest.js";
+import { formatErrorMessage } from "../infra/errors.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
 import {
   resetPublishedConfigRuntimeEnv,
@@ -414,7 +415,6 @@ export async function preflightRuntimeSnapshotWrite(params: {
   nextSourceConfig: OpenClawConfig;
   refreshOptions?: RuntimeConfigSnapshotRefreshOptions;
   createRefreshError: (detail: string, cause: unknown) => Error;
-  formatRefreshError: (error: unknown) => string;
 }): Promise<unknown> {
   const refreshHandler = getRuntimeConfigSnapshotRefreshHandler();
   if (!refreshHandler?.preflight) {
@@ -426,7 +426,7 @@ export async function preflightRuntimeSnapshotWrite(params: {
       ...params.refreshOptions,
     });
   } catch (error) {
-    throw params.createRefreshError(params.formatRefreshError(error), error);
+    throw params.createRefreshError(formatErrorMessage(error), error);
   }
 }
 
@@ -438,7 +438,6 @@ export async function finalizeRuntimeSnapshotWrite(params: {
   loadFreshConfig: () => OpenClawConfig;
   notifyCommittedWrite: () => void;
   createRefreshError: (detail: string, cause: unknown) => Error;
-  formatRefreshError: (error: unknown) => string;
   preflightResult?: unknown;
   deferRuntimeActivation?: boolean;
 }): Promise<void> {
@@ -464,7 +463,7 @@ export async function finalizeRuntimeSnapshotWrite(params: {
       } catch {
         // Keep the original refresh failure as the surfaced error.
       }
-      throw params.createRefreshError(params.formatRefreshError(error), error);
+      throw params.createRefreshError(formatErrorMessage(error), error);
     }
   }
 

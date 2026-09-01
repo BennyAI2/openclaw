@@ -324,7 +324,6 @@ export async function writeConfigFile(
         runtimePreflightResult = await preflightRuntimeSnapshotWrite({
           nextSourceConfig: sourceConfig,
           refreshOptions: options.runtimeRefresh,
-          formatRefreshError: (error) => formatErrorMessage(error),
           createRefreshError: (detail, cause) =>
             new ConfigRuntimeRefreshError(
               `Config write blocked before committing ${io.configPath}: active SecretRef resolution failed: ${detail}`,
@@ -484,7 +483,6 @@ async function finalizeCommittedConfigWrite(params: {
       hadBothSnapshots: params.hadBothSnapshots,
       loadFreshConfig: () => io.loadConfig(),
       notifyCommittedWrite,
-      formatRefreshError: (error) => formatErrorMessage(error),
       preflightResult: params.runtimePreflightResult,
       deferRuntimeActivation,
       createRefreshError: (detail, cause) =>

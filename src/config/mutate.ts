@@ -819,7 +819,6 @@ async function tryWriteSingleTopLevelIncludeMutation(params: {
     runtimePreflightResult = await preflightRuntimeSnapshotWrite({
       nextSourceConfig: runtimeConfigToWrite,
       refreshOptions: params.writeOptions?.runtimeRefresh,
-      formatRefreshError: (error) => formatErrorMessage(error),
       createRefreshError: (detail, cause) =>
         new Error(
           `Config write blocked before committing ${includePath}: active SecretRef resolution failed: ${detail}`,
@@ -941,7 +940,6 @@ async function tryWriteSingleTopLevelIncludeMutation(params: {
       notifyCommittedWrite,
       preflightResult: runtimePreflightResult,
       deferRuntimeActivation,
-      formatRefreshError: (error) => formatErrorMessage(error),
       createRefreshError: (detail, cause) =>
         new Error(
           `Config was written to ${params.snapshot.path}, but runtime snapshot refresh failed: ${detail}`,
@@ -1065,7 +1063,6 @@ async function replaceConfigFileUnlocked(params: {
         await preflightRuntimeSnapshotWrite({
           nextSourceConfig: sourceConfig,
           refreshOptions: fallbackWriteOptions.runtimeRefresh,
-          formatRefreshError: (error) => formatErrorMessage(error),
           createRefreshError: (detail, cause) =>
             new Error(
               `Config write blocked before committing ${snapshot.path}: active SecretRef resolution failed: ${detail}`,

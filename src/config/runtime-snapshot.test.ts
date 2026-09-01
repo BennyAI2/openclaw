@@ -213,7 +213,6 @@ describe("runtime snapshot state", () => {
       hadBothSnapshots: true,
       loadFreshConfig,
       notifyCommittedWrite,
-      formatRefreshError: (error) => String(error),
       createRefreshError: (detail, cause) => new Error(detail, { cause }),
     });
 
@@ -235,7 +234,6 @@ describe("runtime snapshot state", () => {
       hadBothSnapshots: false,
       loadFreshConfig,
       notifyCommittedWrite,
-      formatRefreshError: (error) => String(error),
       createRefreshError: (detail, cause) => new Error(detail, { cause }),
     });
 
@@ -276,7 +274,6 @@ describe("runtime snapshot state", () => {
       hadBothSnapshots: true,
       loadFreshConfig,
       notifyCommittedWrite,
-      formatRefreshError: (error) => String(error),
       createRefreshError: (detail, cause) => new Error(detail, { cause }),
     });
 
@@ -380,7 +377,6 @@ describe("runtime snapshot state", () => {
       loadFreshConfig,
       notifyCommittedWrite,
       deferRuntimeActivation: true,
-      formatRefreshError: (error) => String(error),
       createRefreshError: (detail, cause) => new Error(detail, { cause }),
     });
 
