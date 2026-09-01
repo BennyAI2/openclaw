@@ -85,14 +85,16 @@ function invalidInput(
   });
 }
 
+const validationErrors = (operation: PluginStateStoreOperation) => ({
+  invalid: (message: string) => invalidInput(message, operation),
+  limit: (message: string) => invalidInput(message, operation),
+});
+
 function validateNamespace(value: string, operation: PluginStateStoreOperation = "open"): string {
   return validatePluginStoreNamespace({
     value,
     label: "plugin state",
-    errors: {
-      invalid: (message) => invalidInput(message, operation),
-      limit: (message) => invalidInput(message, operation),
-    },
+    errors: validationErrors(operation),
   });
 }
 
@@ -100,10 +102,7 @@ function validateKey(value: string, operation: PluginStateStoreOperation = "regi
   return validatePluginStoreKey({
     value,
     label: "plugin state",
-    errors: {
-      invalid: (message) => invalidInput(message, operation),
-      limit: (message) => invalidInput(message, operation),
-    },
+    errors: validationErrors(operation),
   });
 }
 
@@ -126,10 +125,7 @@ function validateOptionalTtlMs(
   return validateOptionalPluginStoreTtlMs({
     value,
     label: "plugin state ttlMs",
-    errors: {
-      invalid: (message) => invalidInput(message, operation),
-      limit: (message) => invalidInput(message, operation),
-    },
+    errors: validationErrors(operation),
   });
 }
 
