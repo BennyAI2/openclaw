@@ -12,6 +12,7 @@ final class MacRealtimeTalkAudioCapture: RealtimeTalkAudioCapturing {
     private let logger = Logger(subsystem: "ai.openclaw", category: "talk.realtime.capture")
     private let selectedInputUID: @MainActor () -> String?
     private let deliveryGate = TalkGenerationDeliveryGate()
+    private let captureInvalidationObserver = AudioCaptureInvalidationObserver()
 
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
@@ -25,6 +26,7 @@ final class MacRealtimeTalkAudioCapture: RealtimeTalkAudioCapturing {
     private var suppressInputDuringOutput = true
     private var outputRouteDecisionState = MacRealtimeTalkOutputRouteDecisionState()
     private var outputRouteObservationGeneration: UInt64 = 0
+    private var captureGeneration: UInt64 = 0
     #if DEBUG
     private var testOutputRouteCallbackHandled: (@Sendable () -> Void)?
     #endif
@@ -153,6 +155,13 @@ final class MacRealtimeTalkAudioCapture: RealtimeTalkAudioCapturing {
         engine.prepare()
         try engine.start()
         self.activeInputResolution = activeResolution
+        self.captureGeneration &+= 1
+        let captureGeneration = self.captureGeneration
+        self.captureInvalidationObserver.start(engine: engine) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.audioCaptureDidInvalidate(generation: captureGeneration)
+            }
+        }
     }
 
     private func bindSelectedInputIfNeeded(
@@ -281,7 +290,20 @@ final class MacRealtimeTalkAudioCapture: RealtimeTalkAudioCapturing {
         }
     }
 
+    private func audioCaptureDidInvalidate(generation: UInt64) {
+        guard generation == self.captureGeneration,
+              let targetSampleRate,
+              let onAudio
+        else { return }
+        self.logger.warning("realtime audio capture invalidated; restarting")
+        self.restartCaptureAfterInputChange {
+            try self.startCaptureEngine(targetSampleRate: targetSampleRate, onAudio: onAudio)
+        }
+    }
+
     private func teardownEngine() {
+        self.captureGeneration &+= 1
+        self.captureInvalidationObserver.stop()
         if self.tapInstalled, let inputNode {
             inputNode.removeTap(onBus: 0)
         }

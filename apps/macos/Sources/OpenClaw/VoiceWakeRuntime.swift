@@ -32,6 +32,7 @@ actor VoiceWakeRuntime {
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private let captureInvalidationObserver = AudioCaptureInvalidationObserver()
     private var recognitionGeneration: Int = 0 // drop stale callbacks after restarts
     private var lastHeard: Date?
     private var noiseFloorRMS: Double = 1e-4
@@ -77,6 +78,7 @@ actor VoiceWakeRuntime {
     private func haltRecognitionPipeline() {
         // Bump generation first so any in-flight callbacks from the cancelled task get dropped.
         self.recognitionGeneration &+= 1
+        self.captureInvalidationObserver.stop()
         self.recognitionTask?.cancel()
         self.recognitionTask = nil
         self.recognitionRequest?.endAudio()
@@ -226,6 +228,14 @@ actor VoiceWakeRuntime {
                     generation: generation)
                 Task { await self.handleRecognition(update, config: config) }
             }
+            self.captureInvalidationObserver.start(engine: audioEngine) { [weak self] in
+                Task {
+                    await self?.recoverInvalidatedCapture(
+                        generation: generation,
+                        config: config,
+                        reason: "audio capture invalidated")
+                }
+            }
 
             let preferred = config.micID?.isEmpty == false ? config.micID! : "system-default"
             self.logger.info(
@@ -289,11 +299,20 @@ actor VoiceWakeRuntime {
         if update.generation != self.recognitionGeneration {
             return // stale callback from a superseded recognizer session
         }
+        let recognitionFailed = update.error != nil
         if let error = update.error {
             self.logger.debug("voicewake recognition error: \(error.localizedDescription, privacy: .public)")
         }
 
-        guard let transcript = update.transcript else { return }
+        guard let transcript = update.transcript else {
+            if recognitionFailed {
+                await self.recoverInvalidatedCapture(
+                    generation: update.generation,
+                    config: config,
+                    reason: "recognition failed")
+            }
+            return
+        }
 
         let now = Date()
         if !transcript.isEmpty {
@@ -343,7 +362,15 @@ actor VoiceWakeRuntime {
             }
         }
 
-        if self.isCapturing { return }
+        if self.isCapturing {
+            if recognitionFailed {
+                await self.recoverInvalidatedCapture(
+                    generation: update.generation,
+                    config: config,
+                    reason: "recognition failed")
+            }
+            return
+        }
 
         let gateConfig = WakeWordGateConfig(triggers: config.triggers)
         var usedFallback = false
@@ -392,6 +419,32 @@ actor VoiceWakeRuntime {
                     gateConfig: gateConfig,
                     config: config)
             }
+        }
+        if recognitionFailed {
+            await self.recoverInvalidatedCapture(
+                generation: update.generation,
+                config: config,
+                reason: "recognition failed")
+        }
+    }
+
+    private func recoverInvalidatedCapture(
+        generation: Int,
+        config: RuntimeConfig,
+        reason: String) async
+    {
+        guard generation == self.recognitionGeneration, config == self.currentConfig else { return }
+        let action = AudioCaptureInvalidationPolicy.action(
+            isCapturing: self.isCapturing,
+            transcript: self.capturedTranscript)
+        switch action {
+        case .finalize:
+            self.logger.warning("voicewake \(reason); finalizing interrupted capture")
+            await self.finalizeCapture(config: config)
+        case .restart:
+            self.logger.warning("voicewake \(reason); scheduling capture restart")
+            self.haltRecognitionPipeline()
+            self.scheduleRestartRecognizer(delay: 0.7)
         }
     }
 
