@@ -62,6 +62,7 @@ import {
   withOpenClawStateStartupMigrationCheckpointDatabase,
 } from "./openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
+import { PreMigrationBackupError } from "./openclaw-state-pre-migration-backup.js";
 import { getOpenClawStateRuntimeSchema } from "./openclaw-state-schema-compatibility.js";
 import { STATE_SCHEMA_10_TO_9_DOWNGRADE_SQL } from "./openclaw-state-schema-v10-retirement.test-support.js";
 import { STATE_SCHEMA_11_TO_10_TABLES_SQL } from "./openclaw-state-schema-v11-retirement.test-support.js";
@@ -76,6 +77,7 @@ import {
 } from "./sqlite-schema-shape.test-support.js";
 
 const stateDbLogInfo = vi.hoisted(() => vi.fn());
+const PRE_MIGRATION_BACKUP_DIRNAME = "pre-migration-backups";
 
 vi.mock("../logging/subsystem.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../logging/subsystem.js")>();
@@ -5720,6 +5722,60 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     expect(() => openOpenClawStateDatabase(options)).toThrow(
       /integrity_check failed.*missing from index unsafe_index_records_value/iu,
     );
+  });
+
+  it("retains a verified copy when a forward migration later refuses", () => {
+    const stateDir = createTempStateDir();
+    const databasePath = materializeCurrentStateDatabase(stateDir);
+    const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
+    const { DatabaseSync } = requireNodeSqlite();
+    const before = new DatabaseSync(databasePath);
+    try {
+      before.exec(`PRAGMA user_version = ${OPENCLAW_STATE_SCHEMA_VERSION - 1};`);
+    } finally {
+      before.close();
+    }
+
+    const result = repairOpenClawStateDatabaseSchema(options);
+
+    expect(result.warnings).toHaveLength(1);
+    const backupDir = path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME);
+    const [backupName] = fs.readdirSync(backupDir);
+    expect(backupName).toMatch(/^openclaw-state-[0-9a-f]{12}-v\d+-to-v\d+-.*\.sqlite$/u);
+    const backup = new DatabaseSync(path.join(backupDir, backupName ?? ""), { readOnly: true });
+    try {
+      expect(readSqliteNumberPragma(backup, "user_version")).toBe(
+        OPENCLAW_STATE_SCHEMA_VERSION - 1,
+      );
+    } finally {
+      backup.close();
+    }
+  });
+
+  it("fails closed before migration when the recovery directory cannot be secured", () => {
+    const stateDir = createTempStateDir();
+    const databasePath = materializeCurrentStateDatabase(stateDir);
+    const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
+    const backupDir = path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME);
+    fs.writeFileSync(backupDir, "not a directory");
+    const { DatabaseSync } = requireNodeSqlite();
+    const before = new DatabaseSync(databasePath);
+    try {
+      before.exec(`PRAGMA user_version = ${OPENCLAW_STATE_SCHEMA_VERSION - 1};`);
+    } finally {
+      before.close();
+    }
+
+    expect(() => openOpenClawStateDatabase(options)).toThrow(PreMigrationBackupError);
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(readSqliteNumberPragma(preserved, "user_version")).toBe(
+        OPENCLAW_STATE_SCHEMA_VERSION - 1,
+      );
+    } finally {
+      preserved.close();
+    }
   });
 
   it("runs full integrity before mutating a nonempty unversioned state database", () => {
