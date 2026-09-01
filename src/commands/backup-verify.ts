@@ -52,6 +52,7 @@ type BackupVerifyResult = {
 type PreparedBackupArchive = {
   result: BackupVerifyResult;
   hardlinkTargets: ReadonlyMap<string, string>;
+  manifest: BackupManifest;
 };
 
 type ArchiveEntry = {
@@ -662,7 +663,7 @@ async function verifyResolvedBackupArchive(archivePath: string): Promise<Prepare
     symlinkCount: symbolicLinks.length,
   };
 
-  return { result, hardlinkTargets };
+  return { result, hardlinkTargets, manifest };
 }
 
 /** Verify an archive and prepare the exact hardlink targets needed by extraction. */

@@ -11,7 +11,10 @@ import {
 } from "../../infra/update-global.js";
 import { runGatewayUpdate, type UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
-import { OPENCLAW_DATABASE_SCHEMA_DOCS_URL } from "../../state/openclaw-database-preflight.js";
+import {
+  OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
+  type OpenClawDatabaseSchemaPreflight,
+} from "../../state/openclaw-database-preflight.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { splitShellArgs } from "../../utils/shell-argv.js";
 import { createUpdateProgress } from "./progress.js";
@@ -128,6 +131,10 @@ export function createBeforeGitMutation(params: {
   getPreManagedServiceStop: () => PreManagedServiceStop | undefined;
   getDatabaseSchemaContext: () => Parameters<typeof checkTargetDatabaseSchemas>[1];
   switchToGit: boolean;
+  beforeMutation?: (
+    preflight: OpenClawDatabaseSchemaPreflight,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<void>;
 }): BeforeGitMutation {
   return async (target) => {
     if (target?.metadataUnreadable) {
@@ -148,6 +155,7 @@ export function createBeforeGitMutation(params: {
     }
     await params.stopManagedService(params.roots);
     const preManagedServiceStop = params.getPreManagedServiceStop();
+    const mutationEnv = preManagedServiceStop?.serviceEnv ?? process.env;
     const postStopSchemas = checkTargetDatabaseSchemas(
       target?.schemaVersions,
       params.getDatabaseSchemaContext(),
@@ -158,6 +166,7 @@ export function createBeforeGitMutation(params: {
         formatSchemaRefusalLines(postStopSchemas).join("\n"),
       );
     }
+    await params.beforeMutation?.(postStopSchemas, mutationEnv);
     // A candidate checkout cannot own the service until its global exposure
     // succeeds. Finalization refreshes and activates the verified installation.
     return params.switchToGit
@@ -179,6 +188,7 @@ export async function updateGitInstall(params: {
   beforeGitMutation?: BeforeGitMutation;
   allowGatewayServiceRepair: boolean;
   allowGatewayActivation: boolean;
+  onDatabaseMigrationStart?: () => void;
 }): Promise<UpdateRunResult> {
   let updateRoot = params.switchToGit ? resolveGitInstallDir() : params.root;
   const effectiveTimeout = params.timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS;
@@ -249,6 +259,7 @@ export async function updateGitInstall(params: {
     deferConfiguredPluginInstallRepair: true,
     allowGatewayServiceRepair: params.allowGatewayServiceRepair,
     allowGatewayActivation: params.allowGatewayActivation,
+    onDatabaseMigrationStart: params.onDatabaseMigrationStart,
     beforeGitMutation: params.beforeGitMutation,
   });
   const steps = [...(cloneStep ? [cloneStep] : []), ...updateResult.steps];

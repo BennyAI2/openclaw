@@ -150,6 +150,22 @@ describe("update failure triage boundary", () => {
     target.failureResult = {
       ...failedUpdate,
       recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" },
+      migrationBackup: {
+        archivePath: path.join(
+          target.env.OPENCLAW_STATE_DIR!,
+          "../state.update-backups/backup.tar.gz",
+        ),
+        verified: true,
+        migrationStarted: true,
+        databases: [
+          {
+            kind: "state",
+            path: path.join(target.env.OPENCLAW_STATE_DIR!, "openclaw.sqlite"),
+            foundVersion: 14,
+            supportedVersion: 15,
+          },
+        ],
+      },
     };
 
     await expect(
@@ -162,7 +178,14 @@ describe("update failure triage boundary", () => {
     expect(receipt.args).toContain("--non-interactive");
     expect(receipt.failure).toMatchObject({
       error: failure.message,
-      result: { recovery: { serviceRestartSafe: false } },
+      result: {
+        recovery: { serviceRestartSafe: false },
+        migrationBackup: {
+          verified: true,
+          migrationStarted: true,
+          databaseCount: 1,
+        },
+      },
     });
     expect(defaultRuntime.exit).not.toHaveBeenCalled();
   });

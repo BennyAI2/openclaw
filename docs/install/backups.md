@@ -322,7 +322,9 @@ SQLite databases before it writes the target. A non-empty target is refused,
 and a failed extraction cleans its incomplete output. The command never writes
 into live state or agent roots and has no force or in-place mode. Treat the
 restored directory as sensitive: it can contain credentials, auth profiles,
-sessions, and workspace data.
+sessions, and workspace data. Its output lists each manifest-recorded source and
+validated staging path; use those mappings instead of reconstructing paths from
+the archive filename or default layout.
 
 <Warning>
   Restoring an archive is time travel. Messaging-channel credentials with

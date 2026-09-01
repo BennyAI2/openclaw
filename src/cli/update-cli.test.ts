@@ -99,6 +99,9 @@ const windowsOfflineProbe = vi.hoisted(() => vi.fn(async () => null));
 const databasePreflightMocks = vi.hoisted(() => ({
   preflightOpenClawDatabaseSchemas: vi.fn(),
 }));
+const migrationBackupMocks = vi.hoisted(() => ({
+  createUpdateMigrationBackup: vi.fn(),
+}));
 const restartHealthTestControl = vi.hoisted(() => ({
   snapshot: undefined as unknown,
 }));
@@ -142,6 +145,11 @@ vi.mock("../infra/update-runner.js", async (importOriginal) => ({
 vi.mock("../state/openclaw-database-preflight.js", () => ({
   OPENCLAW_DATABASE_SCHEMA_DOCS_URL: "https://docs.openclaw.ai/reference/database-schemas",
   preflightOpenClawDatabaseSchemas: databasePreflightMocks.preflightOpenClawDatabaseSchemas,
+}));
+
+vi.mock("./update-cli/update-command-migration-backup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./update-cli/update-command-migration-backup.js")>()),
+  createUpdateMigrationBackup: migrationBackupMocks.createUpdateMigrationBackup,
 }));
 
 vi.mock("../state/openclaw-state-ownership.js", async (importOriginal) => ({
@@ -1605,6 +1613,7 @@ describe("update-cli", () => {
       incompatible: [],
       indeterminate: [],
     });
+    migrationBackupMocks.createUpdateMigrationBackup.mockResolvedValue({ status: "not-needed" });
     vi.mocked(resolveOpenClawPackageRoot).mockResolvedValue(process.cwd());
     vi.mocked(readConfigFileSnapshot).mockResolvedValue(baseSnapshot);
     vi.mocked(readSourceConfigBestEffort).mockResolvedValue(baseSnapshot.config);
@@ -4602,6 +4611,35 @@ describe("update-cli", () => {
     expect(defaultRuntime.exit).not.toHaveBeenCalledWith(1);
   });
 
+  it("previews the required migration backup without creating it", async () => {
+    mockPackageInstallStatus(createCaseDir("openclaw-schema-backup-dry-run"));
+    vi.mocked(fetchNpmPackageTargetStatus).mockResolvedValue(
+      packageTargetStatus({ schemaVersions: { state: 5, agent: 11 } }),
+    );
+    databasePreflightMocks.preflightOpenClawDatabaseSchemas.mockReturnValue({
+      incompatible: [],
+      indeterminate: [],
+      migrationRequired: [
+        {
+          kind: "state",
+          path: "/tmp/openclaw/state/openclaw.sqlite",
+          foundVersion: 4,
+          supportedVersion: 5,
+        },
+      ],
+    });
+
+    await updateCommand({ dryRun: true, json: true });
+
+    expect(lastWriteJsonCall()).toMatchObject({
+      dryRun: true,
+      actions: expect.arrayContaining([
+        "Create and verify a full pre-migration backup before changing the installation",
+      ]),
+    });
+    expect(migrationBackupMocks.createUpdateMigrationBackup).not.toHaveBeenCalled();
+  });
+
   it("refuses an incompatible git target before stopping the service", async () => {
     mockOwnedGitService();
     serviceLoaded.mockResolvedValue(true);
@@ -4754,6 +4792,272 @@ describe("update-cli", () => {
     expect(vi.mocked(runCommandWithTimeout).mock.invocationCallOrder.at(-1)).toBeLessThan(
       vi.mocked(defaultRuntime.exit).mock.invocationCallOrder.at(-1) ?? 0,
     );
+  });
+
+  it("stops before package mutation when a required migration backup fails", async () => {
+    mockPackageInstallStatus(createCaseDir("openclaw-migration-backup-failure"));
+    vi.mocked(fetchNpmPackageTargetStatus).mockResolvedValue(
+      packageTargetStatus({ schemaVersions: { state: 5, agent: 11 } }),
+    );
+    databasePreflightMocks.preflightOpenClawDatabaseSchemas.mockReturnValue({
+      incompatible: [],
+      indeterminate: [],
+      migrationRequired: [
+        {
+          kind: "state",
+          path: "/tmp/openclaw/state/openclaw.sqlite",
+          foundVersion: 4,
+          supportedVersion: 5,
+        },
+      ],
+    });
+    migrationBackupMocks.createUpdateMigrationBackup.mockResolvedValueOnce({
+      status: "failed",
+      step: {
+        name: "pre-migration backup",
+        command: "openclaw backup create --verify --no-include-workspace",
+        cwd: process.cwd(),
+        durationMs: 5,
+        exitCode: 1,
+        stderrTail: "disk full; update stopped before code or database mutation",
+      },
+    });
+
+    await updateCommand({ yes: true, json: true });
+
+    expect(migrationBackupMocks.createUpdateMigrationBackup).toHaveBeenCalledOnce();
+    expect(packageInstallCommandCall()).toBeUndefined();
+    expect(lastWriteJsonCall()).toMatchObject({
+      status: "error",
+      reason: "pre-migration-backup-failed",
+      recovery: { serviceRestartSafe: true },
+      steps: [{ name: "pre-migration backup", exitCode: 1 }],
+    });
+  });
+
+  it("preserves the complete migration backup set and fails before code or database mutation", async () => {
+    const customRoot = createCaseDir("openclaw-inspection-only-custom-store");
+    const inspectionOnlyCandidate = path.join(customRoot, "main", "openclaw-agent.sqlite");
+    const config = {
+      agents: { list: [{ id: "main" }] },
+      session: { store: path.join(customRoot, "{agentId}", "sessions.json") },
+    } as OpenClawConfig;
+    vi.mocked(readConfigFileSnapshot).mockResolvedValue(configSnapshot(config));
+    const migrationRequired = [
+      {
+        kind: "state",
+        path: "/tmp/openclaw/state/openclaw.sqlite",
+        foundVersion: 4,
+        supportedVersion: 5,
+      },
+      {
+        kind: "agent",
+        agentId: "worker",
+        path: "/tmp/openclaw/agents/worker/agent/openclaw-agent.sqlite",
+        foundVersion: 10,
+        supportedVersion: 11,
+      },
+    ] as const;
+    const candidatePathsSeen: string[] = [];
+    databasePreflightMocks.preflightOpenClawDatabaseSchemas.mockImplementation((options) => {
+      candidatePathsSeen.push(...(options.configuredAgentDatabaseCandidatePaths ?? []));
+      return {
+        incompatible: [],
+        indeterminate: [],
+        migrationRequired: [...migrationRequired],
+      };
+    });
+
+    migrationBackupMocks.createUpdateMigrationBackup.mockImplementationOnce(
+      async ({ schemaPreflight }) => ({
+        status: "created",
+        backup: {
+          archivePath: "/tmp/openclaw.update-backups/pre-migration.tar.gz",
+          databases: [...(schemaPreflight.migrationRequired ?? [])],
+          migrationStarted: false,
+          verified: true,
+        },
+        step: {
+          name: "pre-migration backup",
+          command: "openclaw backup create --verify --no-include-workspace",
+          cwd: process.cwd(),
+          durationMs: 5,
+          exitCode: 0,
+        },
+      }),
+    );
+    vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+      await options?.beforeGitMutation?.({ schemaVersions: { state: 5, agent: 11 } });
+      options?.onDatabaseMigrationStart?.();
+      return makeOkUpdateResult({ mode: "git" });
+    });
+
+    await updateCommand({ yes: true, json: true, restart: false });
+
+    const firstResult = lastWriteJsonCall() as UpdateRunResult;
+    expect(firstResult.migrationBackup?.databases).toEqual([...migrationRequired]);
+    expect(
+      new Set(firstResult.migrationBackup?.databases.map((database) => database.path)).size,
+    ).toBe(migrationRequired.length);
+    expect(candidatePathsSeen).toContain(inspectionOnlyCandidate);
+    expect(firstResult.migrationBackup?.databases.map((database) => database.path)).not.toContain(
+      inspectionOnlyCandidate,
+    );
+
+    vi.mocked(defaultRuntime.writeJson).mockClear();
+    migrationBackupMocks.createUpdateMigrationBackup.mockReset();
+    migrationBackupMocks.createUpdateMigrationBackup.mockResolvedValueOnce({
+      status: "failed",
+      step: {
+        name: "pre-migration backup",
+        command: "openclaw backup create --verify --no-include-workspace",
+        cwd: process.cwd(),
+        durationMs: 5,
+        exitCode: 1,
+        stderrTail: "disk full; update stopped before code or database mutation",
+      },
+    });
+    let mutationStarted = false;
+    vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+      await options?.beforeGitMutation?.({ schemaVersions: { state: 5, agent: 11 } });
+      mutationStarted = true;
+      options?.onDatabaseMigrationStart?.();
+      return makeOkUpdateResult({ mode: "git" });
+    });
+
+    await updateCommand({ yes: true, json: true, restart: false });
+
+    expect(mutationStarted).toBe(false);
+    expect(lastWriteJsonCall()).toMatchObject({
+      status: "error",
+      reason: "pre-migration-backup-failed",
+      recovery: { serviceRestartSafe: true },
+      steps: [{ name: "pre-migration backup", exitCode: 1 }],
+    });
+  });
+
+  it("retains the verified migration backup in a git update result", async () => {
+    const archivePath = "/tmp/openclaw.update-backups/pre-migration.tar.gz";
+    vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+      await options?.beforeGitMutation?.({ schemaVersions: { state: 5, agent: 11 } });
+      options?.onDatabaseMigrationStart?.();
+      return makeOkUpdateResult({ mode: "git" });
+    });
+    databasePreflightMocks.preflightOpenClawDatabaseSchemas.mockReturnValue({
+      incompatible: [],
+      indeterminate: [],
+      migrationRequired: [
+        {
+          kind: "state",
+          path: "/tmp/openclaw/state/openclaw.sqlite",
+          foundVersion: 4,
+          supportedVersion: 5,
+        },
+      ],
+    });
+    migrationBackupMocks.createUpdateMigrationBackup.mockResolvedValueOnce({
+      status: "created",
+      backup: {
+        archivePath,
+        migrationStarted: false,
+        verified: true,
+        databases: [
+          {
+            kind: "state",
+            path: "/tmp/openclaw/state/openclaw.sqlite",
+            foundVersion: 4,
+            supportedVersion: 5,
+          },
+        ],
+      },
+      step: {
+        name: "pre-migration backup",
+        command: "openclaw backup create --verify --no-include-workspace",
+        cwd: process.cwd(),
+        durationMs: 5,
+        exitCode: 0,
+      },
+    });
+
+    await updateCommand({ yes: true, json: true, restart: false });
+
+    expect(lastWriteJsonCall()).toMatchObject({
+      status: "ok",
+      migrationBackup: { archivePath, migrationStarted: true, verified: true },
+      steps: [{ name: "pre-migration backup", exitCode: 0 }],
+    });
+  });
+
+  it("does not restart an older git service after a migration-capable doctor failure", async () => {
+    const archivePath = "/tmp/openclaw.update-backups/pre-migration.tar.gz";
+    vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+      await options?.beforeGitMutation?.({ schemaVersions: { state: 5, agent: 11 } });
+      options?.onDatabaseMigrationStart?.();
+      return makeOkUpdateResult({
+        status: "error",
+        mode: "git",
+        reason: "doctor-failed",
+        recovery: { serviceRestartSafe: true },
+        steps: [
+          {
+            name: "candidate repair",
+            command: "openclaw doctor --fix",
+            cwd: process.cwd(),
+            durationMs: 10,
+            exitCode: 1,
+            stderrTail: "migration failed",
+          },
+        ],
+      });
+    });
+    databasePreflightMocks.preflightOpenClawDatabaseSchemas.mockReturnValue({
+      incompatible: [],
+      indeterminate: [],
+      migrationRequired: [
+        {
+          kind: "state",
+          path: "/tmp/openclaw/state/openclaw.sqlite",
+          foundVersion: 4,
+          supportedVersion: 5,
+        },
+      ],
+    });
+    migrationBackupMocks.createUpdateMigrationBackup.mockResolvedValueOnce({
+      status: "created",
+      backup: {
+        archivePath,
+        migrationStarted: false,
+        verified: true,
+        databases: [
+          {
+            kind: "state",
+            path: "/tmp/openclaw/state/openclaw.sqlite",
+            foundVersion: 4,
+            supportedVersion: 5,
+          },
+        ],
+      },
+      step: {
+        name: "pre-migration backup",
+        command: "openclaw backup create --verify --no-include-workspace",
+        cwd: process.cwd(),
+        durationMs: 5,
+        exitCode: 0,
+      },
+    });
+
+    await updateCommand({ yes: true, json: true });
+
+    expect(lastWriteJsonCall()).toMatchObject({
+      status: "error",
+      reason: "doctor-failed",
+      migrationBackup: { archivePath, migrationStarted: true, verified: true },
+      recovery: {
+        serviceRestartSafe: false,
+        reason: "database-migration-uncertain",
+      },
+    });
+    expectNoSideEffects(serviceStart, serviceRestart);
   });
 
   it("fails a post-stop git refusal when no managed service was running", async () => {

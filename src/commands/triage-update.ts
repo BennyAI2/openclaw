@@ -45,6 +45,25 @@ const updateFailureSchema = z
         recovery: z
           .object({ serviceRestartSafe: z.boolean(), reason: z.string().optional() })
           .optional(),
+        migrationBackup: z
+          .object({
+            archivePath: z.string(),
+            verified: z.literal(true),
+            migrationStarted: z.boolean(),
+            databaseCount: z.number().int().nonnegative().optional(),
+            databases: z
+              .array(
+                z.object({
+                  kind: z.enum(["agent", "state"]),
+                  path: z.string(),
+                  agentId: z.string().optional(),
+                  foundVersion: z.number().int().nonnegative(),
+                  supportedVersion: z.number().int().nonnegative(),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
         postUpdate: z
           .object({
             plugins: z
@@ -263,6 +282,15 @@ export function sanitizeTriageUpdateFailure(
       after: identity(result.after),
       recovery: result.recovery
         ? { ...result.recovery, reason: text(result.recovery.reason, 96) }
+        : undefined,
+      migrationBackup: result.migrationBackup
+        ? {
+            archivePath: text(result.migrationBackup.archivePath, 256, "ends"),
+            verified: true as const,
+            migrationStarted: result.migrationBackup.migrationStarted,
+            databaseCount:
+              result.migrationBackup.databaseCount ?? result.migrationBackup.databases?.length ?? 0,
+          }
         : undefined,
       // Successful steps are not the failure. Keep the latest failures in execution order.
       steps: failedSteps.slice(-3).map((step) => ({

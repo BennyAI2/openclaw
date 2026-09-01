@@ -56,6 +56,7 @@ export async function runPackageInstallUpdate(params: {
   nodeRunner?: string;
   installEnv?: NodeJS.ProcessEnv;
   installTarget?: ResolvedGlobalInstallTarget;
+  onDatabaseMigrationStart?: () => void;
 }): Promise<UpdateRunResult> {
   const installEnv = params.installEnv ?? (await createGlobalInstallEnv());
   const runCommand = createGlobalCommandRunner();
@@ -138,6 +139,7 @@ export async function runPackageInstallUpdate(params: {
         index: 0,
         total: 0,
       };
+      params.onDatabaseMigrationStart?.();
       params.progress?.onStepStart?.(doctorProgressInfo);
       const doctorStep = await runUpdateStep({
         name: `${CLI_NAME} doctor`,

@@ -5,6 +5,7 @@ import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawDatabaseSchemaPreflight } from "../../state/openclaw-database-preflight.js";
 import { formatSchemaRefusalLines, hasSchemaRefusal } from "./schema-preflight.js";
+import { hasRequiredSchemaMigrations } from "./update-command-migration-backup.js";
 import type { ManagedServiceRootRedirect } from "./update-command-service-plan.js";
 
 type UpdateDryRunPreview = {
@@ -109,6 +110,9 @@ export function printUpdateDryRun(params: {
     );
   }
   actions.push("Run plugin update sync after core update");
+  if (hasRequiredSchemaMigrations(params.packageSchemaPreflight)) {
+    actions.push("Create and verify a full pre-migration backup before changing the installation");
+  }
   actions.push("Refresh shell completion cache (if needed)");
   actions.push(
     params.shouldRestart

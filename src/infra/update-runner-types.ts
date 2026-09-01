@@ -1,4 +1,5 @@
 import type { CommandOptions } from "../process/exec.js";
+import type { MigratableOpenClawDatabase } from "../state/openclaw-database-preflight.js";
 import type { OpenClawSchemaVersions } from "../state/openclaw-schema-versions.js";
 import type { UpdateChannel } from "./update-channels.js";
 import type { DevUpdateTarget } from "./update-dev-target.js";
@@ -21,6 +22,13 @@ export type UpdateStepResult = {
   advisory?: UpdateStepAdvisory;
 };
 
+export type UpdateMigrationBackup = {
+  archivePath: string;
+  databases: MigratableOpenClawDatabase[];
+  migrationStarted: boolean;
+  verified: true;
+};
+
 export type UpdateRunResult = {
   status: "ok" | "error" | "skipped";
   mode: "git" | "pnpm" | "bun" | "npm" | "unknown";
@@ -35,6 +43,7 @@ export type UpdateRunResult = {
   };
   steps: UpdateStepResult[];
   durationMs: number;
+  migrationBackup?: UpdateMigrationBackup;
   recovery?:
     | { serviceRestartSafe: true }
     | {
@@ -44,6 +53,7 @@ export type UpdateRunResult = {
           | "manager-unavailable"
           | "deps-install-failed"
           | "build-failed"
+          | "database-migration-uncertain"
           | "rollback-checkout-dirty"
           | "runtime-verification-failed";
       };
@@ -138,6 +148,7 @@ export type UpdateRunnerOptions = {
     allowGatewayServiceRepair?: boolean;
     allowGatewayActivation?: boolean;
   } | void>;
+  onDatabaseMigrationStart?: () => void;
   timeoutMs?: number;
   runCommand?: CommandRunner;
   progress?: UpdateStepProgress;

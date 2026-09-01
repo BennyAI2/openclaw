@@ -26,6 +26,7 @@ const STEP_LABELS: Record<string, string> = {
   "git clone": "Cloning git checkout",
   "preflight worktree": "Preparing preflight worktree",
   "preflight cleanup": "Cleaning preflight worktree",
+  "pre-migration backup": "Creating verified pre-migration backup",
   "deps install": "Installing dependencies",
   build: "Building",
   "ui:build": "Building UI assets",
@@ -259,6 +260,11 @@ export function printResult(result: UpdateRunResult, opts: PrintResultOptions): 
   if (result.after?.version || result.after?.sha) {
     const after = result.after.version ?? result.after.sha?.slice(0, 8) ?? "";
     defaultRuntime.log(`  After: ${theme.muted(after)}`);
+  }
+  if (result.migrationBackup) {
+    defaultRuntime.log(
+      `  Migration backup: ${theme.muted(result.migrationBackup.archivePath)} (verified)`,
+    );
   }
 
   // Some preflight failures are synthesized without a progress callback. Keep

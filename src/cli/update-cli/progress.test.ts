@@ -120,6 +120,27 @@ describe("update failure hints", () => {
     expect(output).not.toContain("npm config set prefix ~/.local");
   });
 
+  it("shows the verified migration recovery archive", () => {
+    const result = {
+      status: "ok",
+      mode: "git",
+      steps: [],
+      durationMs: 1,
+      migrationBackup: {
+        archivePath: "/srv/openclaw.update-backups/pre-migration.tar.gz",
+        migrationStarted: true,
+        verified: true,
+        databases: [],
+      },
+    } satisfies UpdateRunResult;
+
+    const output = renderResult(result);
+
+    expect(output).toContain("Migration backup:");
+    expect(output).toContain("/srv/openclaw.update-backups/pre-migration.tar.gz");
+    expect(output).toContain("verified");
+  });
+
   it("shows the final diagnostics from both build streams", () => {
     const result = makeResult("build", "Build failed", "git");
     result.steps[0].stdoutTail = [

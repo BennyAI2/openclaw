@@ -47,6 +47,10 @@ Archive `create`, `verify`, and `restore`, plus SQLite `create`, `list`, `verify
 - Existing archive files are never overwritten. Output paths inside the source state/workspace trees are rejected to avoid self-inclusion.
 - `openclaw backup verify <archive>` checks that the archive contains exactly one root manifest, rejects traversal-style archive paths, unsafe symbolic links, and SQLite sidecars, confirms every manifest-declared payload exists, validates every SQLite snapshot's file shape, and runs full integrity and role checks on canonical OpenClaw databases. Dedicated plugin schemas remain opaque because they may require owner-defined SQLite capabilities. `openclaw backup create --verify` runs that validation immediately after writing the archive.
 - `openclaw backup create --only-config` backs up just the active JSON config file.
+- Before an `openclaw update` target advances an on-disk SQLite schema, the
+  updater runs this same create-and-verify path automatically with workspaces
+  excluded. It stores the archive under `<state-dir>.update-backups/` and reports
+  the exact path in `migrationBackup.archivePath`.
 
 ## Restore a full archive
 
@@ -63,7 +67,10 @@ verifies the archive and its SQLite databases before creating or writing the
 target, refuses a non-empty target, and removes an incomplete extraction if
 anything fails. It never restores in place and has no `--force` mode. The
 extracted layout retains the archive root, manifest, and `payload/` paths
-exactly as recorded in the archive.
+exactly as recorded in the archive. Text and JSON output list each validated
+manifest asset as `kind`, manifest-recorded `sourcePath`, and extracted
+`stagedPath`, so
+recovery tooling does not need to reconstruct ownership from filenames.
 
 <Warning>
   Restoring an archive is time travel. Messaging-channel credentials with

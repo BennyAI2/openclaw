@@ -507,6 +507,7 @@ export async function updateGitCheckout(params: {
       targetVersion: doctorTargetVersion,
       allowGatewayServiceRepair,
     });
+    opts.onDatabaseMigrationStart?.();
     const doctorStep = await runStep(
       step(
         "openclaw doctor",

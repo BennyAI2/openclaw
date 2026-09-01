@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as tar from "tar";
+import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { readConfigFileSnapshot, resolveStateDir } from "../config/config.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
@@ -40,6 +41,11 @@ type BackupRestoreResult = {
   assetCount: number;
   entryCount: number;
   symlinkCount: number;
+  assets: Array<{
+    kind: string;
+    sourcePath: string;
+    stagedPath: string;
+  }>;
   warnings: string[];
 };
 
@@ -136,6 +142,11 @@ function formatRestoreResult(result: BackupRestoreResult): string {
     `Verified archive: ${shortenHomePath(result.archivePath)}`,
     `Archive root: ${result.archiveRoot}`,
     `Archive entries restored: ${result.entryCount}`,
+    "Manifest asset mappings:",
+    ...result.assets.map(
+      (asset) =>
+        `- ${sanitizeForLog(asset.kind)}: ${shortenHomePath(sanitizeForLog(asset.sourcePath))} → ${shortenHomePath(sanitizeForLog(asset.stagedPath))}`,
+    ),
     "",
     "Rollback warnings:",
     ...result.warnings.map((warning) => `- ${warning}`),
@@ -151,7 +162,11 @@ export async function backupRestoreCommand(
 ): Promise<BackupRestoreResult> {
   const targetPath = resolveRequiredBackupPath(options.target, "--target");
   await assertTargetOutsideLiveState(targetPath);
-  const { result: verified, hardlinkTargets } = await prepareBackupArchive(options.archive);
+  const {
+    result: verified,
+    hardlinkTargets,
+    manifest,
+  } = await prepareBackupArchive(options.archive);
   const target = await prepareRestoreTarget(targetPath);
 
   try {
@@ -176,6 +191,11 @@ export async function backupRestoreCommand(
   const result: BackupRestoreResult = {
     ...verified,
     targetPath,
+    assets: manifest.assets.map((asset) => ({
+      kind: asset.kind,
+      sourcePath: asset.sourcePath,
+      stagedPath: path.join(targetPath, ...asset.archivePath.split("/")),
+    })),
     warnings: [...BACKUP_RESTORE_WARNINGS],
   };
   if (options.json) {

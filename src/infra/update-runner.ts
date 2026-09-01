@@ -20,6 +20,7 @@ import {
 import type { UpdateRunResult, UpdateRunnerOptions } from "./update-runner-types.js";
 
 export type {
+  UpdateMigrationBackup,
   UpdateRunResult,
   UpdateStepAdvisory,
   UpdateStepInfo,

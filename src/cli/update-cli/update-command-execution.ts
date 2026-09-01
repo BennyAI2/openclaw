@@ -22,6 +22,7 @@ import {
   captureOwnedManagedUpdateContext,
   type OwnedManagedUpdateContext,
 } from "./update-command-managed-context.js";
+import { createUpdateMigrationBackup } from "./update-command-migration-backup.js";
 import { runPackageInstallUpdate } from "./update-command-package.js";
 import type { ManagedServiceRootRedirect } from "./update-command-service-plan.js";
 import {
@@ -79,6 +80,9 @@ export async function executeMutableUpdate(params: {
       params.config,
     env: ownedManagedUpdateContext?.env ?? process.env,
   });
+  let migrationBackup: UpdateRunResult["migrationBackup"];
+  let migrationBackupStep: UpdateRunResult["steps"][number] | undefined;
+  let databaseMigrationStarted = false;
   const recoverStoppedService = () =>
     maybeRestartServiceAfterFailedMutableUpdate({
       preManagedServiceStop,
@@ -200,12 +204,63 @@ export async function executeMutableUpdate(params: {
           getTargetDatabaseSchemaContext(),
         )
       : { incompatible: [], indeterminate: [] };
+  const prepareMigrationBackup = async (
+    schemaPreflight: typeof postStopPackageSchemaPreflight,
+    serviceEnv: NodeJS.ProcessEnv,
+  ) => {
+    const outcome = await createUpdateMigrationBackup({
+      root: params.root,
+      schemaPreflight,
+      timeoutMs: params.updateStepTimeoutMs,
+      progress: params.progress,
+      serviceEnv,
+      invocationCwd: params.invocationCwd,
+    });
+    if (outcome.status === "not-needed") {
+      return;
+    }
+    migrationBackupStep = outcome.step;
+    if (outcome.status === "failed") {
+      throw new UpdatePreMutationError(
+        "pre-migration-backup-failed",
+        outcome.step.stderrTail ?? "Pre-migration backup failed.",
+      );
+    }
+    migrationBackup = outcome.backup;
+  };
+  const attachMigrationBackup = (updateResult: UpdateRunResult): UpdateRunResult => {
+    const steps = migrationBackupStep
+      ? [migrationBackupStep, ...updateResult.steps]
+      : updateResult.steps;
+    const attachedBackup = migrationBackup
+      ? { ...migrationBackup, migrationStarted: databaseMigrationStarted }
+      : undefined;
+    return {
+      ...updateResult,
+      steps,
+      ...(attachedBackup ? { migrationBackup: attachedBackup } : {}),
+      ...(attachedBackup && updateResult.status === "error" && databaseMigrationStarted
+        ? {
+            recovery: {
+              serviceRestartSafe: false as const,
+              reason: "database-migration-uncertain" as const,
+            },
+          }
+        : {}),
+    };
+  };
   let result: UpdateRunResult;
   try {
     if (hasSchemaRefusal(postStopPackageSchemaPreflight)) {
       throw new UpdatePreMutationError(
         "database-schema-preflight",
         formatSchemaRefusalLines(postStopPackageSchemaPreflight).join("\n"),
+      );
+    }
+    if (params.updateInstallKind === "package") {
+      await prepareMigrationBackup(
+        postStopPackageSchemaPreflight,
+        preManagedServiceStop?.serviceEnv ?? process.env,
       );
     }
     result =
@@ -228,6 +283,9 @@ export async function executeMutableUpdate(params: {
             nodeRunner: params.packageUpdateNodeRunner,
             installEnv: params.packageInstallEnv,
             installTarget: params.packageInstallTarget,
+            onDatabaseMigrationStart: () => {
+              databaseMigrationStarted = true;
+            },
           })
         : await updateGitInstall({
             root: params.root,
@@ -248,17 +306,21 @@ export async function executeMutableUpdate(params: {
                     getPreManagedServiceStop: () => preManagedServiceStop,
                     getDatabaseSchemaContext: getTargetDatabaseSchemaContext,
                     switchToGit: params.switchToGit,
+                    beforeMutation: prepareMigrationBackup,
                   })
                 : undefined,
             allowGatewayServiceRepair: false,
             allowGatewayActivation: false,
+            onDatabaseMigrationStart: () => {
+              databaseMigrationStarted = true;
+            },
           });
   } catch (err) {
     params.stop();
     if (err instanceof UpdatePreMutationError) {
       defaultRuntime.error(err.message);
       return {
-        result: {
+        result: attachMigrationBackup({
           status: "error",
           mode:
             params.updateInstallKind === "git"
@@ -267,18 +329,21 @@ export async function executeMutableUpdate(params: {
           root: params.root,
           reason: err.reason,
           recovery: { serviceRestartSafe: true },
-          steps: [
-            {
-              name: err.reason,
-              command: err.reason,
-              cwd: params.root,
-              exitCode: 1,
-              durationMs: 0,
-              stderrTail: err.message,
-            },
-          ],
+          steps:
+            err.reason === "pre-migration-backup-failed" && migrationBackupStep
+              ? []
+              : [
+                  {
+                    name: err.reason,
+                    command: err.reason,
+                    cwd: params.root,
+                    exitCode: 1,
+                    durationMs: 0,
+                    stderrTail: err.message,
+                  },
+                ],
           durationMs: Date.now() - params.startedAt,
-        },
+        }),
         preManagedServiceStop,
         ownedManagedUpdateContext,
       };
@@ -288,7 +353,7 @@ export async function executeMutableUpdate(params: {
     }
     // Unexpected mutation failures have no verified rollback. Carry the owner's
     // restart verdict into diagnostics while preserving the original exception.
-    params.recoveryState.triageTarget.failureResult = {
+    params.recoveryState.triageTarget.failureResult = attachMigrationBackup({
       status: "error",
       mode:
         params.updateInstallKind === "git"
@@ -298,7 +363,7 @@ export async function executeMutableUpdate(params: {
       recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" },
       steps: [],
       durationMs: Date.now() - params.startedAt,
-    };
+    });
     try {
       await maybeResumeWindowsTaskAutoStartAfterPackageUpdate(preManagedServiceStop);
     } catch (resumeErr) {
@@ -318,5 +383,9 @@ export async function executeMutableUpdate(params: {
     throw err;
   }
 
-  return { result, preManagedServiceStop, ownedManagedUpdateContext };
+  return {
+    result: attachMigrationBackup(result),
+    preManagedServiceStop,
+    ownedManagedUpdateContext,
+  };
 }

@@ -208,6 +208,19 @@ describe("backupRestoreCommand", () => {
             targetPath,
             archiveRoot: backup.archiveRoot,
             assetCount: 1,
+            assets: [
+              {
+                kind: "state",
+                sourcePath: state.stateDir,
+                stagedPath: path.join(
+                  targetPath,
+                  backup.archiveRoot,
+                  "payload",
+                  "posix",
+                  ...state.stateDir.split("/").filter(Boolean),
+                ),
+              },
+            ],
           });
           expect(restored.warnings.join("\n")).toMatch(/time travel/iu);
           expect(restored.warnings.join("\n")).toMatch(/WhatsApp/iu);

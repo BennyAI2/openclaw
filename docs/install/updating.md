@@ -13,9 +13,12 @@ For Docker, Podman, and Kubernetes image replacements, see
 gateway runs startup-safe upgrade work before readiness and exits if mounted
 state needs manual repair.
 
-Before a significant update, [create a verified backup](#before-updating-create-a-verified-backup).
-Automatic config copies and [schema migration snapshots](/reference/database-schemas#automatic-pre-migration-database-snapshots)
-are not a full-state backup.
+When the exact update target declares newer SQLite schemas than the databases on
+disk, `openclaw update` stops the managed Gateway and creates a verified recovery
+archive before changing the installation. Other significant updates still need
+an operator-created [verified backup](#before-updating-create-a-verified-backup).
+Automatic config copies and [per-database migration snapshots](/reference/database-schemas#automatic-pre-migration-database-snapshots)
+are not whole-install backups.
 
 ## Recommended: `openclaw update`
 
@@ -516,9 +519,23 @@ the backup.
 
 ### Before updating: create a verified backup
 
-`openclaw update` preserves an automatic pre-update config copy, but it does not
-create a full state recovery point. Before a significant update, create one
-explicitly:
+For a schema-advancing update, `openclaw update` creates and verifies an archive
+under `<state-dir>.update-backups/` after stopping the managed Gateway and before
+changing code or databases. The archive includes state, config, credentials, and
+configured agent roots, but excludes workspaces. Backup failure aborts the update
+while the old installation is still intact. If Doctor later fails after it could
+have migrated a database, the update result reports `migrationBackup.archivePath`
+and `migrationBackup.migrationStarted`, then keeps the Gateway stopped. First
+repair or rerun the candidate update. Restore is reserved for an explicit
+downgrade or disaster-recovery decision.
+
+The updater does not activate restored state automatically. Restore always writes
+to a fresh staging target so the operator can inspect the rollback and avoid
+replaying stale credentials, approvals, or deliveries. See [Restore a full
+archive](/install/backups#restore-a-full-archive).
+
+For a significant update that does not advance a declared database schema, create
+a verified backup explicitly:
 
 ```bash
 mkdir -p ~/Backups/openclaw
@@ -539,10 +556,10 @@ plugins, or other state; keep using a full archive for significant updates. See
 [Automatic pre-migration database snapshots](/reference/database-schemas#automatic-pre-migration-database-snapshots).
 
 For a byte-for-byte recovery point that includes volatile artifacts omitted by
-the portable archive, stop the Gateway and use a filesystem, volume, or VM
-snapshot provided by your platform. This matters for older file-backed installs:
-the portable archive omits matching JSONL transcripts and logs even when they
-are no longer being written.
+both operator-created and automatic migration archives, stop the Gateway and use
+a filesystem, volume, or VM snapshot provided by your platform. This matters for
+older file-backed installs: the portable archive omits matching JSONL transcripts
+and logs even when they are no longer being written.
 
 When migrating large legacy histories, leave room for the original files, a
 temporary SQLite spool, and the destination database/WAL simultaneously. SQLite
@@ -659,9 +676,10 @@ openclaw backup restore <archive.tar.gz> --target <fresh-directory>
 ```
 
 The command verifies the archive and its SQLite databases before extraction.
-Activation remains an explicit offline step: stop the Gateway, move the
-restored asset tree into place or point `OPENCLAW_STATE_DIR` at the restored
-state asset, run `openclaw doctor`, then restart.
+It prints validated source-to-staging mappings from the embedded manifest.
+Activation remains an explicit offline step: stop the Gateway, review every
+mapping, move the restored asset tree into place or point `OPENCLAW_STATE_DIR`
+at the restored state asset, run `openclaw doctor`, then restart.
 
 Treat a state restore as time travel. Ratcheting channel credentials, especially
 WhatsApp, can desynchronize and require relinking. Approvals and

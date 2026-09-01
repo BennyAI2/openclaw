@@ -62,7 +62,7 @@ refusal: it does not stop the Gateway, retry the update, or bypass safety checks
 | `--channel <stable\|extended-stable\|beta\|dev>` | Set the update channel and persist it after core update success. Extended-stable is package-only.                                                                                                                                                                                                                                             |
 | `--tag <dist-tag\|version\|spec>`                | Override the package target for this update only. It cannot be combined with an effective `extended-stable` channel, whose verified exact target is mandatory. Package installs reject the `main` shorthand; use `--channel dev` for the supported checkout and build flow. Other explicit package specs keep their package-manager behavior. |
 | `--dry-run`                                      | Preview planned actions (channel/tag/target/restart flow) without writing config, installing, syncing plugins, or restarting.                                                                                                                                                                                                                 |
-| `--json`                                         | Print machine-readable `UpdateRunResult` JSON. Includes `postUpdate.plugins.warnings` when a managed plugin needs repair, beta-channel plugin fallback details, and `postUpdate.plugins.integrityDrifts` when npm plugin artifact drift is detected during post-update sync.                                                                  |
+| `--json`                                         | Print machine-readable `UpdateRunResult` JSON. Schema-advancing updates include the verified `migrationBackup`; managed plugin results include repair warnings, beta fallback details, and npm artifact integrity drift.                                                                                                                      |
 | `--timeout <seconds>`                            | Per-step timeout. Default `1800`.                                                                                                                                                                                                                                                                                                             |
 | `--yes`                                          | Skip confirmation prompts (for example downgrade confirmation).                                                                                                                                                                                                                                                                               |
 | `--accept-capabilities`                          | Accept each plugin's reviewed capability changes during post-update sync. This acknowledges the exact staged capability surface; it does not disable capability checks or establish future trust.                                                                                                                                             |
@@ -239,8 +239,9 @@ parent directories are synchronized where supported. Windows does not provide th
 same parent-directory durability guarantee.
 
 Doctor restore reports intentionally disposed originals and pending cleanup
-explicitly. Neither update nor cleanup creates an automatic full-state backup;
-these recovery originals are **not a full pre-upgrade backup**. See
+explicitly. A schema-advancing update creates a verified recovery archive before
+mutation; cleanup does not create one. Recovery originals are **not a full
+pre-upgrade backup**. See
 [Before updating: create a verified backup](/install/updating#before-updating-create-a-verified-backup)
 for backup coverage and [Doctor recovery](/cli/doctor#session-sqlite-migration)
 for restoring retained originals.
@@ -315,6 +316,24 @@ remain mandatory, including when their required artifact is unavailable.
 Package-manager updates additionally verify the restarted Gateway reports the
 expected package version; git-checkout updates verify gateway health and
 service readiness after the rebuild.
+
+### Pre-migration backup
+
+After the managed Gateway stops, the updater repeats the target-schema preflight.
+If any on-disk shared or agent database has an older schema than the exact target,
+the updater creates and verifies a state/config recovery archive under
+`<state-dir>.update-backups/` before changing the package or checkout. Workspaces
+are excluded. Failure to create or verify the archive aborts before code or
+database mutation and permits the untouched old service to recover.
+
+Successful text and JSON results name the archive. JSON uses
+`migrationBackup.archivePath`, `migrationBackup.verified`,
+`migrationBackup.migrationStarted`, and the database schema transitions that
+required it. If Doctor fails after migration work starts, update recovery keeps
+the managed Gateway stopped rather than starting an older build against possibly
+newer state. Repair or rerun the candidate update first. Restore remains an
+explicit fresh-target downgrade or disaster-recovery operation; see [Backup
+restore](/cli/backup#restore-a-full-archive).
 
 Code updates do not require permission to rewrite the native service definition.
 On Linux, sealed or unverified definition-write authority skips metadata refresh,

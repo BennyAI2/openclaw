@@ -129,6 +129,7 @@ export async function runGlobalUpdate(params: {
         targetVersion: candidateHostVersion,
         allowGatewayServiceRepair,
       });
+      opts.onDatabaseMigrationStart?.();
       return await runStep({
         runCommand,
         name: "openclaw doctor",
