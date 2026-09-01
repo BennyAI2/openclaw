@@ -163,6 +163,9 @@ function resolvePluginToolsMcpServerConfig(moduleUrl: string = import.meta.url):
   return {
     command: process.execPath,
     args: ["--import", resolveTsxImportSpecifier(), sourceEntry],
+    // ACP sessions keep their workspace cwd; pin the source config so tsx can
+    // resolve OpenClaw workspace aliases without cwd-based discovery.
+    env: { TSX_TSCONFIG_PATH: path.join(openClawRoot, "tsconfig.json") },
   };
 }
 
@@ -180,6 +183,9 @@ function resolveOpenClawToolsMcpServerConfig(moduleUrl: string = import.meta.url
   return {
     command: process.execPath,
     args: ["--import", resolveTsxImportSpecifier(), sourceEntry],
+    // ACP sessions keep their workspace cwd; pin the source config so tsx can
+    // resolve OpenClaw workspace aliases without cwd-based discovery.
+    env: { TSX_TSCONFIG_PATH: path.join(openClawRoot, "tsconfig.json") },
   };
 }
 

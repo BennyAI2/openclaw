@@ -18,6 +18,12 @@ function expectedMcpServerArgs(params: { sourceEntry: string; distEntry: string 
   return ["--import", TSX_IMPORT, path.resolve(params.sourceEntry)];
 }
 
+function expectedMcpServerEnv(distEntry: string): Record<string, string> | undefined {
+  return fs.existsSync(path.resolve(distEntry))
+    ? undefined
+    : { TSX_TSCONFIG_PATH: path.resolve("tsconfig.json") };
+}
+
 describe("embedded acpx plugin config", () => {
   it("resolves workspace stateDir and cwd by default", () => {
     const workspaceDir = path.resolve("/tmp/openclaw-acpx");
@@ -156,6 +162,7 @@ describe("embedded acpx plugin config", () => {
         sourceEntry: "src/mcp/plugin-tools-serve.ts",
         distEntry: "dist/mcp/plugin-tools-serve.js",
       }),
+      env: expectedMcpServerEnv("dist/mcp/plugin-tools-serve.js"),
     });
   });
 
@@ -174,6 +181,7 @@ describe("embedded acpx plugin config", () => {
         sourceEntry: "src/mcp/openclaw-tools-serve.ts",
         distEntry: "dist/mcp/openclaw-tools-serve.js",
       }),
+      env: expectedMcpServerEnv("dist/mcp/openclaw-tools-serve.js"),
     });
   });
 
