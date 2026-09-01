@@ -189,7 +189,7 @@ describe("ModelProviderLoginController", () => {
     await vi.waitFor(() =>
       expect(setMessage).toHaveBeenCalledWith("vllm", {
         kind: "success",
-        text: "Provider setup saved.",
+        text: "Configured",
       }),
     );
   });

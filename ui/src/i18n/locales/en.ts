@@ -4590,7 +4590,7 @@ export const en: TranslationMap & {
   modelProviders: {
     title: "Configured providers",
     configureModels: "Configure Models",
-    subtitle: "Sign in and manage provider auth, plan, quota, and cost data.",
+    subtitle: "Provider auth, plans, quotas, and costs.",
     updated: "Updated {time}",
     refreshing: "Refreshing…",
     disconnected: "Connect to the gateway to see configured model providers.",
@@ -4672,16 +4672,10 @@ export const en: TranslationMap & {
       done: "Logged out.",
     },
     login: {
-      action: "Sign in with {provider}",
-      again: "Sign in again with {provider}",
       done: "Signed in.",
-      failed: "Sign-in failed.",
-      cancelled: "Sign-in cancelled.",
-      expired: "Sign-in expired. Close and try again.",
     },
     setup: {
       action: "Set up {provider}",
-      done: "Provider setup saved.",
     },
     add: {
       title: "Add provider",
