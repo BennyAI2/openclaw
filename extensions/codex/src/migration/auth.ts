@@ -14,7 +14,6 @@ import {
   buildApiKeyCredential,
   buildOpenAICodexCredentialExtra,
   buildOauthProviderAuthResult,
-  readCodexCliActiveApiKey,
   readCodexCliCredentialsCached,
   resolveOpenAICodexAuthIdentity,
   resolveOpenAICodexImportProfileName,
@@ -24,6 +23,7 @@ import {
   type OpenClawConfig,
   type ProviderAuthResult,
 } from "openclaw/plugin-sdk/provider-auth";
+import { readCodexCliActiveApiKeyAsync } from "openclaw/plugin-sdk/provider-auth-runtime";
 import {
   isRecord,
   normalizeOptionalString as readString,
@@ -156,7 +156,7 @@ async function buildCodexApiKeyCredential(
   source: CodexAuthSource,
   signal?: AbortSignal,
 ): Promise<CodexAuthCredential | null> {
-  const credential = await readCodexCliActiveApiKey({
+  const credential = await readCodexCliActiveApiKeyAsync({
     codexHome: source.codexHome,
     allowKeychainPrompt: false,
     ...(signal ? { signal } : {}),

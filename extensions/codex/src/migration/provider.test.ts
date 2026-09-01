@@ -23,11 +23,15 @@ import { discoverCodexSource } from "./source.js";
 
 const appServerRequest = vi.hoisted(() => vi.fn());
 const sourceAppServerClientScope = vi.hoisted(() => vi.fn());
-const readCodexCliActiveApiKey = vi.hoisted(() => vi.fn());
+const readCodexCliActiveApiKeyAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("openclaw/plugin-sdk/provider-auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth")>()),
-  readCodexCliActiveApiKey,
+}));
+
+vi.mock("openclaw/plugin-sdk/provider-auth-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth-runtime")>()),
+  readCodexCliActiveApiKeyAsync,
 }));
 
 vi.mock("../app-server/request.js", () => ({
@@ -208,7 +212,7 @@ afterEach(async () => {
 
 describe("buildCodexMigrationProvider", () => {
   beforeEach(() => {
-    readCodexCliActiveApiKey.mockReset().mockReturnValue(null);
+    readCodexCliActiveApiKeyAsync.mockReset().mockResolvedValue(null);
     appServerRequest.mockRejectedValue(new Error("codex app-server unavailable"));
     sourceAppServerClientScope.mockImplementation(
       async (
@@ -1056,7 +1060,7 @@ describe("buildCodexMigrationProvider", () => {
   it("reports late-created Codex API key config auth profile conflicts before writing", async () => {
     const fixture = await createCodexFixture();
     const reportDir = path.join(fixture.root, "report");
-    readCodexCliActiveApiKey.mockReturnValue({
+    readCodexCliActiveApiKeyAsync.mockResolvedValue({
       type: "api_key",
       provider: "openai",
       key: "sk-codex",
@@ -1105,7 +1109,7 @@ describe("buildCodexMigrationProvider", () => {
 
   it("imports an active Codex API key from non-file credential storage", async () => {
     const fixture = await createCodexFixture();
-    readCodexCliActiveApiKey.mockReturnValue({
+    readCodexCliActiveApiKeyAsync.mockResolvedValue({
       type: "api_key",
       provider: "openai",
       key: "sk-keyring-active",
@@ -1124,7 +1128,7 @@ describe("buildCodexMigrationProvider", () => {
     });
 
     const plan = await provider.plan(ctx);
-    expect(readCodexCliActiveApiKey).toHaveBeenCalledWith({
+    expect(readCodexCliActiveApiKeyAsync).toHaveBeenCalledWith({
       codexHome: fixture.codexHome,
       allowKeychainPrompt: false,
     });
@@ -1500,7 +1504,7 @@ describe("buildCodexMigrationProvider", () => {
     expect(plan.items.filter((item) => item.kind === "auth").map((item) => item.id)).toEqual([
       "auth:openai",
     ]);
-    expect(readCodexCliActiveApiKey).not.toHaveBeenCalled();
+    expect(readCodexCliActiveApiKeyAsync).not.toHaveBeenCalled();
     expect(result.items.some((item) => item.id.startsWith("auth:openai:config:"))).toBe(false);
     expect(findItem(result.items, "auth:openai")).toEqual(
       expect.objectContaining({

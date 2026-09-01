@@ -243,9 +243,41 @@ function readCodexKeychainAuthRecord(options?: {
         stdio: ["pipe", "pipe", "pipe"],
       },
     ).trim();
+    return JSON.parse(secret) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
-    const parsed = JSON.parse(secret) as Record<string, unknown>;
-    return parsed;
+async function readCodexKeychainAuthRecordAsync(
+  options: CodexActiveApiKeyOptions,
+): Promise<Record<string, unknown> | null> {
+  const { platform, codexHome } = resolveCodexKeychainParams(options);
+  if (platform !== "darwin" || options.allowKeychainPrompt === false) {
+    return null;
+  }
+  const result = await runCommandBuffered(
+    [
+      "security",
+      "find-generic-password",
+      "-s",
+      "Codex Auth",
+      "-a",
+      computeCodexKeychainAccount(codexHome),
+      "-w",
+    ],
+    {
+      timeoutMs: 5000,
+      maxCombinedOutputBytes: CODEX_LOGIN_STATUS_MAX_OUTPUT_BYTES,
+      baseEnv: process.env,
+      signal: options.signal,
+    },
+  );
+  if (result.termination !== "exit" || result.code !== 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(result.stdout.toString("utf8").trim()) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -391,15 +423,22 @@ type CodexActiveApiKeyOptions = {
   signal?: AbortSignal;
 };
 
+function readCodexApiKeyStatus(status: string): {
+  activeFingerprint?: string;
+  legacy: boolean;
+} | null {
+  const activeFingerprint = /^Logged in using an API key - (.+)$/mu.exec(status)?.[1]?.trim();
+  const legacy = status.trim() === "Logged in using an API key";
+  return activeFingerprint || legacy ? { activeFingerprint, legacy } : null;
+}
+
 function resolveCodexActiveApiKey(
   status: string,
   codexHome: string,
-  options?: CodexActiveApiKeyOptions,
+  keychainRecord?: Record<string, unknown> | null,
 ): CodexCliApiKeyCredential | null {
-  const statusMatch = /^Logged in using an API key - (.+)$/mu.exec(status);
-  const activeFingerprint = statusMatch?.[1]?.trim();
-  const legacyApiKeyStatus = status.trim() === "Logged in using an API key";
-  if (!activeFingerprint && !legacyApiKeyStatus) {
+  const apiKeyStatus = readCodexApiKeyStatus(status);
+  if (!apiKeyStatus) {
     return null;
   }
 
@@ -408,12 +447,6 @@ function resolveCodexActiveApiKey(
   if (fileCredential) {
     candidates.push(fileCredential);
   }
-  const keychainRecord = readCodexKeychainAuthRecord({
-    codexHome,
-    allowKeychainPrompt: options?.allowKeychainPrompt,
-    platform: options?.platform,
-    execSync: options?.execSync,
-  });
   if (keychainRecord) {
     const keychainCredential = parseCodexApiKeyCredential(keychainRecord);
     if (keychainCredential) {
@@ -425,8 +458,8 @@ function resolveCodexActiveApiKey(
     candidates
       .filter(
         (candidate) =>
-          legacyApiKeyStatus ||
-          formatCodexApiKeyForLoginStatus(candidate.key) === activeFingerprint,
+          apiKeyStatus.legacy ||
+          formatCodexApiKeyForLoginStatus(candidate.key) === apiKeyStatus.activeFingerprint,
       )
       .map((candidate) => candidate.key),
   );
@@ -437,8 +470,30 @@ function resolveCodexActiveApiKey(
   return key ? { type: "api_key", provider: "openai", key } : null;
 }
 
-/** Reads an API key only when Codex confirms that exact credential is active. */
-export async function readCodexCliActiveApiKey(
+/** Synchronous compatibility API; Gateway-owned paths use the async variant below. */
+export function readCodexCliActiveApiKey(
+  options?: CodexActiveApiKeyOptions,
+): CodexCliApiKeyCredential | null {
+  const { execSyncImpl, codexHome } = resolveCodexKeychainParams(options);
+  let status: string;
+  try {
+    status = execSyncImpl("codex login status 2>&1", {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CODEX_HOME: codexHome },
+    }).trim();
+  } catch {
+    return null;
+  }
+  if (!readCodexApiKeyStatus(status)) {
+    return null;
+  }
+  return resolveCodexActiveApiKey(status, codexHome, readCodexKeychainAuthRecord(options));
+}
+
+/** Reads the active Codex API key without blocking the host event loop. */
+export async function readCodexCliActiveApiKeyAsync(
   options?: CodexActiveApiKeyOptions,
 ): Promise<CodexCliApiKeyCredential | null> {
   const codexHome = resolveCodexCliHomePath(options?.codexHome);
@@ -452,8 +507,18 @@ export async function readCodexCliActiveApiKey(
   if (result.termination !== "exit" || result.code !== 0) {
     return null;
   }
-  const status = Buffer.concat([result.stdout, result.stderr]).toString("utf8").trim();
-  return resolveCodexActiveApiKey(status, codexHome, options);
+  const status = [result.stdout, result.stderr]
+    .map((value) => value.toString("utf8").trim())
+    .filter(Boolean)
+    .join("\n");
+  if (!readCodexApiKeyStatus(status)) {
+    return null;
+  }
+  const keychainRecord = await readCodexKeychainAuthRecordAsync({
+    ...options,
+    codexHome,
+  });
+  return resolveCodexActiveApiKey(status, codexHome, keychainRecord);
 }
 
 /** Reads Codex CLI OAuth credentials from Keychain or CODEX_HOME auth.json. */

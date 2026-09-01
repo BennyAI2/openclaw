@@ -3,7 +3,7 @@ import type {
   loadAuthProfileStoreForRuntime,
   updateAuthProfileStoreWithLock,
 } from "../agents/auth-profiles/store.js";
-import type { readCodexCliActiveApiKey } from "../agents/cli-credentials.js";
+import type { readCodexCliActiveApiKeyAsync } from "../agents/cli-credentials.js";
 import type { AgentExecutionAuthBinding } from "../agents/execution-auth-binding.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR } from "../agents/workspace-default.js";
 import type {
@@ -276,7 +276,7 @@ export type ActivateSetupInferenceDeps = {
   resolveCliRuntimeOwnerFingerprint?: typeof import("../agents/cli-auth-epoch.js").resolveCliRuntimeOwnerFingerprint;
   resolveApiKeyForProvider?: typeof import("../agents/model-auth.js").resolveApiKeyForProviderCore;
   resolvePluginMetadataSnapshot?: typeof import("../plugins/plugin-metadata-snapshot.js").resolvePluginMetadataSnapshot;
-  readCodexCliActiveApiKey?: typeof readCodexCliActiveApiKey;
+  readCodexCliActiveApiKey?: typeof readCodexCliActiveApiKeyAsync;
   loadPluginRegistrySnapshot?: SystemAgentVerifiedInferenceDeps["loadPluginRegistrySnapshot"];
   fingerprintPluginRuntimeArtifact?: SystemAgentVerifiedInferenceDeps["fingerprintPluginRuntimeArtifact"];
   captureSystemAgentOwnerPluginArtifacts?: typeof captureSystemAgentOwnerPluginArtifacts;

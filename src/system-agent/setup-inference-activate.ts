@@ -4,7 +4,7 @@ import path from "node:path";
 import { resolveAmbientOwnerAgentId } from "../agents/agent-scope-config.js";
 import {
   type CodexCliApiKeyCredential,
-  readCodexCliActiveApiKey,
+  readCodexCliActiveApiKeyAsync,
 } from "../agents/cli-credentials.js";
 import { applyAutoLocalModelLean } from "../config/local-model-lean-auto.js";
 import { createMergePatch } from "../config/merge-patch.js";
@@ -76,8 +76,9 @@ export async function activateSetupInference(
 ): Promise<ActivateSetupInferenceResult> {
   const codexCliApiKey =
     params.kind === "codex-cli"
-      ? await (params.deps?.readCodexCliActiveApiKey ?? readCodexCliActiveApiKey)({
+      ? await (params.deps?.readCodexCliActiveApiKey ?? readCodexCliActiveApiKeyAsync)({
           allowKeychainPrompt: true,
+          ...(params.signal ? { signal: params.signal } : {}),
         })
       : null;
   try {
