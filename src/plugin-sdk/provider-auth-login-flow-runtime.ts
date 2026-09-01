@@ -337,6 +337,7 @@ async function runProviderChannelLoginFlow(params: {
     provider: params.choice.providerId,
     method: params.choice.methodId,
     ownerPluginId: params.choice.pluginId,
+    credentialOnly: true,
     agent: params.agentId,
     ...(params.profileId ? { profileId: params.profileId } : {}),
     config: params.config,

@@ -427,6 +427,7 @@ async function persistProviderAuthResult(params: {
   runtime: RuntimeEnv;
   prompter: WizardPrompter;
   setDefault?: boolean;
+  credentialOnly?: boolean;
   env?: NodeJS.ProcessEnv;
   beforePersistentEffect?: () => void | Promise<void>;
   refreshAuthState?: (agentId: string) => Promise<void>;
@@ -437,7 +438,7 @@ async function persistProviderAuthResult(params: {
   const profiles = params.profiles ?? params.result.profiles;
   const persistedProfiles: ProviderAuthResult["profiles"] = [];
   const shouldUpdateConfig = Boolean(
-    params.result.configPatch || (params.setDefault && defaultModel),
+    !params.credentialOnly && (params.result.configPatch || (params.setDefault && defaultModel)),
   );
   let persistentEffectStarted = false;
   const beginPersistentEffect = async () => {
@@ -582,6 +583,7 @@ async function runProviderAuthMethod(params: {
   prompter: WizardPrompter;
   profileId?: string;
   setDefault?: boolean;
+  credentialOnly?: boolean;
   env?: NodeJS.ProcessEnv;
   isRemote?: boolean;
   signal?: AbortSignal;
@@ -625,6 +627,7 @@ async function runProviderAuthMethod(params: {
     runtime: params.runtime,
     prompter: params.prompter,
     setDefault: params.setDefault,
+    credentialOnly: params.credentialOnly,
     env: params.env ?? process.env,
     ...(params.beforePersistentEffect
       ? { beforePersistentEffect: params.beforePersistentEffect }
@@ -953,6 +956,8 @@ export type ModelsAuthLoginFlowResult = {
 export type ModelsAuthLoginFlowOptions = LoginOptions & {
   /** Manifest owner selected by a remote provider-login choice. */
   ownerPluginId?: string;
+  /** Persist credentials without applying provider setup config. */
+  credentialOnly?: boolean;
   config?: OpenClawConfig;
   runtime: RuntimeEnv;
   prompter: WizardPrompter;
@@ -1135,6 +1140,7 @@ export async function runModelsAuthLoginFlowCore(
     prompter,
     ...(opts.profileId ? { profileId: opts.profileId } : {}),
     ...(opts.setDefault !== undefined ? { setDefault: opts.setDefault } : {}),
+    ...(opts.credentialOnly !== undefined ? { credentialOnly: opts.credentialOnly } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.isRemote !== undefined ? { isRemote: opts.isRemote } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),

@@ -68,6 +68,7 @@ describe("provider channel login runtime", () => {
         provider: "xai",
         method: "oauth",
         ownerPluginId: "xai",
+        credentialOnly: true,
       }),
     );
   });
