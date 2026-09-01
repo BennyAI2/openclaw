@@ -960,18 +960,9 @@ extension OpenClawChatView {
     }
 
     private func restoreInitialScrollPosition() {
-        if let latestTurnStartID = latestVisibleTurnStartID {
-            self.followTarget = nil
-            self.hasNewerContentBelow = chatReaderHasNewerContent(
-                after: latestTurnStartID,
-                visibleIDs: self.transcriptRows.map(\.id),
-                hasTransientContent: self.hasVisibleTransientContent)
-            self.moveScrollPosition(to: latestTurnStartID, anchor: Layout.newTurnAnchor)
-        } else {
-            self.followTarget = .latest
-            self.hasNewerContentBelow = false
-            self.moveScrollPosition(to: self.scrollerBottomID)
-        }
+        self.followTarget = .latest
+        self.hasNewerContentBelow = false
+        self.moveScrollPosition(to: self.scrollerBottomID)
     }
 
     private func handleTimelineChange() {
