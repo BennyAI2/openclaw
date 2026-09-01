@@ -14,8 +14,8 @@ gateway runs startup-safe upgrade work before readiness and exits if mounted
 state needs manual repair.
 
 Before a significant update, [create a verified backup](#before-updating-create-a-verified-backup).
-Automatic config copies and migration recovery originals are not a full-state
-backup.
+Automatic config copies and [schema migration snapshots](/reference/database-schemas#automatic-pre-migration-database-snapshots)
+are not a full-state backup.
 
 ## Recommended: `openclaw update`
 
@@ -530,6 +530,13 @@ in the backup. The archive can contain credentials, auth profiles, and channel
 state, so store it with owner-only permissions and the same protection as the
 live state directory. See [Backup](/cli/backup) for included and intentionally
 omitted files.
+
+Forward SQLite schema migrations separately create and verify a private copy of
+each affected database immediately before mutation. OpenClaw refuses the
+migration if that recovery copy cannot be secured. These automatic copies make
+database rollback possible, but they do not include configuration, workspaces,
+plugins, or other state; keep using a full archive for significant updates. See
+[Automatic pre-migration database snapshots](/reference/database-schemas#automatic-pre-migration-database-snapshots).
 
 For a byte-for-byte recovery point that includes volatile artifacts omitted by
 the portable archive, stop the Gateway and use a filesystem, volume, or VM

@@ -7,6 +7,7 @@ import {
   SESSION_ARCHIVE_ZSTD_SUFFIX,
 } from "../config/sessions/archive-compression.js";
 import { appendTranscriptEventInTransaction } from "../config/sessions/session-accessor.sqlite-transcript-store.js";
+import { AGENT_MEDIA_SCHEMA_VERSION } from "../state/openclaw-agent-db-contract.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   listOpenClawRegisteredAgentDatabases,
@@ -27,6 +28,16 @@ import {
 } from "./state-migrations.media-persistence.test-support.js";
 
 const tempDirs: string[] = [];
+const PRE_MIGRATION_BACKUP_DIRNAME = "pre-migration-backups";
+
+function findMediaPreMigrationBackup(databasePath: string): string {
+  const backupDir = path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME);
+  const matching = fs
+    .readdirSync(backupDir)
+    .filter((name) => name.includes(`-v${PREVIOUS_VERSION}-to-v${AGENT_MEDIA_SCHEMA_VERSION}-`));
+  expect(matching).toHaveLength(1);
+  return path.join(backupDir, matching[0] ?? "missing.sqlite");
+}
 
 afterEach(() => {
   cleanupMediaPersistenceFixtures(tempDirs);
@@ -211,6 +222,23 @@ describe("legacy media persistence doctor migration", () => {
         `Migrated archived transcript media in ${compressedArchive}.`,
       ]),
     );
+
+    const preMigrationBackup = new DatabaseSync(findMediaPreMigrationBackup(databasePath), {
+      readOnly: true,
+    });
+    try {
+      expect(preMigrationBackup.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: PREVIOUS_VERSION,
+      });
+      const backupRow = preMigrationBackup
+        .prepare("SELECT event_json FROM transcript_events WHERE session_id = ? AND seq = 0")
+        .get("session-a") as { event_json: string };
+      expect((JSON.parse(backupRow.event_json) as FixtureEvent).message).toHaveProperty(
+        "MediaPaths",
+      );
+    } finally {
+      preMigrationBackup.close();
+    }
 
     const after = readDatabaseSnapshot(databasePath);
     expect(after.version.user_version).toBe(OPENCLAW_AGENT_SCHEMA_VERSION);
@@ -712,6 +740,21 @@ describe("legacy media persistence doctor migration", () => {
     expect(result.warnings[0]).toContain(`Skipped agent database migration for ${databasePath}:`);
     expect(result.warnings[0]).toContain("invalid transcript JSON");
     expect(readDatabaseSnapshot(databasePath).version.user_version).toBe(PREVIOUS_VERSION);
+    const preMigrationBackup = new DatabaseSync(findMediaPreMigrationBackup(databasePath), {
+      readOnly: true,
+    });
+    try {
+      expect(preMigrationBackup.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: PREVIOUS_VERSION,
+      });
+      expect(
+        preMigrationBackup
+          .prepare("SELECT event_json FROM transcript_events WHERE session_id = ? AND seq = 0")
+          .get("corrupt"),
+      ).toEqual({ event_json: "{broken" });
+    } finally {
+      preMigrationBackup.close();
+    }
     expect(listOpenClawRegisteredAgentDatabases({ env })).toEqual([]);
     expect(
       listOpenClawRegisteredAgentDatabases({

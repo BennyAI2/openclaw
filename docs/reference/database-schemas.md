@@ -250,6 +250,49 @@ Schema 11 removes the `skill_lifecycle` and `skill_workshop_proposal_origin_runs
 
 Schema 9 stores an `agent_databases.path` value relative to the state directory when the registered agent database is inside that directory. During migration, a foreign default-layout row is re-anchored to the in-root counterpart when that file exists. It is deleted only when the same agent already holds its in-root registration, because dual default-layout registrations cannot produce a valid combined session list. Otherwise, the absolute row is preserved, so genuine external registrations are never deleted. This keeps a copied state directory self-contained without dropping supported external database paths.
 
+## Automatic pre-migration database snapshots
+
+Immediately before a supported shared-state or per-agent database moves to a
+newer schema version, OpenClaw creates a complete SQLite snapshot with `VACUUM
+INTO`. This applies both to ordinary startup migrations and to explicit
+maintenance through `openclaw doctor --fix`.
+
+OpenClaw verifies the source database, creates the snapshot outside the schema
+transaction, enforces private permissions, and verifies the snapshot's full
+integrity and original schema version. A released v17 agent database with
+repairable canonical-index drift is first proven repairable in a transaction
+that is always rolled back; the private snapshot is then repaired to that valid
+old-schema shape before verification. If any step fails, the migration is
+refused before its transaction starts. The source remains at its old schema so
+the operator can fix disk space, permissions, or filesystem support and retry.
+
+Snapshots live beside the database they protect:
+
+```text
+<state-dir>/state/pre-migration-backups/openclaw-state-<database-id>-v<from>-to-v<to>-<timestamp>-<copy-id>.sqlite
+<state-dir>/agents/<agent-id>/agent/pre-migration-backups/openclaw-agent-<database-id>-v<from>-to-v<to>-<timestamp>-<copy-id>.sqlite
+```
+
+The directory uses mode `0700` and each snapshot uses `0600`. Treat these files
+like the live databases: they can contain credentials, auth profiles, messages,
+and channel state. A retry writes and verifies a fresh snapshot before removing
+an older copy for the same version transition, so writes made between attempts
+remain recoverable. After a successful migration, OpenClaw keeps the newest
+three snapshots for each database. Failed migrations keep their snapshot.
+
+Schema changes commit in one SQLite transaction. If migration code fails, that
+transaction rolls back and the pre-migration snapshot remains available. If the
+new build succeeds but you later need an older build, stop the Gateway and every
+other database writer. Restore the matching snapshots into a separate state
+directory, or into fresh target paths for explicitly configured databases, then
+activate that restored state with the matching older build. Restore every
+database migrated by that update before starting the older build. Do not
+overwrite a live database in place or lower schema markers manually.
+
+These snapshots cover SQLite schema rollback only. They do not replace a
+[verified full backup](/cli/backup) of configuration, workspaces, plugins, and
+other state before a significant update.
+
 ## Integrity checks
 
 | When                                        | Check                                                           |

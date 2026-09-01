@@ -64,6 +64,7 @@ import {
   runOpenClawStateWriteTransaction,
 } from "./openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
+import { PreMigrationBackupError } from "./openclaw-state-pre-migration-backup.js";
 import {
   collectSqliteSchemaShape,
   createSqliteSchemaShapeFromSql,
@@ -77,6 +78,7 @@ type AgentDbTestDatabase = Pick<
 >;
 
 const agentDbTempDirs: string[] = [];
+const PRE_MIGRATION_BACKUP_DIRNAME = "pre-migration-backups";
 let sharedStateDatabaseTemplatePath: string | undefined;
 let currentWorkerAgentDatabaseTemplatePath: string | undefined;
 let v13WorkerAgentDatabaseTemplatePath: string | undefined;
@@ -1487,6 +1489,58 @@ describe("openclaw agent database", () => {
         .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
         .get(),
     ).toEqual({ schema_version: OPENCLAW_AGENT_SCHEMA_VERSION });
+  });
+
+  it("keeps a verified agent database snapshot from before a forward migration", async () => {
+    const stateDir = createTempStateDir();
+    const env = { OPENCLAW_STATE_DIR: stateDir };
+    const databasePath = materializeV13WorkerAgentDatabase(stateDir);
+
+    await migrateAndOpenLegacyAgentDatabaseForTest({ agentId: "worker-1", env });
+
+    const backupDir = path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME);
+    const backupNames = fs.readdirSync(backupDir);
+    expect(backupNames).toHaveLength(1);
+    expect(backupNames[0]).toMatch(/^openclaw-agent-[0-9a-f]{12}-v13-to-v\d+-.*\.sqlite$/u);
+    const { DatabaseSync } = requireNodeSqlite();
+    const backup = new DatabaseSync(path.join(backupDir, backupNames[0] ?? ""), {
+      readOnly: true,
+    });
+    try {
+      expect(readSqliteNumberPragma(backup, "user_version")).toBe(13);
+      expect(
+        backup.prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'").get(),
+      ).toEqual({ schema_version: 13 });
+    } finally {
+      backup.close();
+    }
+  });
+
+  it("refuses an agent migration when its recovery directory is unusable", async () => {
+    const stateDir = createTempStateDir();
+    const env = { OPENCLAW_STATE_DIR: stateDir };
+    const databasePath = materializeV13WorkerAgentDatabase(stateDir);
+    fs.writeFileSync(
+      path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME),
+      "not a directory",
+    );
+
+    await expect(
+      migrateAndOpenLegacyAgentDatabaseForTest({ agentId: "worker-1", env }),
+    ).rejects.toThrow(PreMigrationBackupError);
+
+    const { DatabaseSync } = requireNodeSqlite();
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(readSqliteNumberPragma(preserved, "user_version")).toBe(13);
+      expect(
+        preserved
+          .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
+          .get(),
+      ).toEqual({ schema_version: 13 });
+    } finally {
+      preserved.close();
+    }
   });
 
   it("migrates v13 session entries, routes, and generations into nodes and windows", async () => {
@@ -4016,6 +4070,24 @@ describe("openclaw agent database", () => {
       ).toBeUndefined();
     } finally {
       after.close();
+    }
+    const backupDir = path.join(path.dirname(databasePath), PRE_MIGRATION_BACKUP_DIRNAME);
+    const backupNames = fs.readdirSync(backupDir);
+    expect(backupNames).toHaveLength(1);
+    const backup = new DatabaseSync(path.join(backupDir, backupNames[0] ?? ""), {
+      readOnly: true,
+    });
+    try {
+      expect(readSqliteNumberPragma(backup, "user_version")).toBe(14);
+      expect(
+        backup
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'auth_profile_store'",
+          )
+          .get(),
+      ).toBeUndefined();
+    } finally {
+      backup.close();
     }
   });
 

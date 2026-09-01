@@ -27,7 +27,6 @@ import {
 } from "../infra/sqlite-integrity.js";
 import { withSqlitePostCommitPublications } from "../infra/sqlite-post-commit.js";
 import { prepareSqliteReadOnlyLocation } from "../infra/sqlite-readonly-location.js";
-import { assertSqliteSchemaTablesPresent } from "../infra/sqlite-schema-contract.js";
 import { migrateSqliteSchemaToStrictInTransaction } from "../infra/sqlite-strict.js";
 import {
   runSqliteImmediateTransactionSync,
@@ -38,17 +37,13 @@ import { withStateSchemaFence } from "../infra/state-database-coordinator.js";
 import { migrateLegacyCronRunLogsToTaskRuns } from "../infra/state-migrations.cron-run-logs.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { VERSION } from "../version.js";
-import { clearOpenClawDatabaseQuarantine } from "./openclaw-quarantine-store.js";
-import { repairAuditEventsSchema } from "./openclaw-state-db-audit-migration.js";
 import {
   openClawStateDatabaseCache as stateDbCache,
   recordOpenClawStateDatabaseOpenFailure,
-  clearOpenClawStateDatabaseOpenFailure,
   closeOpenClawStateDatabaseByPath,
 } from "./openclaw-state-db-cache.js";
 import {
   OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
-  LAZY_ADDITIVE_STATE_TABLES,
   OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
   OPENCLAW_STATE_SCHEMA_VERSION,
   OPENCLAW_STATE_STRICT_SCHEMA_VERSION,
@@ -62,28 +57,23 @@ import {
 import {
   assertOpenClawStateDatabaseForMaintenance,
   assertSupportedSchemaVersion,
-  markCurrentStateSchemaVersion,
   migrateConversationBindingTargets,
   migrateCronCreatorNamespaces,
   openClawStateMigrationAssertions,
   resolveDatabasePath,
 } from "./openclaw-state-db-maintenance.js";
 import { openUnpublishedStateDatabase } from "./openclaw-state-db-open.js";
-import * as operatorApprovalMigration from "./openclaw-state-db-operator-approval-migration.js";
 import { ensureOpenClawStatePermissions } from "./openclaw-state-db-permissions.js";
 import {
   ensureAdditiveStateColumns,
   ensureFirstUseAdditiveStateColumnsForStrictMigration,
 } from "./openclaw-state-db-schema-additive.js";
-import { tableExists } from "./openclaw-state-db-schema-helpers.js";
 import {
   type AgentDatabasePathMigrationSummary as AgentPathSummary,
   assertCanonicalStateSchemaShape,
-  detectOpenClawStateDatabaseSchemaMigrationsFromDatabase,
   dropLegacyStateTables,
   migrateAgentDatabaseRelativePaths as migrateAgentPaths,
   migrateWorkerPlacementExecutionModeSchema,
-  repairAgentDatabasesCompositePrimaryKey,
   repairLegacyGatewayRestartHandoffsForStrictMigration,
 } from "./openclaw-state-db-schema-repair.js";
 import { migrateSingletonStateFoldInV12 } from "./openclaw-state-db-schema-v12-foldin.js";
@@ -96,13 +86,19 @@ import {
 } from "./openclaw-state-db-startup-checkpoint.js";
 import * as retirements from "./openclaw-state-db-table-retirements.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
-import { describeAgentPathMigration, warnAgentPathMigration } from "./openclaw-state-db.paths.js";
+import { warnAgentPathMigration } from "./openclaw-state-db.paths.js";
 import {
   assertOpenClawStateWriteAllowed,
   isOpenClawStateWriteContentionError,
-  OpenClawStateOwnershipError,
   runWithOpenClawStateWriteAccess,
 } from "./openclaw-state-ownership.js";
+import {
+  assertPreMigrationSourceVersion,
+  createPreMigrationStateBackup,
+  PRE_MIGRATION_BACKUP_RETENTION,
+  type PreMigrationBackupResult,
+  prunePreMigrationStateBackups,
+} from "./openclaw-state-pre-migration-backup.js";
 import { getOpenClawStateRuntimeSchema } from "./openclaw-state-schema-compatibility.js";
 import { OPENCLAW_STATE_SCHEMA_SQL } from "./openclaw-state-schema.js";
 export { registerOpenClawStateDatabaseLifecycleListener } from "./openclaw-state-db-cache.js";
@@ -119,6 +115,10 @@ export {
 } from "./openclaw-state-db-maintenance.js";
 export { ensureOpenClawStatePermissions } from "./openclaw-state-db-permissions.js";
 export { detectOpenClawStateDatabaseSchemaMigrations } from "./openclaw-state-db-schema-repair.js";
+export {
+  repairOpenClawStateDatabaseSchema,
+  repairOpenClawStateDatabaseSchemaIfNeeded,
+} from "./openclaw-state-db-doctor-repair.js";
 
 /** Reconfirm an advisory worker failure on the live owner connection. */
 export function confirmOpenClawStateDatabaseIntegrity(
@@ -147,222 +147,6 @@ function executeCanonicalStateSchema(
   database.exec(getOpenClawStateRuntimeSchema(options));
 }
 
-function repairStateSchema(
-  pathname: string,
-  env: NodeJS.ProcessEnv,
-): {
-  changes: string[];
-  warnings: string[];
-} {
-  ensureOpenClawStatePermissions(pathname, env);
-  const db = openNodeSqliteDatabase(pathname);
-  const rebuiltIndexNames = new Set<string>();
-  let ownershipRefused = false;
-  try {
-    db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
-    assertSupportedSchemaVersion(db, pathname);
-    db.exec("PRAGMA foreign_keys = OFF;");
-    const changes = runSqliteImmediateTransactionSync(
-      db,
-      () => {
-        assertOpenClawStateWriteAllowed({ database: db, databasePath: pathname, env });
-        const applied: string[] = [];
-        const previousVersion = readSqliteUserVersion(db);
-        if (previousVersion === OPENCLAW_STATE_SCHEMA_VERSION) {
-          for (const name of repairCanonicalSqliteIndexes(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
-            allowMissingColumns: true,
-          })) {
-            rebuiltIndexNames.add(name);
-          }
-          // Current-schema doctor repair may normalize recognized columns or
-          // table options, but it must never recreate a missing table empty.
-          assertSqliteSchemaTablesPresent(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
-            allowedMissingTables: LAZY_ADDITIVE_STATE_TABLES,
-          });
-        } else {
-          openClawStateMigrationAssertions.get(previousVersion)?.(db, { pathname });
-        }
-        if (rebuiltIndexNames.size === 0) {
-          assertSqliteIntegrity(db, pathname);
-        }
-        dropLegacyStateTables(db);
-        applied.push(...retirements.runRetiredStateTableMigrations(db, previousVersion));
-        if (migrateSingletonStateFoldInV12(db, previousVersion)) {
-          applied.push("Folded singleton state tables into config_machine_state (v12)");
-        }
-        if (migrateWorkerPlacementExecutionModeSchema(db, previousVersion)) {
-          applied.push("Migrated cloud worker placements to execution modes");
-        }
-        applied.push(
-          ...describeAgentPathMigration(migrateAgentPaths(db, previousVersion, pathname)),
-        );
-        if (repairAgentDatabasesCompositePrimaryKey(db)) {
-          applied.push(`Migrated shared state agent database registry primary key → agent_id,path`);
-        }
-        if (repairAuditEventsSchema(db)) {
-          applied.push(
-            `Migrated shared state audit event ledger → versioned message lifecycle schema`,
-          );
-        }
-        applied.push(...operatorApprovalMigration.repairOperatorApprovalSchema(db));
-        const needsSessionWatchMigration =
-          sessionWatchMigration.needsSessionWatchCursorProvenanceMigration(db, previousVersion);
-        const sessionWatchResult = sessionWatchMigration.migrateSessionWatchCursorProvenance(db);
-        if (needsSessionWatchMigration) {
-          applied.push(
-            `Migrated shared state session watch cursors → provenance column (${sessionWatchResult.migratedAmbientWatches} ambient, ${sessionWatchResult.removedLegacySentinels} sentinels removed)`,
-          );
-        }
-        assertCanonicalStateSchemaShape(db, pathname);
-        if (tableExists(db, "audit_events")) {
-          ensureAdditiveStateColumns(db);
-          if (migrateJsonCanonicalWideRowsV13(db, previousVersion)) {
-            applied.push("Consolidated shared state tables (v13)");
-          }
-          if (migrateCronCreatorNamespaces(db, previousVersion)) {
-            applied.push("Qualified historical cron creator attribution as unknown (v14)");
-          }
-          if (migrateConversationBindingTargets(db, previousVersion)) {
-            applied.push("Removed redundant conversation binding target projections (v15)");
-          }
-          executeCanonicalStateSchema(db, {
-            includeVersionLazyAdditiveTables: previousVersion !== OPENCLAW_STATE_SCHEMA_VERSION,
-          });
-          if (previousVersion < OPENCLAW_STATE_STRICT_SCHEMA_VERSION) {
-            repairLegacyGatewayRestartHandoffsForStrictMigration(db);
-            ensureFirstUseAdditiveStateColumnsForStrictMigration(db);
-          }
-          const strictMigration = migrateSqliteSchemaToStrictInTransaction(
-            db,
-            getOpenClawStateRuntimeSchema({
-              includeVersionLazyAdditiveTables: previousVersion !== OPENCLAW_STATE_SCHEMA_VERSION,
-            }),
-            { databaseLabel: pathname },
-          );
-          if (strictMigration.migratedTables.length > 0) {
-            applied.push(
-              `Migrated shared state tables to SQLite STRICT typing (${strictMigration.migratedTables.length})`,
-            );
-          }
-          for (const name of repairCanonicalSqliteIndexes(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
-            verifyPhysicalIntegrity: false,
-          })) {
-            rebuiltIndexNames.add(name);
-          }
-        }
-        markCurrentStateSchemaVersion(db, {
-          createMetadataIfMissing: previousVersion < OPENCLAW_STATE_SCHEMA_VERSION,
-        });
-        if (readSqliteUserVersion(db) === OPENCLAW_STATE_SCHEMA_VERSION) {
-          assertCurrentStateRuntimeSchema(db, pathname);
-        }
-        if (rebuiltIndexNames.size > 0) {
-          applied.push(`Rebuilt canonical shared-state SQLite indexes (${rebuiltIndexNames.size})`);
-        }
-        return applied;
-      },
-      {
-        busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-        databaseLabel: pathname,
-        operationLabel: "state.schema.repair",
-      },
-    );
-    const quarantineCleared = clearOpenClawDatabaseQuarantine(pathname, { env });
-    clearOpenClawStateDatabaseOpenFailure(pathname);
-    return {
-      changes,
-      warnings: quarantineCleared
-        ? []
-        : [
-            `Persisted quarantine record for ${pathname} could not be cleared; rerun openclaw doctor --fix so the repaired database is not refused again.`,
-          ],
-    };
-  } catch (err) {
-    if (err instanceof OpenClawStateOwnershipError) {
-      ownershipRefused = true;
-      throw err;
-    }
-    // Reaching this catch inside doctor means repair itself refused or failed,
-    // so the runtime asserts' "run openclaw doctor --fix" advice is circular here.
-    const reason = String(err).replace(
-      /has a legacy ([a-z ]+) schema; run openclaw doctor --fix to migrate it\./u,
-      "has a legacy $1 schema; automatic repair refused the unrecognized schema shape.",
-    );
-    return {
-      changes: [],
-      warnings: [`Failed migrating shared state database schema at ${pathname}: ${reason}`],
-    };
-  } finally {
-    if (db.isOpen) {
-      db.exec("PRAGMA foreign_keys = ON;");
-    }
-    clearNodeSqliteKyselyCacheForDatabase(db);
-    db.close();
-    if (!ownershipRefused) {
-      ensureOpenClawStatePermissions(pathname, env);
-    }
-  }
-}
-
-export function repairOpenClawStateDatabaseSchema(options: OpenClawStateDatabaseOptions = {}): {
-  changes: string[];
-  warnings: string[];
-} {
-  const env = options.env ?? process.env;
-  const pathname = resolveDatabasePath(options);
-  if (!existsSync(pathname)) {
-    return { changes: [], warnings: [] };
-  }
-  return runWithOpenClawStateWriteAccess(
-    { databasePath: pathname, env },
-    "state schema repair",
-    () => withStateSchemaFence({ databasePath: pathname }, () => repairStateSchema(pathname, env)),
-  );
-}
-
-function needsOpenClawStateDatabaseSchemaRepair(pathname: string): boolean {
-  let database: DatabaseSync | undefined;
-  try {
-    database = openNodeSqliteDatabase(pathname, { readOnly: true });
-    assertSupportedSchemaVersion(database, pathname);
-    const needsRepair =
-      readSqliteUserVersion(database) !== OPENCLAW_STATE_SCHEMA_VERSION ||
-      detectOpenClawStateDatabaseSchemaMigrationsFromDatabase(database, pathname).length > 0;
-    if (!needsRepair) {
-      assertCurrentStateRuntimeSchema(database, pathname);
-    }
-    return needsRepair;
-  } catch {
-    // Preserve the repair path's existing diagnostics for unreadable or noncanonical databases.
-    return true;
-  } finally {
-    database?.close();
-  }
-}
-
-/** Skip the exclusive doctor repair when automatic migration sees a canonical current schema. */
-export function repairOpenClawStateDatabaseSchemaIfNeeded(
-  options: OpenClawStateDatabaseOptions = {},
-): {
-  changes: string[];
-  warnings: string[];
-} {
-  const env = options.env ?? process.env;
-  const pathname = resolveDatabasePath(options);
-  if (!existsSync(pathname)) {
-    return { changes: [], warnings: [] };
-  }
-
-  return runWithOpenClawStateWriteAccess(
-    { databasePath: pathname, env },
-    "state schema repair preflight/repair",
-    () =>
-      needsOpenClawStateDatabaseSchemaRepair(pathname)
-        ? withStateSchemaFence({ databasePath: pathname }, () => repairStateSchema(pathname, env))
-        : { changes: [], warnings: [] },
-  );
-}
-
 function ensureSchema(
   db: DatabaseSync,
   pathname: string,
@@ -383,9 +167,19 @@ function ensureSchema(
   withStateSchemaFence({ databasePath: pathname }, () => {
     const now = Date.now();
     const kysely = getNodeSqliteKysely<OpenClawStateMetadataDatabase>(db);
+    const preMigrationBackup: PreMigrationBackupResult =
+      !initializeNativeOnly || isUninitializedNativeStartupDatabase(db)
+        ? createPreMigrationStateBackup(
+            db,
+            pathname,
+            readSqliteUserVersion(db),
+            OPENCLAW_STATE_SCHEMA_VERSION,
+            now,
+          )
+        : { status: "skipped", reason: "native bootstrap does not migrate mature state" };
     db.exec("PRAGMA foreign_keys = OFF;"); // Rebuilding referenced tables requires this before BEGIN.
     try {
-      runSqliteImmediateTransactionSync(
+      const retirementMessages = runSqliteImmediateTransactionSync(
         db,
         () => {
           // Recheck ownership after BEGIN IMMEDIATE to exclude a concurrent external claim.
@@ -397,6 +191,7 @@ function ensureSchema(
             return [];
           }
           const previousVersion = readSqliteUserVersion(db);
+          assertPreMigrationSourceVersion(db, pathname, preMigrationBackup);
           if (previousVersion === OPENCLAW_STATE_SCHEMA_VERSION) {
             verifyAndRepairCanonicalSqliteIndexes(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
               allowMissingColumns: true,
@@ -408,7 +203,7 @@ function ensureSchema(
             openClawStateMigrationAssertions.get(previousVersion)?.(db, { pathname });
           }
           dropLegacyStateTables(db);
-          const retirementMessages = retirements.runRetiredStateTableMigrations(
+          const migrationRetirementMessages = retirements.runRetiredStateTableMigrations(
             db,
             previousVersion,
           );
@@ -476,14 +271,23 @@ function ensureSchema(
           );
           assertOpenClawStateDatabaseForMaintenance(db, { pathname });
           warnAgentPathMigration(stateDbLog, pathMigration, pathname);
-          return retirementMessages;
+          return migrationRetirementMessages;
         },
         {
           busyTimeoutMs,
           databaseLabel: pathname,
           operationLabel: "state.schema.ensure",
         },
-      ).forEach(retirements.logRetiredStateTableMigration);
+      );
+      retirementMessages.forEach(retirements.logRetiredStateTableMigration);
+      if (preMigrationBackup.status === "created") {
+        const prunedPaths = prunePreMigrationStateBackups(pathname);
+        if (prunedPaths.length > 0) {
+          stateDbLog.info(
+            `Pruned ${prunedPaths.length} older pre-migration backup(s), keeping the newest ${PRE_MIGRATION_BACKUP_RETENTION}`,
+          );
+        }
+      }
     } finally {
       db.exec("PRAGMA foreign_keys = ON;");
     }

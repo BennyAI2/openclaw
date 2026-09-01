@@ -33,6 +33,10 @@ import {
 import { withLegacySessionParticipantsSchema } from "../state/openclaw-agent-participants-migration.js";
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "../state/openclaw-agent-schema.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "../state/openclaw-state-db.js";
+import {
+  assertPreMigrationSourceVersion,
+  createPreMigrationAgentBackup,
+} from "../state/openclaw-state-pre-migration-backup.js";
 import { VERSION } from "../version.js";
 import { repairGatewayAgentMediaMigrationStartupFailures } from "./gateway-boot-lifecycle.js";
 import {
@@ -415,6 +419,16 @@ function migrateAgentDatabase(params: {
     }
     assertOpenClawAgentSchemaContains(database, params.pathname, schemaSql, schemaMode);
     const mediaSchemaUpgrade = userVersion === PREVIOUS_MEDIA_SCHEMA_VERSION;
+    const preMigrationBackup = mediaSchemaUpgrade
+      ? createPreMigrationAgentBackup(
+          database,
+          params.pathname,
+          params.agentId,
+          userVersion,
+          AGENT_MEDIA_SCHEMA_VERSION,
+          Date.now(),
+        )
+      : undefined;
     if (!mediaSchemaUpgrade) {
       const detected = runSqliteDeferredTransactionSync(
         database,
@@ -446,6 +460,7 @@ function migrateAgentDatabase(params: {
             mediaSourceDriftMessage(params.pathname, sourceVersion, currentSourceVersion),
           );
         }
+        assertPreMigrationSourceVersion(database, params.pathname, preMigrationBackup);
         const rewrittenSessions = scanTranscriptRows({
           database,
           pathname: params.pathname,
