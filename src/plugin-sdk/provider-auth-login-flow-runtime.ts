@@ -376,6 +376,7 @@ async function runCodexDeviceLoginFlow(params: {
       label: "ChatGPT Device Pairing",
       providerLabel: "OpenAI",
       command: "codex",
+      mode: "chat",
     },
     agentId: params.agentId,
     ...(params.profileId ? { profileId: params.profileId } : {}),
@@ -408,8 +409,20 @@ function formatProviderLoginFailed(choice: ProviderChannelLoginChoice): string {
   return `${choice.providerLabel} login did not complete. Send \`${formatProviderLoginCommand(choice)}\` to try again.`;
 }
 
+function formatProviderLoginControlUiHandoff(choice: ProviderChannelLoginChoice): string {
+  if (choice.mode === "setup") {
+    return `${choice.label} configures provider setup, not only a credential. Open Control UI → Models, find ${choice.providerLabel}, and choose “Set up ${choice.label}”.`;
+  }
+  return `${choice.label} needs secure input that chat must not store. Open Control UI → Models, find ${choice.providerLabel}, and choose “Sign in with ${choice.label}”.`;
+}
+
 function formatProviderLoginChoices(choices: ProviderChannelLoginChoice[]): string {
-  return choices.map((choice) => `\`${formatProviderLoginCommand(choice)}\``).join(", ");
+  const visible = choices
+    .toSorted((a, b) => Number(b.mode === "chat") - Number(a.mode === "chat"))
+    .slice(0, 8);
+  const commands = visible.map((choice) => `\`${formatProviderLoginCommand(choice)}\``).join(", ");
+  const remaining = choices.length - visible.length;
+  return remaining > 0 ? `${commands}, and ${remaining} more in Control UI → Models` : commands;
 }
 
 export const providerChannelLoginRuntime = {
@@ -424,6 +437,7 @@ export const providerChannelLoginRuntime = {
   formatComplete: formatProviderLoginComplete,
   formatSessionSwitchFailed: formatProviderLoginSessionSwitchFailed,
   formatFailed: formatProviderLoginFailed,
+  formatControlUiHandoff: formatProviderLoginControlUiHandoff,
   formatChoices: formatProviderLoginChoices,
 };
 

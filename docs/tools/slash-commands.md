@@ -564,9 +564,9 @@ See [BTW side questions](/tools/btw) for the full behavior.
     - **Native Discord commands:** `agent:<agentId>:discord:slash:<userId>`
     - **Native Slack commands:** `agent:<agentId>:slack:slash:<userId>` (prefix configurable via `channels.slack.slashCommand.sessionPrefix`)
     - **Native Telegram commands:** `telegram:slash:<userId>` (targets the chat session via `CommandTargetSessionKey`)
-    - **`/login`** sends device pairing codes only through private chat or Control UI response paths. Telegram group/topic invocations ask the owner to DM the bot instead.
-    - Fixed-input chat login supports `/login codex` (or `openai`), `/login xai`, `/login minimax-global-oauth`, and `/login minimax-cn-oauth`. Bare `/login` uses the OpenAI device flow.
-    - Providers that need a tenant, redirect URL, confirmation, or other input remain available through **Control UI → Models → Sign in**.
+    - **`/login`** resolves every visible provider access method declared by installed plugin manifests. Telegram group/topic invocations ask the owner to DM the bot before showing login details.
+    - Private chat completes the fixed-input flows: `/login codex`, `/login xai`, `/login minimax-global-oauth`, and `/login minimax-cn-oauth`. Bare `/login` uses the OpenAI device flow. `/login openai` selects browser OAuth instead.
+    - Methods that need a key, token, redirect URL, tenant, endpoint, confirmation, or local-runtime work return an exact **Control UI → Models** sign-in or setup action. Secrets never enter chat history.
     - **`/stop`** targets the active chat session to abort the current run.
 
   </Accordion>

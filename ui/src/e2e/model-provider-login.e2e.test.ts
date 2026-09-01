@@ -51,7 +51,7 @@ describeControlUiE2e("Control UI provider login", () => {
         provider: "xai",
         apiKeySupported: true,
         quickApiKeySetup: true,
-        loginOptions: [{ id: "xai-oauth", label: "xAI OAuth", kind: "device-code" }],
+        accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" }],
       },
     ];
     const gateway = await installMockGateway(page, {
@@ -143,6 +143,118 @@ describeControlUiE2e("Control UI provider login", () => {
           path: path.join(artifactDir, "signed-in.png"),
         });
       }
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("uses the shared wizard for masked credentials and provider setup", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1280 },
+    });
+    const page = await context.newPage();
+    const accessCapabilities = [
+      {
+        provider: "groq",
+        apiKeySupported: true,
+        quickApiKeySetup: true,
+        accessOptions: [{ id: "groq-api-key", label: "Groq API key", mode: "login" }],
+      },
+      {
+        provider: "vllm",
+        apiKeySupported: false,
+        quickApiKeySetup: false,
+        accessOptions: [{ id: "vllm", label: "vLLM", mode: "setup" }],
+      },
+    ];
+    const gateway = await installMockGateway(page, {
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "models.authLogin.start",
+        "openclaw.setup.prepare.start",
+        "wizard.next",
+      ],
+      methodResponses: {
+        "config.get": {
+          config: { agents: { defaults: { model: "openai/gpt-5.5" } } },
+          sourceConfig: { agents: { defaults: { model: "openai/gpt-5.5" } } },
+          hash: "provider-access-config",
+          issues: [],
+          raw: '{"agents":{"defaults":{"model":"openai/gpt-5.5"}}}',
+          valid: true,
+        },
+        "models.list": { models: [] },
+        "models.authStatus": {
+          ts: 1,
+          providerCapabilities: accessCapabilities,
+          providers: [],
+        },
+        "models.authLogin.start": {
+          sessionId: "groq-login-session",
+          done: false,
+          status: "running",
+        },
+        "openclaw.setup.prepare.start": {
+          sessionId: "vllm-setup-session",
+          done: false,
+          status: "running",
+        },
+        "wizard.next": {
+          sequence: [
+            {
+              done: false,
+              status: "running",
+              step: {
+                id: "groq-key",
+                type: "text",
+                message: "Enter Groq API key",
+                sensitive: true,
+              },
+            },
+            { done: true, status: "done" },
+          ],
+        },
+        "usage.status": { updatedAt: 1, providers: [] },
+        "sessions.usage": { aggregates: { byProvider: [] } },
+      },
+    });
+
+    try {
+      await page.goto(`${server.baseUrl}settings/model-providers`);
+      await page.getByRole("button", { name: "Sign in with Groq API key" }).click();
+      const secretInput = page.getByLabel("Enter Groq API key");
+      await secretInput.waitFor();
+      expect(await secretInput.getAttribute("type")).toBe("password");
+      await secretInput.fill("test-groq-key");
+      await page.getByRole("button", { name: "Submit" }).click();
+      await page.getByRole("status").filter({ hasText: "Signed in." }).waitFor();
+
+      await gateway.setMethodResponse("wizard.next", {
+        sequence: [
+          {
+            done: false,
+            status: "running",
+            step: {
+              id: "vllm-url",
+              type: "text",
+              message: "vLLM base URL",
+              placeholder: "http://127.0.0.1:8000/v1",
+            },
+          },
+          { done: true, status: "done" },
+        ],
+      });
+      await page.getByRole("button", { name: "Set up vLLM" }).click();
+      await page.getByLabel("vLLM base URL").fill("http://127.0.0.1:8000/v1");
+      await page.getByRole("button", { name: "Submit" }).click();
+      await page.getByRole("status").filter({ hasText: "Provider setup saved." }).waitFor();
+
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+      expect(await gateway.getRequests("models.authLogin.start")).toHaveLength(1);
+      expect(await gateway.getRequests("openclaw.setup.prepare.start")).toHaveLength(1);
     } finally {
       await context.close();
     }

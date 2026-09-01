@@ -16,7 +16,7 @@ function card(overrides: Partial<ModelProviderCard> = {}): ModelProviderCard {
     profiles: [],
     credentialProviderIds: ["openai"],
     logoutTargets: [],
-    loginOptions: [],
+    accessOptions: [],
     hasConfigApiKey: false,
     modelCount: 1,
     availableModelCount: 1,
@@ -1048,7 +1048,11 @@ describe("renderModelProviders", () => {
 
   it("starts provider-owned login from an unconfigured card", () => {
     const onLogin = vi.fn();
-    const loginOption = { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" } as const;
+    const loginOption = {
+      id: "xai-oauth",
+      label: "xAI OAuth",
+      mode: "login",
+    } as const;
     const container = mount(
       props({
         cards: [
@@ -1057,7 +1061,7 @@ describe("renderModelProviders", () => {
             displayName: "xAI",
             profiles: [],
             apiKey: undefined,
-            loginOptions: [loginOption],
+            accessOptions: [loginOption],
           }),
         ],
         onLogin,
@@ -1067,5 +1071,28 @@ describe("renderModelProviders", () => {
     button(container, "Sign in with xAI OAuth")?.click();
 
     expect(onLogin).toHaveBeenCalledWith("xai", loginOption);
+  });
+
+  it("starts provider setup from an unconfigured card", () => {
+    const onLogin = vi.fn();
+    const setupOption = { id: "vllm", label: "vLLM", mode: "setup" } as const;
+    const container = mount(
+      props({
+        cards: [
+          card({
+            id: "vllm",
+            displayName: "vLLM",
+            profiles: [],
+            apiKey: undefined,
+            accessOptions: [setupOption],
+          }),
+        ],
+        onLogin,
+      }),
+    );
+
+    button(container, "Set up vLLM")?.click();
+
+    expect(onLogin).toHaveBeenCalledWith("vllm", setupOption);
   });
 });

@@ -183,6 +183,24 @@ describe("handleLoginCommand", () => {
     );
   });
 
+  it("hands guided secret login to the masked Control UI wizard", async () => {
+    const result = await handleLoginCommand(buildLoginParams("/login groq"), true);
+
+    expect(result?.reply?.text).toBe(
+      "Groq API key needs secure input that chat must not store. Open Control UI → Models, find Groq, and choose “Sign in with Groq API key”.",
+    );
+    expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it("hands provider setup to the shared Control UI setup wizard", async () => {
+    const result = await handleLoginCommand(buildLoginParams("/login vllm"), true);
+
+    expect(result?.reply?.text).toBe(
+      "vLLM configures provider setup, not only a credential. Open Control UI → Models, find vLLM, and choose “Set up vLLM”.",
+    );
+    expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
+  });
+
   it("lists exact choices when a provider family has multiple channel logins", async () => {
     const result = await handleLoginCommand(buildLoginParams("/login minimax"), true);
 
@@ -253,7 +271,7 @@ describe("handleLoginCommand", () => {
   it("rejects dispatcher-less contexts before starting device-code polling", async () => {
     mockSuccessfulLoginFlow();
 
-    const result = await handleLoginCommand(buildLoginParams("/login openai"), true);
+    const result = await handleLoginCommand(buildLoginParams("/login codex"), true);
 
     expect(result?.reply?.text).toBe(
       "OpenAI login needs a live private response path so the code can be shown before it expires. Use the Control UI or a private chat and send `/login codex` again.",
@@ -705,14 +723,24 @@ describe("handleLoginCommand", () => {
   });
 
   it("returns a friendly error for unsupported providers", async () => {
-    const result = await handleLoginCommand(buildLoginParams("/login anthropic"), true);
+    const result = await handleLoginCommand(
+      buildLoginParams("/login definitely-unsupported"),
+      true,
+    );
 
-    expect(result).toEqual({
-      shouldContinue: false,
-      reply: {
-        text: "Unsupported login provider. Available private-chat logins: `/login codex`, `/login minimax-cn-oauth`, `/login minimax-global-oauth`, `/login xai`. Providers that need extra input are available in Control UI → Models.",
-      },
-    });
+    const text = result?.reply?.text ?? "";
+    expect(result?.shouldContinue).toBe(false);
+    expect(text).toMatch(/^Unsupported login provider\. Available provider access commands:/u);
+    for (const command of [
+      "/login codex",
+      "/login xai",
+      "/login minimax-global-oauth",
+      "/login minimax-cn-oauth",
+    ]) {
+      expect(text).toContain(command);
+    }
+    expect(text).toContain("more in Control UI → Models");
+    expect(text.length).toBeLessThan(1_000);
     expect(runModelsAuthLoginFlowMock).not.toHaveBeenCalled();
   });
 });

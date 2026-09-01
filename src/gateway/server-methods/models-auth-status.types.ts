@@ -51,10 +51,10 @@ export type ModelProviderCapability = {
   provider: string;
   apiKeySupported: boolean;
   quickApiKeySetup: boolean;
-  loginOptions?: Array<{
+  accessOptions?: Array<{
     id: string;
     label: string;
-    kind: "oauth" | "device-code";
+    mode: "login" | "setup";
   }>;
 };
 

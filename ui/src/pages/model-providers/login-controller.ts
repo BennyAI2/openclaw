@@ -8,7 +8,7 @@ import {
   type ModelSetupWizardCompletion,
 } from "../model-setup/wizard-runner.ts";
 import { renderModelSetupWizard } from "../model-setup/wizard-view.ts";
-import type { ModelProviderLoginOption } from "./data.ts";
+import type { ModelProviderAccessOption } from "./data.ts";
 import type { ModelProviderRowMessage } from "./view.ts";
 
 type ModelProviderLoginControllerOptions = {
@@ -54,14 +54,17 @@ export class ModelProviderLoginController implements ReactiveController {
     return this.state.phase !== "idle" || this.cancellationPending;
   }
 
-  start(cardId: string, option: ModelProviderLoginOption): void {
+  start(cardId: string, option: ModelProviderAccessOption): void {
     if (!this.options.canStart() || this.busy) {
       return;
     }
     this.cardId = cardId;
     this.options.setMessage(cardId, null);
     void this.runner
-      .start(option.id, "models.authLogin.start")
+      .start(
+        option.id,
+        option.mode === "login" ? "models.authLogin.start" : "openclaw.setup.prepare.start",
+      )
       .then((completion) => this.finish(completion));
   }
 
@@ -100,7 +103,11 @@ export class ModelProviderLoginController implements ReactiveController {
   }
 
   private async finish(completion: ModelSetupWizardCompletion | null) {
-    if (!completion || completion.startMethod !== "models.authLogin.start") {
+    if (
+      !completion ||
+      (completion.startMethod !== "models.authLogin.start" &&
+        completion.startMethod !== "openclaw.setup.prepare.start")
+    ) {
       return;
     }
     const cardId = this.cardId;
@@ -111,7 +118,11 @@ export class ModelProviderLoginController implements ReactiveController {
     if (cardId) {
       this.options.setMessage(cardId, {
         kind: "success",
-        text: t("modelProviders.login.done"),
+        text: t(
+          completion.startMethod === "models.authLogin.start"
+            ? "modelProviders.login.done"
+            : "modelProviders.setup.done",
+        ),
       });
     }
     this.host.requestUpdate();

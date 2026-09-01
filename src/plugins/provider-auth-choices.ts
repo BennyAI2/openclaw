@@ -49,6 +49,7 @@ type ProviderOnboardAuthFlag = {
 
 type ProviderAuthChoiceCandidate = ProviderAuthChoiceMetadata & {
   origin: PluginOrigin;
+  manifestDeclared: boolean;
 };
 type ProviderOnboardAuthFlagCandidate = ProviderAuthChoiceCandidate & {
   optionKey: string;
@@ -96,6 +97,7 @@ function toProviderAuthChoiceCandidate(params: {
   return {
     pluginId,
     origin,
+    manifestDeclared: true,
     providerId: choice.provider,
     methodId: choice.method,
     choiceId: choice.choiceId,
@@ -164,6 +166,7 @@ function toSetupProviderAuthChoiceCandidate(params: {
   return {
     pluginId: params.plugin.id,
     origin: params.plugin.origin,
+    manifestDeclared: false,
     providerId: params.providerId,
     methodId: params.methodId,
     choiceId: `${params.providerId}-${params.methodId}`,
@@ -200,7 +203,7 @@ function listSetupProviderAuthChoiceCandidates(plugin: PluginManifestRecord) {
 }
 
 function stripChoiceOrigin(choice: ProviderAuthChoiceCandidate): ProviderAuthChoiceMetadata {
-  const { origin: _origin, ...metadata } = choice;
+  const { origin: _origin, manifestDeclared: _manifestDeclared, ...metadata } = choice;
   return metadata;
 }
 
@@ -303,6 +306,15 @@ export function resolveManifestProviderAuthChoices(
 ): ProviderAuthChoiceMetadata[] {
   return resolvePreferredManifestAuthChoicesByChoiceId(
     resolveManifestProviderAuthChoiceCandidates(params),
+  ).map(stripChoiceOrigin);
+}
+
+/** Resolves only executable auth choices declared by provider manifests. */
+export function resolveManifestDeclaredProviderAuthChoices(
+  params?: ManifestProviderAuthChoiceParams,
+): ProviderAuthChoiceMetadata[] {
+  return resolvePreferredManifestAuthChoicesByChoiceId(
+    resolveManifestProviderAuthChoiceCandidates(params).filter((choice) => choice.manifestDeclared),
   ).map(stripChoiceOrigin);
 }
 
