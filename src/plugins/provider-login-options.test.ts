@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { resolveManifestDeclaredProviderAuthChoices } from "./provider-auth-choices.js";
 import {
+  listProviderAccessOptions,
   listProviderChannelLoginChoices,
   resolveProviderChannelLoginChoice,
 } from "./provider-login-options.js";
@@ -23,6 +25,7 @@ function choice(params: {
   default?: boolean;
   guided?: "auth" | "secret" | "setup";
   channelLogin?: boolean;
+  onboardingScopes?: string[];
 }) {
   const guided = params.guided ?? "auth";
   return {
@@ -43,6 +46,7 @@ function choice(params: {
             ...(params.default ? { default: true } : {}),
           },
         }),
+    ...(params.onboardingScopes ? { onboardingScopes: params.onboardingScopes } : {}),
   };
 }
 
@@ -120,6 +124,25 @@ describe("provider channel login choices", () => {
       status: "resolved",
       choice: expect.objectContaining({ mode: "setup", providerId: "self-hosted" }),
     });
+  });
+
+  it("excludes image-only manifest choices from Control UI and chat login surfaces", () => {
+    const snapshot = metadataSnapshot([
+      choice({
+        provider: "image-only",
+        method: "custom",
+        choiceId: "image-only",
+        guided: "setup",
+        channelLogin: false,
+        onboardingScopes: ["image-generation"],
+      }),
+    ]);
+    const metadata = resolveManifestDeclaredProviderAuthChoices({ metadataSnapshot: snapshot });
+
+    expect(listProviderAccessOptions(metadata)).toEqual([]);
+    expect(resolveProviderChannelLoginChoice("image-only", { metadataSnapshot: snapshot })).toEqual(
+      { status: "unsupported", choices: [] },
+    );
   });
 
   it("prefers an exact choice id over a colliding alias", () => {

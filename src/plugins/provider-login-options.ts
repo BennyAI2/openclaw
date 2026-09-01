@@ -47,6 +47,14 @@ export function supportsProviderAuthChoiceTextInference(
   return !scopes || scopes.includes("text-inference");
 }
 
+function isProviderLoginSurfaceEligible(choice: ProviderAuthChoiceMetadata): boolean {
+  return (
+    choice.choiceId.trim().length > 0 &&
+    supportsProviderAuthChoiceTextInference(choice.onboardingScopes) &&
+    choice.assistantVisibility !== "manual-only"
+  );
+}
+
 function toProviderLoginOption(
   choice: ProviderAuthChoiceMetadata,
 ): ProviderLoginOption | undefined {
@@ -54,12 +62,7 @@ function toProviderLoginOption(
   const kind =
     choice.appGuidedAuth ??
     (choice.appGuidedSecret === true && choice.appGuidedDiscovery !== true ? "secret" : undefined);
-  if (
-    !id ||
-    !supportsProviderAuthChoiceTextInference(choice.onboardingScopes) ||
-    choice.assistantVisibility === "manual-only" ||
-    !kind
-  ) {
+  if (!isProviderLoginSurfaceEligible(choice) || !kind) {
     return undefined;
   }
   return {
@@ -121,7 +124,7 @@ function toProviderSetupOption(
   choice: ProviderAuthChoiceMetadata,
 ): ProviderAccessOption | undefined {
   const id = choice.choiceId.trim();
-  if (!id || choice.assistantVisibility === "manual-only") {
+  if (!isProviderLoginSurfaceEligible(choice)) {
     return undefined;
   }
   return {
@@ -202,7 +205,7 @@ function readProviderChannelLoginMetadata(
     includeUntrustedWorkspacePlugins: false,
     includeWorkspacePlugins: false,
   });
-  return choices.filter((choice) => choice.assistantVisibility !== "manual-only");
+  return choices.filter(isProviderLoginSurfaceEligible);
 }
 
 function projectProviderChannelLoginChoices(
