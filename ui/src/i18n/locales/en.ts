@@ -3839,7 +3839,7 @@ export const en: TranslationMap = {
       waitingHint: "Waiting for the sign-in to finish…",
       inputLabel: "Link an auth profile",
       inputDescription:
-        'A profile id from the gateway auth store, e.g. "openai:alice" after "openclaw models auth login".',
+        'A profile id from the gateway auth store, e.g. "openai:alice" after "openclaw models auth login". Admin only: this attaches an existing credential.',
       inputPlaceholder: "openai:alice",
       linkAction: "Link",
       unlinkAction: "Unlink",

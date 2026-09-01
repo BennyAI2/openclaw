@@ -733,7 +733,7 @@ describe("users gateway methods", () => {
     const respond = await runUsersHandler(
       "users.linkAuthProfile",
       { profileId: "profile-1", authProfileId: "openai:ada" },
-      selfClient,
+      adminClient,
       { getRuntimeConfig: () => ({}) },
     );
 
@@ -754,7 +754,7 @@ describe("users gateway methods", () => {
     const respond = await runUsersHandler(
       "users.linkAuthProfile",
       { profileId: "profile-1", authProfileId: "bedrock:team" },
-      selfClient,
+      adminClient,
       {
         getRuntimeConfig: () => ({
           auth: { profiles: { "bedrock:team": { provider: "amazon-bedrock", mode: "aws-sdk" } } },
@@ -777,7 +777,7 @@ describe("users gateway methods", () => {
     const respond = await runUsersHandler(
       "users.linkAuthProfile",
       { profileId: "profile-1", authProfileId: "openai:missing" },
-      selfClient,
+      adminClient,
       { getRuntimeConfig: () => ({}) },
     );
 
@@ -792,13 +792,13 @@ describe("users gateway methods", () => {
     expect(setUserProfileAuthLink).not.toHaveBeenCalled();
   });
 
-  it("denies linking another person's profile without operator.admin", async () => {
+  it("denies manual links without operator.admin, even on the caller's own profile", async () => {
     ensureProfileForEmail.mockReturnValue(profile);
-    resolveUserProfileId.mockReturnValue("profile-2");
+    resolveUserProfileId.mockReturnValue(profile.id);
 
     const respond = await runUsersHandler(
       "users.linkAuthProfile",
-      { profileId: "profile-2", authProfileId: "openai:ada" },
+      { profileId: "profile-1", authProfileId: "openai:ada" },
       selfClient,
       { getRuntimeConfig: () => ({}) },
     );
@@ -806,7 +806,10 @@ describe("users gateway methods", () => {
     expect(respond).toHaveBeenCalledWith(
       false,
       undefined,
-      expect.objectContaining({ code: "FORBIDDEN" }),
+      expect.objectContaining({
+        code: "FORBIDDEN",
+        message: expect.stringContaining("operator.admin"),
+      }),
     );
     expect(setUserProfileAuthLink).not.toHaveBeenCalled();
   });

@@ -12,6 +12,8 @@ import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../../lib/external-l
 
 export type ModelAccountsSectionProps = {
   links: UserProfileAuthLink[];
+  /** Linking an arbitrary stored credential is operator.admin-only server-side. */
+  showManualLink: boolean;
   busy: boolean;
   error: string | null;
   linkDraft: string;
@@ -141,6 +143,40 @@ function renderChatgptFlow(props: ModelAccountsSectionProps) {
   });
 }
 
+function renderManualLinkRow(props: ModelAccountsSectionProps) {
+  return renderSettingsRow({
+    title: t("profilePage.modelAccounts.inputLabel"),
+    description: t("profilePage.modelAccounts.inputDescription"),
+    stackedOnNarrow: true,
+    control: html`
+      <form
+        class="model-accounts-form"
+        @submit=${(event: SubmitEvent) => {
+          event.preventDefault();
+          props.onLink();
+        }}
+      >
+        <input
+          class="settings-input profile-auth-link-input"
+          type="text"
+          aria-label=${t("profilePage.modelAccounts.inputLabel")}
+          .value=${props.linkDraft}
+          placeholder=${t("profilePage.modelAccounts.inputPlaceholder")}
+          ?disabled=${props.busy}
+          @input=${(event: Event) => props.onLinkDraftInput(inputValue(event))}
+        />
+        <button
+          type="submit"
+          class="btn btn--sm profile-auth-link-submit"
+          ?disabled=${props.busy || !props.linkDraft.trim()}
+        >
+          ${t("profilePage.modelAccounts.linkAction")}
+        </button>
+      </form>
+    `,
+  });
+}
+
 export function renderModelAccountsSection(props: ModelAccountsSectionProps) {
   const rows = html`
     ${props.links.length === 0
@@ -178,37 +214,7 @@ export function renderModelAccountsSection(props: ModelAccountsSectionProps) {
         </form>
       `,
     })}
-    ${renderSettingsRow({
-      title: t("profilePage.modelAccounts.inputLabel"),
-      description: t("profilePage.modelAccounts.inputDescription"),
-      stackedOnNarrow: true,
-      control: html`
-        <form
-          class="model-accounts-form"
-          @submit=${(event: SubmitEvent) => {
-            event.preventDefault();
-            props.onLink();
-          }}
-        >
-          <input
-            class="settings-input profile-auth-link-input"
-            type="text"
-            aria-label=${t("profilePage.modelAccounts.inputLabel")}
-            .value=${props.linkDraft}
-            placeholder=${t("profilePage.modelAccounts.inputPlaceholder")}
-            ?disabled=${props.busy}
-            @input=${(event: Event) => props.onLinkDraftInput(inputValue(event))}
-          />
-          <button
-            type="submit"
-            class="btn btn--sm profile-auth-link-submit"
-            ?disabled=${props.busy || !props.linkDraft.trim()}
-          >
-            ${t("profilePage.modelAccounts.linkAction")}
-          </button>
-        </form>
-      `,
-    })}
+    ${props.showManualLink ? renderManualLinkRow(props) : ""}
     ${props.error
       ? html`<div class="settings-row model-accounts-error" role="alert">
           <span class="settings-row__desc">${props.error}</span>

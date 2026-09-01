@@ -26,9 +26,13 @@ import {
   listUserProfileAuthLinks,
   setUserProfileAuthLink,
 } from "../../state/user-profile-auth-links.js";
-import { getUserProfileListItem, UserProfileNotFoundError } from "../../state/user-profiles.js";
+import {
+  getUserProfileListItem,
+  resolveUserProfileId,
+  UserProfileNotFoundError,
+} from "../../state/user-profiles.js";
 import type { GatewayRequestHandlers } from "./types.js";
-import { requireProfileMutationAccess } from "./users-profile-access.js";
+import { canMutateProfile, requireProfileMutationAccess } from "./users-profile-access.js";
 import { assertValidParams } from "./validation.js";
 
 type OpenAIConnectFacade = {
@@ -123,17 +127,34 @@ function connectProfileSlug(person: ConnectPerson): string {
   return slug || "user";
 }
 
-/** Reconnects refresh the person's linked profile; first connects mint a unique id. */
-function deriveConnectAuthProfileId(params: { provider: string; person: ConnectPerson }): string {
+/**
+ * Reconnects refresh the person's linked profile only when its stored
+ * credential is the same provider account (or the profile vanished): a link an
+ * admin pointed at a shared or foreign credential must never be overwritten by
+ * a personal reconnect. Everything else mints a unique id.
+ */
+function deriveConnectAuthProfileId(params: {
+  provider: string;
+  person: ConnectPerson;
+  // Absent for setup-token connects, which carry no comparable account identity.
+  accountId?: string;
+}): string {
+  const store = ensureAuthProfileStoreWithoutExternalProfiles(resolveSharedMainAuthAgentDir(), {
+    readOnly: true,
+  });
   const linked = listUserProfileAuthLinks(params.person.id).find(
     (link) => link.provider === params.provider,
   );
   if (linked) {
-    return linked.authProfileId;
+    const stored = store.profiles[linked.authProfileId];
+    const sameAccount =
+      params.accountId !== undefined &&
+      stored?.type === "oauth" &&
+      stored.accountId === params.accountId;
+    if (!stored || sameAccount) {
+      return linked.authProfileId;
+    }
   }
-  const store = ensureAuthProfileStoreWithoutExternalProfiles(resolveSharedMainAuthAgentDir(), {
-    readOnly: true,
-  });
   const base = `${params.provider}:${connectProfileSlug(params.person)}`;
   if (!store.profiles[base]) {
     return base;
@@ -149,12 +170,19 @@ function deriveConnectAuthProfileId(params: { provider: string; person: ConnectP
 
 type FinishConnectResult =
   | { ok: true; authProfileId: string; links: UserProfileAuthLink[] }
-  | { ok: false; reason: "exchange" | "identity" };
+  | { ok: false; reason: "exchange" | "identity" | "authority" };
 
-/** Shared exchange→persist→link path for the paste RPC and the local callback. */
+/**
+ * Shared exchange→persist→link path for the paste RPC and the local callback.
+ * The exchange awaits external I/O, so authority is revalidated afterwards and
+ * before any persistence: `revalidate` re-runs the caller's live access check
+ * (the clientless loopback callback has none), and a person whose profile no
+ * longer resolves fails closed on both paths.
+ */
 async function finishPendingConnect(
   pending: PendingConnect,
   code: string,
+  revalidate?: () => boolean,
 ): Promise<FinishConnectResult> {
   const facade = loadOpenAIConnectFacade();
   const exchanged = await facade.exchangeOpenAIAuthorizationCode(
@@ -169,9 +197,16 @@ async function finishPendingConnect(
   if (!identity.accountId) {
     return { ok: false, reason: "identity" };
   }
+  if (revalidate && !revalidate()) {
+    return { ok: false, reason: "authority" };
+  }
+  if (!resolveUserProfileId(pending.person.id)) {
+    return { ok: false, reason: "authority" };
+  }
   const authProfileId = deriveConnectAuthProfileId({
     provider: pending.provider,
     person: pending.person,
+    accountId: identity.accountId,
   });
   const credential: OAuthCredential = {
     type: "oauth",
@@ -382,9 +417,19 @@ export const usersAuthConnectHandlers: GatewayRequestHandlers = {
       }
       // The authorization code is single-use: this attempt consumes the flow.
       pendingConnects.delete(params.connectId);
-      const finished = await finishPendingConnect(pending, parsed.code);
+      const finished = await finishPendingConnect(pending, parsed.code, () =>
+        canMutateProfile(client, pending.profileId),
+      );
       releaseCallbackListenerIfIdle();
       if (!finished.ok) {
+        if (finished.reason === "authority") {
+          respond(
+            false,
+            undefined,
+            errorShape(ErrorCodes.FORBIDDEN, "this sign-in can no longer be completed"),
+          );
+          return;
+        }
         respond(
           false,
           undefined,

@@ -25,7 +25,7 @@ export function resolveAuthenticatedProfileId(
   return ensureProfileForEmail(authenticatedUserId).id;
 }
 
-function canMutateProfile(
+export function canMutateProfile(
   client: GatewayRequestHandlerOptions["client"],
   profileId: string,
 ): boolean {
@@ -37,6 +37,30 @@ function canMutateProfile(
     authenticatedProfileId !== undefined &&
     authenticatedProfileId === resolveUserProfileId(profileId)
   );
+}
+
+/**
+ * Attaching an existing stored credential to a person is admin-only: profile
+ * ownership is not credential ownership, and a linked id becomes both a strict
+ * billing pin and the reconnect refresh target for that person's sessions.
+ * Self-service stays on the connect flows, which prove account control.
+ */
+export function requireAdminProfileAccess(
+  client: GatewayRequestHandlerOptions["client"],
+  respond: GatewayRequestHandlerOptions["respond"],
+): boolean {
+  if (client?.connect.scopes?.includes(ADMIN_SCOPE)) {
+    return true;
+  }
+  respond(
+    false,
+    undefined,
+    errorShape(
+      ErrorCodes.FORBIDDEN,
+      "linking an existing auth profile requires operator.admin; connect your own account from the profile page instead",
+    ),
+  );
+  return false;
 }
 
 export function requireProfileMutationAccess(

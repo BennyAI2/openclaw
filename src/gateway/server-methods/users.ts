@@ -44,6 +44,7 @@ import {
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
 import { usersAuthConnectHandlers } from "./users-auth-connect.js";
 import {
+  requireAdminProfileAccess,
   requireProfileMutationAccess,
   resolveAuthenticatedProfileId,
 } from "./users-profile-access.js";
@@ -120,7 +121,7 @@ export const usersHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      if (!requireProfileMutationAccess(client, params.profileId, respond)) {
+      if (!requireAdminProfileAccess(client, respond)) {
         return;
       }
       const provider = resolveLinkableAuthProfileProvider(

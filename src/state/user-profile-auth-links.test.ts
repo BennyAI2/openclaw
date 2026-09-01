@@ -51,6 +51,20 @@ describe("user profile auth links", () => {
     expect(listUserProfileAuthLinks(profile.id, options)).toHaveLength(1);
   });
 
+  it("lists and unlinks without materializing absent link storage", () => {
+    const options = stateOptions();
+    const profile = ensureProfileForEmail("lazy@example.com", options);
+
+    expect(listUserProfileAuthLinks(profile.id, options)).toEqual([]);
+    expect(
+      clearUserProfileAuthLink({ profileId: profile.id, provider: "openai" }, options),
+    ).toEqual([]);
+    // Read paths must leave the table for the first real link to create.
+    expect(tableExists(openOpenClawStateDatabase(options).db, "user_profile_auth_links")).toBe(
+      false,
+    );
+  });
+
   it("rejects links for unknown profiles", () => {
     const options = stateOptions();
     expect(() =>

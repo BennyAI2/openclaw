@@ -128,7 +128,11 @@ export function clearUserProfileAuthLink(
   options: OpenClawStateDatabaseOptions = {},
 ): UserProfileAuthLink[] {
   const database = openOpenClawStateDatabase(options);
-  ensureUserProfileAuthLinksSchema(options, database);
+  // Unlinking on a gateway that never linked is a no-op, not a reason to
+  // materialize link storage.
+  if (!tableExists(database.db, "user_profile_auth_links")) {
+    return [];
+  }
   return runOpenClawStateWriteTransaction(
     ({ db }) => {
       const profileId = requireResolvedUserProfileById(db, params.profileId).id;
@@ -146,16 +150,25 @@ export function clearUserProfileAuthLink(
   );
 }
 
-/** Reads a person's links through the profile merge head. */
+/**
+ * Reads a person's links through the profile merge head. Absent storage stays
+ * absent: the profile page lists links on every load, so this read must never
+ * create the table the set path lazily owns.
+ */
 export function listUserProfileAuthLinks(
   profileId: string,
   options: OpenClawStateDatabaseOptions = {},
 ): UserProfileAuthLink[] {
-  const database = openOpenClawStateDatabase(options);
-  ensureUserProfileAuthLinksSchema(options, database);
-  return selectProfileAuthLinks(
-    database.db,
-    requireResolvedUserProfileById(database.db, profileId).id,
+  return (
+    withExistingOpenClawStateDatabaseReadOnly(({ db }) => {
+      if (!tableExists(db, "user_profile_auth_links")) {
+        return [];
+      }
+      const resolved = tableExists(db, "user_profiles")
+        ? (selectResolvedUserProfileById(db, profileId)?.id ?? profileId)
+        : profileId;
+      return selectProfileAuthLinks(db, resolved);
+    }, options) ?? []
   );
 }
 

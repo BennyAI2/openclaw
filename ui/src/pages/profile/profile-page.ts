@@ -27,7 +27,7 @@ import {
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
 import { resolveControlUiAuthCandidates } from "../../app/control-ui-auth.ts";
-import { hasOperatorWriteAccess } from "../../app/operator-access.ts";
+import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import type { AuthenticatedUser } from "../../app/user-profile.ts";
 import { resolveCurrentSelfUser } from "../../app/user-profile.ts";
 import {
@@ -82,6 +82,7 @@ export class ProfilePage extends OpenClawLightDomElement {
   private client: GatewayBrowserClient | null = null;
   private connected = false;
   private canWrite = false;
+  private canAdmin = false;
   private heroAvatarAuthCandidates: string[] = [];
   private heroAvatarAuthReady = false;
   private readonly heroAvatarLoader = new AuthenticatedAvatarRouteLoader(this);
@@ -136,6 +137,7 @@ export class ProfilePage extends OpenClawLightDomElement {
     const clientChanged = snapshot.client !== this.client;
     const nextConnected = snapshot.phase === "connected";
     const nextCanWrite = nextConnected && hasOperatorWriteAccess(snapshot.hello?.auth ?? null);
+    this.canAdmin = nextConnected && hasOperatorAdminAccess(snapshot.hello?.auth ?? null);
     const writeAccessChanged = nextCanWrite !== this.canWrite;
     const connectionChanged = nextConnected !== this.connected;
     const nextSelfUser = nextConnected
@@ -633,6 +635,7 @@ export class ProfilePage extends OpenClawLightDomElement {
     }
     return renderModelAccountsSection({
       links: this.authLinks ?? [],
+      showManualLink: this.canAdmin,
       busy: this.authLinkBusy,
       error: this.authLinkError,
       linkDraft: this.authLinkDraft,

@@ -402,6 +402,37 @@ it("keeps co-author credit on until the person opts out", async () => {
   await waitForFast(() => expect(toggle?.checked).toBe(false));
 });
 
+it("hides the manual auth-profile link row from non-admin writers", async () => {
+  const request = vi.fn(async (method: string) => {
+    if (method === "users.self") {
+      return { profile: { id: "profile-1", displayName: "Ada", emails: ["ada@example.test"] } };
+    }
+    if (method === "users.listAuthLinks") {
+      return { links: [] };
+    }
+    return {};
+  });
+  const harness = createConnectedContext(request as GatewayBrowserClient["request"], {
+    id: "profile-1",
+    email: "ada@example.test",
+    name: "Ada",
+  });
+  harness.context.gateway.snapshot.hello = {
+    type: "hello-ok",
+    protocol: 1,
+    auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+    features: { methods: ["users.self"] },
+  } as ApplicationGatewaySnapshot["hello"];
+  const provider = createApplicationContextProvider(harness.context);
+  const page = document.createElement(PROFILE_PAGE_TEST_TAG) as ProfilePageElement;
+  provider.append(page);
+  document.body.append(provider);
+
+  // Self-service connect stays available; linking arbitrary stored credentials is admin-only.
+  await waitForFast(() => expect(page.querySelector(".profile-auth-connect-start")).not.toBeNull());
+  expect(page.querySelector(".profile-auth-link-input")).toBeNull();
+});
+
 it("renders a write-access note without calling users.self for read-only viewers", async () => {
   const request = vi.fn();
   const harness = createConnectedContext(request as GatewayBrowserClient["request"], {

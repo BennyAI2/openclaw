@@ -285,6 +285,74 @@ describe("users auth connect", () => {
     expect(upsertAuthProfileAfterLoginWithLockOrThrow).not.toHaveBeenCalled();
   });
 
+  it("mints a fresh id when the linked profile stores a different provider account", async () => {
+    listUserProfileAuthLinks.mockReturnValue([
+      { provider: "openai", authProfileId: "openai:shared", updatedAt: 1 },
+    ]);
+    ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({
+      version: 1,
+      profiles: { "openai:shared": { type: "oauth", provider: "openai", accountId: "acct-other" } },
+    });
+    const flow = await startFlow();
+
+    await runHandler("users.authConnect.complete", {
+      profileId: "profile-1",
+      connectId: flow.connectId,
+      redirectInput: "http://localhost:1455/auth/callback?code=auth-code&state=flow-state",
+    });
+
+    // The foreign credential behind the link must never be overwritten.
+    expect(upsertAuthProfileAfterLoginWithLockOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({ profileId: "openai:ada" }),
+    );
+  });
+
+  it("rejects completion when authority is revoked during the token exchange", async () => {
+    const selfClient = {
+      authenticatedUserId: "ada@example.com",
+      connect: { scopes: ["operator.write"] },
+    };
+    ensureProfileForEmail.mockReturnValue({ id: "profile-1" });
+    const flow = await startFlow("profile-1");
+    // The entry check passes as the profile owner; the awaited exchange then
+    // reassigns the caller's identity, so only post-await revalidation can stop
+    // the persistence.
+    exchangeOpenAIAuthorizationCode.mockImplementation(async () => {
+      ensureProfileForEmail.mockReturnValue({ id: "profile-other" });
+      return { type: "success", access: "access-token", refresh: "refresh-token", expires: 123 };
+    });
+
+    const respond = await runHandler(
+      "users.authConnect.complete",
+      {
+        profileId: "profile-1",
+        connectId: flow.connectId,
+        redirectInput: "http://localhost:1455/auth/callback?code=auth-code&state=flow-state",
+      },
+      selfClient,
+    );
+
+    expect(exchangeOpenAIAuthorizationCode).toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "FORBIDDEN" }),
+    );
+    expect(upsertAuthProfileAfterLoginWithLockOrThrow).not.toHaveBeenCalled();
+    expect(setUserProfileAuthLink).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the person's profile disappears before persistence", async () => {
+    resolveUserProfileId.mockReturnValue(undefined);
+    await startFlow("profile-cb4");
+
+    const hit = await handleConnectCallbackRequest("/auth/callback?code=cb-code&state=flow-state");
+
+    expect(hit.status).toBe(502);
+    expect(upsertAuthProfileAfterLoginWithLockOrThrow).not.toHaveBeenCalled();
+    expect(setUserProfileAuthLink).not.toHaveBeenCalled();
+  });
+
   it("reuses the person's already linked profile id on reconnect", async () => {
     listUserProfileAuthLinks.mockReturnValue([
       { provider: "openai", authProfileId: "openai:custom", updatedAt: 1 },
