@@ -149,6 +149,7 @@ export function buildBuiltinChatCommands(
     listProviderLoginChoices?: ListProviderLoginChoices;
   } = {},
 ): ChatCommandDefinition[] {
+  const listProviderLoginChoices = params.listProviderLoginChoices;
   const configuredThinkingLevels =
     params.listThinkingLevels ?? (() => BROWSER_SAFE_THINKING_LEVELS);
   const listThinkingLevelChoices: ListThinkingLevels = (provider, model, catalog, agentRuntime) => {
@@ -230,7 +231,8 @@ export function buildBuiltinChatCommands(
       nativeProviders: ["discord", "slack", "telegram"],
       args: [
         defineCommandArgument("provider", "Provider to sign in to", {
-          choices: params.listProviderLoginChoices?.(),
+          choices: listProviderLoginChoices ? () => listProviderLoginChoices() : undefined,
+          preferAutocomplete: true,
         }),
       ],
     }),
