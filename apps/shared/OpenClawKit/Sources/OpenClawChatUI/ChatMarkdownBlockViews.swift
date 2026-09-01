@@ -11,7 +11,7 @@ struct ChatCodeBlockView: View {
     let block: ChatCodeBlock
 
     var body: some View {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         if self.block.language == "mermaid", self.block.isComplete {
             ChatMermaidBlockView(source: self.block.code)
         } else {
