@@ -5,6 +5,12 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execSyncMock = vi.fn();
+const runCommandBufferedMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../process/exec.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../process/exec.js")>()),
+  runCommandBuffered: runCommandBufferedMock,
+}));
 const CLI_CREDENTIALS_CACHE_TTL_MS = 15 * 60 * 1000;
 let readCodexCliActiveApiKey: typeof import("./cli-credentials.js").readCodexCliActiveApiKey;
 let readCodexCliAuthFileApiKey: typeof import("./cli-credentials.js").readCodexCliAuthFileApiKey;
@@ -34,6 +40,17 @@ function expectFields(value: unknown, expected: Record<string, unknown>): void {
   }
 }
 
+function commandResult(output: string) {
+  return {
+    stdout: Buffer.from(output),
+    stderr: Buffer.alloc(0),
+    code: 0,
+    signal: null,
+    killed: false,
+    termination: "exit" as const,
+  };
+}
+
 describe("cli credentials", () => {
   beforeAll(async () => {
     ({
@@ -48,6 +65,7 @@ describe("cli credentials", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    runCommandBufferedMock.mockReset().mockResolvedValue(commandResult("Logged in using ChatGPT"));
   });
 
   afterEach(() => {
@@ -319,16 +337,17 @@ describe("cli credentials", () => {
     expect(readCodexCliAuthFileApiKey({ codexHome: tempHome })).toBeNull();
   });
 
-  it("reads API-key auth from the active Codex Keychain store", () => {
+  it("reads API-key auth from the active Codex Keychain store", async () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-keychain-api-key-"));
-    execSyncMock.mockImplementation((command: unknown) =>
-      String(command).includes("codex login status")
-        ? "Logged in using an API key - keychain***i-key"
-        : JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "keychain-api-key" }),
+    runCommandBufferedMock.mockResolvedValue(
+      commandResult("Logged in using an API key - keychain***i-key"),
+    );
+    execSyncMock.mockReturnValue(
+      JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "keychain-api-key" }),
     );
 
     expect(
-      readCodexCliActiveApiKey({
+      await readCodexCliActiveApiKey({
         codexHome: tempHome,
         platform: "darwin",
         execSync: execSyncMock,
@@ -336,64 +355,96 @@ describe("cli credentials", () => {
     ).toEqual({ type: "api_key", provider: "openai", key: "keychain-api-key" });
   });
 
-  it("prefers active Codex OAuth over a stale file API key", () => {
+  it("prefers active Codex OAuth over a stale file API key", async () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-keychain-oauth-"));
     fs.writeFileSync(
       path.join(tempHome, "auth.json"),
       JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "stale-file-api-key" }),
       "utf8",
     );
-    execSyncMock.mockReturnValue("Logged in using ChatGPT");
+    runCommandBufferedMock.mockResolvedValue(commandResult("Logged in using ChatGPT"));
 
     expect(
-      readCodexCliActiveApiKey({
+      await readCodexCliActiveApiKey({
         codexHome: tempHome,
         platform: "darwin",
         execSync: execSyncMock,
       }),
     ).toBeNull();
-    expect(execSyncMock).toHaveBeenCalledTimes(1);
+    expect(runCommandBufferedMock).toHaveBeenCalledTimes(1);
+    expect(execSyncMock).not.toHaveBeenCalled();
   });
 
-  it("uses the API key that Codex reports active instead of a stale Keychain record", () => {
+  it("uses the API key that Codex reports active instead of a stale Keychain record", async () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-default-file-"));
     fs.writeFileSync(
       path.join(tempHome, "auth.json"),
       JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "active-file-api-key" }),
       "utf8",
     );
-    execSyncMock.mockImplementation((command: unknown) =>
-      String(command).includes("codex login status")
-        ? "Logged in using an API key - active-f***i-key"
-        : JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "stale-keychain-api-key" }),
+    runCommandBufferedMock.mockResolvedValue(
+      commandResult("Logged in using an API key - active-f***i-key"),
+    );
+    execSyncMock.mockReturnValue(
+      JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "stale-keychain-api-key" }),
     );
 
     expect(
-      readCodexCliActiveApiKey({
+      await readCodexCliActiveApiKey({
         codexHome: tempHome,
         platform: "darwin",
         execSync: execSyncMock,
       }),
     ).toEqual({ type: "api_key", provider: "openai", key: "active-file-api-key" });
-    expect(execSyncMock).toHaveBeenCalledTimes(2);
+    expect(execSyncMock).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts legacy Codex API-key status only with one readable candidate", () => {
+  it("accepts legacy Codex API-key status only with one readable candidate", async () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-legacy-status-"));
     fs.writeFileSync(
       path.join(tempHome, "auth.json"),
       JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "legacy-file-api-key" }),
       "utf8",
     );
-    execSyncMock.mockReturnValue("Logged in using an API key");
+    runCommandBufferedMock.mockResolvedValue(commandResult("Logged in using an API key"));
 
     expect(
-      readCodexCliActiveApiKey({
+      await readCodexCliActiveApiKey({
         codexHome: tempHome,
         platform: "linux",
         execSync: execSyncMock,
       }),
     ).toEqual({ type: "api_key", provider: "openai", key: "legacy-file-api-key" });
+  });
+
+  it("keeps the event loop responsive while Codex login status is pending", async () => {
+    vi.useRealTimers();
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-async-status-"));
+    const key = "sk-test-abcdefghij12345";
+    fs.writeFileSync(
+      path.join(tempHome, "auth.json"),
+      JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: key }),
+      "utf8",
+    );
+    let releaseStatus!: () => void;
+    runCommandBufferedMock.mockReturnValue(
+      new Promise((resolve) => {
+        releaseStatus = () =>
+          resolve(commandResult("Logged in using an API key - sk-test-***12345"));
+      }),
+    );
+
+    const pending = readCodexCliActiveApiKey({
+      codexHome: tempHome,
+      allowKeychainPrompt: false,
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(runCommandBufferedMock).toHaveBeenCalledOnce();
+    releaseStatus();
+    await expect(pending).resolves.toEqual({ type: "api_key", provider: "openai", key });
   });
 
   it("treats an empty Codex auth.json API-key field as API-key mode", () => {

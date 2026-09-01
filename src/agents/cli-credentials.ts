@@ -12,12 +12,14 @@ import {
 } from "@openclaw/normalization-core/number-coercion";
 import { resolveOsHomeRelativePath } from "../infra/home-dir.js";
 import { loadJsonFileThroughSymlink } from "../infra/json-file.js";
+import { runCommandBuffered } from "../process/exec.js";
 import type { OAuthProvider } from "./auth-profiles/types.js";
 
 const CODEX_CLI_AUTH_FILENAME = "auth.json";
 const MINIMAX_CLI_CREDENTIALS_RELATIVE_PATH = ".minimax/oauth_creds.json";
 const GEMINI_CLI_CREDENTIALS_RELATIVE_PATH = ".gemini/oauth_creds.json";
 const CODEX_CLI_FALLBACK_EXPIRY_MS = 60 * 60 * 1000;
+const CODEX_LOGIN_STATUS_MAX_OUTPUT_BYTES = 16 * 1024;
 
 type CachedValue<T> = {
   value: T | null;
@@ -381,25 +383,19 @@ function formatCodexApiKeyForLoginStatus(key: string): string {
   return key.length <= 13 ? "***" : `${key.slice(0, 8)}***${key.slice(-5)}`;
 }
 
-/** Reads an API key only when Codex confirms that exact credential is active. */
-export function readCodexCliActiveApiKey(options?: {
+type CodexActiveApiKeyOptions = {
   codexHome?: string;
   allowKeychainPrompt?: boolean;
   platform?: NodeJS.Platform;
   execSync?: ExecSyncFn;
-}): CodexCliApiKeyCredential | null {
-  const { execSyncImpl, codexHome } = resolveCodexKeychainParams(options);
-  let status: string;
-  try {
-    status = execSyncImpl("codex login status 2>&1", {
-      encoding: "utf8",
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, CODEX_HOME: codexHome },
-    }).trim();
-  } catch {
-    return null;
-  }
+  signal?: AbortSignal;
+};
+
+function resolveCodexActiveApiKey(
+  status: string,
+  codexHome: string,
+  options?: CodexActiveApiKeyOptions,
+): CodexCliApiKeyCredential | null {
   const statusMatch = /^Logged in using an API key - (.+)$/mu.exec(status);
   const activeFingerprint = statusMatch?.[1]?.trim();
   const legacyApiKeyStatus = status.trim() === "Logged in using an API key";
@@ -439,6 +435,25 @@ export function readCodexCliActiveApiKey(options?: {
   }
   const key = [...matchingKeys][0];
   return key ? { type: "api_key", provider: "openai", key } : null;
+}
+
+/** Reads an API key only when Codex confirms that exact credential is active. */
+export async function readCodexCliActiveApiKey(
+  options?: CodexActiveApiKeyOptions,
+): Promise<CodexCliApiKeyCredential | null> {
+  const codexHome = resolveCodexCliHomePath(options?.codexHome);
+  const result = await runCommandBuffered(["codex", "login", "status"], {
+    timeoutMs: 5000,
+    maxCombinedOutputBytes: CODEX_LOGIN_STATUS_MAX_OUTPUT_BYTES,
+    baseEnv: process.env,
+    env: { CODEX_HOME: codexHome },
+    signal: options?.signal,
+  });
+  if (result.termination !== "exit" || result.code !== 0) {
+    return null;
+  }
+  const status = Buffer.concat([result.stdout, result.stderr]).toString("utf8").trim();
+  return resolveCodexActiveApiKey(status, codexHome, options);
 }
 
 /** Reads Codex CLI OAuth credentials from Keychain or CODEX_HOME auth.json. */

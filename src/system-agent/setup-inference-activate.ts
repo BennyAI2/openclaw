@@ -76,7 +76,7 @@ export async function activateSetupInference(
 ): Promise<ActivateSetupInferenceResult> {
   const codexCliApiKey =
     params.kind === "codex-cli"
-      ? (params.deps?.readCodexCliActiveApiKey ?? readCodexCliActiveApiKey)({
+      ? await (params.deps?.readCodexCliActiveApiKey ?? readCodexCliActiveApiKey)({
           allowKeychainPrompt: true,
         })
       : null;

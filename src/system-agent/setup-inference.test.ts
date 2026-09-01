@@ -314,7 +314,7 @@ function withSuiteFixtures<
     deps.removeTempDir = deferSuiteTempDirCleanup;
   }
   if (!deps.readCodexCliActiveApiKey) {
-    deps.readCodexCliActiveApiKey = () => null;
+    deps.readCodexCliActiveApiKey = async () => null;
   }
   deps.resolvePluginMetadataSnapshot ??= pluginMetadataSnapshot?.bind;
   if (!useRealAuthProfileStore) {
@@ -4298,7 +4298,7 @@ describe("activateSetupInference", () => {
       const result = await activateCodexSetup({
         deps: {
           readConfigFileSnapshot: mockConfigSnapshot(initialConfig, { includeMetadata: true }),
-          readCodexCliActiveApiKey: () => ({
+          readCodexCliActiveApiKey: async () => ({
             type: "api_key",
             provider: "openai",
             key: "codex-api-key",
@@ -4332,7 +4332,7 @@ describe("activateSetupInference", () => {
   });
 
   it("prefers usable Codex OAuth without registering a discovered API key", async () => {
-    const readCodexCliActiveApiKey = vi.fn(() => null);
+    const readCodexCliActiveApiKey = vi.fn(async () => null);
     const configHarness = createPreRosterConfigTransformHarness();
     const runEmbeddedAgent = vi.fn(successfulRunner("openai", "gpt-5.6-sol"));
 
@@ -4365,7 +4365,7 @@ describe("activateSetupInference", () => {
       const result = await activateCodexSetup({
         deps: {
           readConfigFileSnapshot: mockConfigSnapshot(initialConfig, { includeMetadata: true }),
-          readCodexCliActiveApiKey: () => ({
+          readCodexCliActiveApiKey: async () => ({
             type: "api_key",
             provider: "openai",
             key: "rejected-codex-key",

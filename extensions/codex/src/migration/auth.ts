@@ -154,10 +154,12 @@ async function buildCodexOAuthCredential(
 
 async function buildCodexApiKeyCredential(
   source: CodexAuthSource,
+  signal?: AbortSignal,
 ): Promise<CodexAuthCredential | null> {
-  const credential = readCodexCliActiveApiKey({
+  const credential = await readCodexCliActiveApiKey({
     codexHome: source.codexHome,
     allowKeychainPrompt: false,
+    ...(signal ? { signal } : {}),
   });
   if (!credential) {
     return null;
@@ -172,14 +174,20 @@ async function buildCodexApiKeyCredential(
 
 async function readCodexAuthCredentials(
   source: CodexAuthSource,
-  options: { credentialKind?: CodexAuthCredential["kind"]; includeConfigPatch: boolean },
+  options: {
+    credentialKind?: CodexAuthCredential["kind"];
+    includeConfigPatch: boolean;
+    signal?: AbortSignal;
+  },
 ): Promise<CodexAuthCredential[]> {
   const oauth =
     options.credentialKind === "api_key"
       ? null
       : await buildCodexOAuthCredential(source, options.includeConfigPatch);
   const apiKey =
-    options.credentialKind === "oauth" ? null : await buildCodexApiKeyCredential(source);
+    options.credentialKind === "oauth"
+      ? null
+      : await buildCodexApiKeyCredential(source, options.signal);
   return [oauth, apiKey].filter((entry): entry is CodexAuthCredential => entry !== null);
 }
 
@@ -439,6 +447,7 @@ export async function buildCodexAuthItems(params: {
   const credentials = await readCodexAuthCredentials(params.source, {
     credentialKind: resolveRequestedCredentialKind(params.ctx),
     includeConfigPatch: configPatchMode !== "none",
+    signal: params.ctx.signal,
   });
   if (credentials.length === 0) {
     return [];
@@ -511,6 +520,7 @@ export async function applyCodexAuthItems(params: {
     await readCodexAuthCredentials(source, {
       credentialKind,
       includeConfigPatch: configPatchMode !== "none",
+      signal: ctx.signal,
     })
   ).find(
     (candidate) =>
