@@ -2038,6 +2038,12 @@ grep -qx -- "OPENCLAW_E2E_COMMAND_TIMEOUT=23s" "$TMPDIR/package-args"
         'openclaw_e2e_maybe_timeout "${OPENCLAW_E2E_NPM_INSTALL_TIMEOUT:-600s}" npm install -g',
       );
     }
+    expect(pluginCorrupt).toContain(
+      'openclaw_e2e_fixture_plugin_command node "$entry" -- plugins install "npm:@openclaw/demo-corrupt-plugin@0.0.1" --force',
+    );
+    expect(pluginCorrupt).toContain(
+      "openclaw_e2e_print_log /tmp/openclaw-corrupt-plugin-install.log",
+    );
   });
 
   it("keeps upgrade survivor mutable state off the host-mounted artifact tree", () => {
@@ -2317,6 +2323,24 @@ fi
     const runner = readFileSync(UPGRADE_SURVIVOR_DOCKER_E2E_PATH, "utf8");
     const publishedRunner = readFileSync(UPGRADE_SURVIVOR_RUN_SCRIPT, "utf8");
     const updateRestartAuth = readFileSync(UPGRADE_SURVIVOR_UPDATE_RESTART_AUTH_PATH, "utf8");
+
+    expect(updateRestartAuth).toContain(
+      'config-parking.mjs \\\n    park-restart-probe "$OPENCLAW_CONFIG_PATH"',
+    );
+    const updateIndex = runner.indexOf('openclaw "${update_args[@]}"');
+    const restoreIndex = runner.indexOf(
+      'config-parking.mjs restore "$OPENCLAW_CONFIG_PATH"',
+      updateIndex,
+    );
+    const reloadIndex = runner.indexOf(
+      "systemctl --user restart openclaw-gateway.service",
+      restoreIndex,
+    );
+    const assertIndex = runner.indexOf("assertions.mjs assert-config", reloadIndex);
+    expect(updateIndex).toBeGreaterThan(-1);
+    expect(restoreIndex).toBeGreaterThan(updateIndex);
+    expect(reloadIndex).toBeGreaterThan(restoreIndex);
+    expect(assertIndex).toBeGreaterThan(reloadIndex);
 
     expect(runner).toContain('source "$ROOT_DIR/scripts/lib/openclaw-e2e-instance.sh"');
     expect(runner).toContain(
