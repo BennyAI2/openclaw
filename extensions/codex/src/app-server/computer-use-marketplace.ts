@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { hasNodeErrorCode } from "./computer-use-errors.js";
 import {
   assertDirectoryIdentityStable,
   assertNotSymlink,
@@ -235,8 +236,4 @@ async function wrapperMatchesAnySource(
     }
   }
   return false;
-}
-
-function hasNodeErrorCode(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }

@@ -3,6 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import type { BigIntStats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { hasNodeErrorCode } from "./computer-use-errors.js";
 import {
   resolveMacOSDesktopCodexAppPathCandidates,
   type MacOSDesktopCodexAppPathCandidate,
@@ -73,7 +74,7 @@ async function directoryTreeFingerprint(root: string): Promise<string> {
   try {
     rootStat = await fs.lstat(root, { bigint: true });
   } catch (error) {
-    if (isNodeError(error, "ENOENT") || isNodeError(error, "ENOTDIR")) {
+    if (hasNodeErrorCode(error, "ENOENT") || hasNodeErrorCode(error, "ENOTDIR")) {
       return "missing";
     }
     throw error;
@@ -136,7 +137,7 @@ async function statFingerprint(filePath: string): Promise<string> {
     const content = target.isFile() ? await readFileFingerprint(filePath, target, true) : "";
     return `${type}:${own}:${link}:${realPath}:${statTuple(target)}:${content}`;
   } catch (error) {
-    if (isNodeError(error, "ENOENT") || isNodeError(error, "ENOTDIR")) {
+    if (hasNodeErrorCode(error, "ENOENT") || hasNodeErrorCode(error, "ENOTDIR")) {
       return "missing";
     }
     throw error;
@@ -177,8 +178,4 @@ function sameStat(left: BigIntStats, right: BigIntStats): boolean {
 
 function statTuple(stat: BigIntStats): string {
   return [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
-}
-
-function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }
