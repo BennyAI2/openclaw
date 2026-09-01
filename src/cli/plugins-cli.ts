@@ -179,7 +179,7 @@ export function registerPluginsCli(program: Command) {
     )
     .argument(
       "<path-or-spec-or-plugin>",
-      "Path (.ts/.js/.zip/.tgz/.tar.gz), npm package spec, or marketplace plugin name",
+      "Plugin directory or archive (.zip/.tgz/.tar.gz), npm package spec, or marketplace plugin name",
     )
     .option("-l, --link", "Link a local path instead of copying", false)
     .option(
