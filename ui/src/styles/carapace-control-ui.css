@@ -232,6 +232,28 @@
   padding: 7px;
 }
 
+/* Preserve Control UI's compact control height when Carapace's segmented
+ * surface and item insets are composed around Web Awesome radio buttons. */
+.settings-page.oc-app-surface .plugins-toolbar--plugin-catalog > .btn.oc-action-icon {
+  width: var(--settings-control-height);
+  min-width: var(--settings-control-height);
+  height: var(--settings-control-height);
+}
+
+.settings-page.oc-app-surface .plugins-toolbar--plugin-catalog > .settings-segmented.oc-segmented {
+  height: var(--settings-control-height);
+  padding: calc(var(--oc-space-1) / 2);
+}
+
+.settings-page.oc-app-surface
+  .plugins-toolbar--plugin-catalog
+  > .settings-segmented.oc-segmented
+  > .settings-segmented__btn.oc-segmented-item {
+  height: calc(var(--settings-control-height) - var(--oc-space-1) - 2px);
+  min-height: calc(var(--settings-control-height) - var(--oc-space-1) - 2px);
+  padding-block: 0;
+}
+
 /* The Control UI radio carries selection as a class while Carapace's generic
  * item waits for aria-selected/is-active. Keep the shared helper's state
  * contract and apply Carapace's interactive surface at that adapter seam. */

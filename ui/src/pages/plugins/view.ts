@@ -1318,7 +1318,7 @@ export function renderPlugins(props: PluginsViewProps) {
           : "content";
   return renderSettingsPage(
     html`
-      <div class="plugins-toolbar">
+      <div class="plugins-toolbar plugins-toolbar--plugin-catalog">
         <input
           id="plugins-global-search"
           class="settings-input plugins-toolbar__search oc-input"
