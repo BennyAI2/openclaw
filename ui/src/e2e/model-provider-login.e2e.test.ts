@@ -53,24 +53,42 @@ describeControlUiE2e("Control UI provider login", () => {
         accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" }],
       },
     ];
+    const config = {
+      agents: { defaults: { model: "openai/gpt-5.5" } },
+      models: {
+        providers: { xai: { models: [{ id: "grok-4.5", name: "Grok 4.5" }] } },
+      },
+    };
     const gateway = await installMockGateway(page, {
       featureMethods: [
         "chat.metadata",
         "chat.startup",
         "config.patch",
         "models.authLogin.start",
+        "models.authLogout",
         "wizard.next",
       ],
       methodResponses: {
         "config.get": {
-          config: { agents: { defaults: { model: "openai/gpt-5.5" } } },
-          sourceConfig: { agents: { defaults: { model: "openai/gpt-5.5" } } },
+          config,
+          sourceConfig: config,
           hash: "provider-login-config",
           issues: [],
-          raw: '{"agents":{"defaults":{"model":"openai/gpt-5.5"}}}',
+          raw: JSON.stringify(config),
           valid: true,
         },
-        "models.list": { models: [] },
+        "models.list": {
+          models: [
+            { id: "gpt-5.5", name: "GPT-5.5", provider: "openai", available: true },
+            {
+              id: "grok-4.5",
+              name: "Grok 4.5",
+              provider: "xai",
+              available: false,
+              unavailableReason: "missing-auth",
+            },
+          ],
+        },
         "models.authStatus": {
           ts: 1,
           providerCapabilities: authCapabilities,
@@ -80,6 +98,11 @@ describeControlUiE2e("Control UI provider login", () => {
           sessionId: "xai-login-session",
           done: false,
           status: "running",
+        },
+        "models.authLogout": {
+          provider: "xai",
+          removedProfiles: ["xai:owner"],
+          abortedRunIds: [],
         },
         "wizard.next": {
           sequence: [
@@ -132,7 +155,14 @@ describeControlUiE2e("Control UI provider login", () => {
             provider: "xai",
             displayName: "xAI",
             status: "ok",
-            profiles: [{ profileId: "xai:owner", type: "oauth", status: "ok" }],
+            profiles: [
+              {
+                profileId: "xai:owner",
+                type: "oauth",
+                status: "ok",
+                logoutSupported: true,
+              },
+            ],
           },
         ],
       });
@@ -143,11 +173,75 @@ describeControlUiE2e("Control UI provider login", () => {
       await gateway.resolveDeferred("models.authStatus");
       await expect.poll(async () => xaiCard.textContent()).toContain("Signed in");
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
-      expect(
-        (await gateway.getRequests("models.list")).some(
-          (request) => request.params.refresh === true,
-        ),
-      ).toBe(false);
+      await expect
+        .poll(() =>
+          page
+            .locator(".model-providers__defaults wa-select")
+            .first()
+            .evaluate((element) => String((element as HTMLElement & { value?: string }).value)),
+        )
+        .toBe("openai/gpt-5.5");
+
+      await gateway.setMethodResponse("models.list", {
+        models: [
+          { id: "gpt-5.5", name: "GPT-5.5", provider: "openai", available: true },
+          { id: "grok-4.5", name: "Grok 4.5", provider: "xai", available: true },
+        ],
+      });
+      await gateway.emitGatewayEvent("chat.metadata.changed", {});
+      await expect
+        .poll(() => page.locator('wa-option[value="xai/grok-4.5"]').count())
+        .toBeGreaterThan(0);
+      await expect.poll(async () => xaiCard.textContent()).toContain("1 model");
+      const openaiCard = page.locator('[data-provider-id="openai"]');
+      await expect.poll(async () => openaiCard.textContent()).toContain("1 model");
+
+      await gateway.deferNext("models.authLogout");
+      await xaiCard.getByRole("button", { name: "Log out", exact: true }).click();
+      const confirm = xaiCard.getByRole("alert");
+      await confirm.getByRole("button", { name: "Log out", exact: true }).click();
+      await gateway.waitForRequest("models.authLogout");
+      await gateway.setMethodResponse("models.authStatus", {
+        ts: 3,
+        providerCapabilities: authCapabilities,
+        providers: [],
+      });
+      await gateway.setMethodResponse("models.list", {
+        models: [
+          { id: "gpt-5.5", name: "GPT-5.5", provider: "openai", available: true },
+          {
+            id: "grok-4.5",
+            name: "Grok 4.5",
+            provider: "xai",
+            available: false,
+            unavailableReason: "missing-auth",
+          },
+        ],
+      });
+      await gateway.emitGatewayEvent("chat.metadata.changed", {});
+      await gateway.resolveDeferred("models.authLogout", {
+        provider: "xai",
+        removedProfiles: ["xai:owner"],
+        abortedRunIds: [],
+      });
+      await xaiCard.getByRole("button", { name: "Sign in with xAI OAuth" }).waitFor();
+      await expect.poll(async () => xaiCard.textContent()).not.toContain("Signed in");
+      await expect.poll(async () => openaiCard.textContent()).toContain("1 model");
+      await expect
+        .poll(() =>
+          page
+            .locator(".model-providers__defaults wa-select")
+            .first()
+            .evaluate((element) => String((element as HTMLElement & { value?: string }).value)),
+        )
+        .toBe("openai/gpt-5.5");
+      for (const request of await gateway.getRequests("models.list")) {
+        expect(request.params).toEqual({
+          agentId: "main",
+          preparedOnly: true,
+          view: "configured",
+        });
+      }
       if (artifactDir) {
         await page.screenshot({
           animations: "disabled",
@@ -179,6 +273,15 @@ describeControlUiE2e("Control UI provider login", () => {
         accessOptions: [{ id: "vllm", label: "vLLM", mode: "setup" }],
       },
     ];
+    const config = {
+      agents: { defaults: { model: "openai/gpt-5.5" } },
+      models: {
+        providers: {
+          groq: { models: [{ id: "llama-3.3-70b", name: "Llama 3.3 70B" }] },
+          vllm: { models: [{ id: "local-model", name: "Local model" }] },
+        },
+      },
+    };
     const gateway = await installMockGateway(page, {
       featureMethods: [
         "chat.metadata",
@@ -190,14 +293,31 @@ describeControlUiE2e("Control UI provider login", () => {
       ],
       methodResponses: {
         "config.get": {
-          config: { agents: { defaults: { model: "openai/gpt-5.5" } } },
-          sourceConfig: { agents: { defaults: { model: "openai/gpt-5.5" } } },
+          config,
+          sourceConfig: config,
           hash: "provider-access-config",
           issues: [],
-          raw: '{"agents":{"defaults":{"model":"openai/gpt-5.5"}}}',
+          raw: JSON.stringify(config),
           valid: true,
         },
-        "models.list": { models: [] },
+        "models.list": {
+          models: [
+            {
+              id: "llama-3.3-70b",
+              name: "Llama 3.3 70B",
+              provider: "groq",
+              available: false,
+              unavailableReason: "missing-auth",
+            },
+            {
+              id: "local-model",
+              name: "Local model",
+              provider: "vllm",
+              available: false,
+              unavailableReason: "missing-auth",
+            },
+          ],
+        },
         "models.authStatus": {
           ts: 1,
           providerCapabilities: accessCapabilities,
@@ -266,11 +386,13 @@ describeControlUiE2e("Control UI provider login", () => {
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
       expect(await gateway.getRequests("models.authLogin.start")).toHaveLength(1);
       expect(await gateway.getRequests("openclaw.setup.prepare.start")).toHaveLength(1);
-      expect(
-        (await gateway.getRequests("models.list")).some(
-          (request) => request.params.refresh === true,
-        ),
-      ).toBe(false);
+      for (const request of await gateway.getRequests("models.list")) {
+        expect(request.params).toEqual({
+          agentId: "main",
+          preparedOnly: true,
+          view: "configured",
+        });
+      }
     } finally {
       await context.close();
     }
