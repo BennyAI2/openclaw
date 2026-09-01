@@ -490,7 +490,7 @@ function runSessionStateAssertion(
       execFileSync(process.execPath, [ASSERTIONS_PATH, command], {
         env: {
           ...process.env,
-          ...(fixtureEnv ?? {}),
+          ...fixtureEnv,
           OPENCLAW_STATE_DIR: stateDir,
           OPENCLAW_TEST_WORKSPACE_DIR: workspace,
           OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: options.scenario ?? "base",
@@ -977,11 +977,11 @@ describe("upgrade survivor assertions", () => {
               "authProfiles.state",
               JSON.stringify(corruption === "state" ? {} : fixture.authState),
             );
-            for (const _source of sources) {
+            sources.forEach(() => {
               db.prepare("INSERT INTO migration_sources VALUES (?, 'completed', 1)").run(
                 "auth-profile-json-to-sqlite-v2",
               );
-            }
+            });
           } finally {
             db.close();
           }
