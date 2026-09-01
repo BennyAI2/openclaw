@@ -24,7 +24,7 @@ import { readSessionUpdatedAt, resolveStorePath } from "openclaw/plugin-sdk/sess
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { resolveDiscordConversationIdentity } from "../conversation-identity.js";
 import { ChannelType } from "../internal/discord.js";
-import { normalizeDiscordAllowList, normalizeDiscordSlug } from "./allow-list.js";
+import { normalizeDiscordDmOwnerEntry, normalizeDiscordSlug } from "./allow-list.js";
 import { resolveTimestampMs } from "./format.js";
 import {
   buildDiscordInboundAccessContext,
@@ -48,12 +48,6 @@ import {
   DISCORD_ATTACHMENT_IDLE_TIMEOUT_MS,
   DISCORD_ATTACHMENT_TOTAL_TIMEOUT_MS,
 } from "./timeouts.js";
-
-function normalizeDiscordDmOwnerEntry(entry: string): string | undefined {
-  const normalized = normalizeDiscordAllowList([entry], ["discord:", "user:", "pk:"]);
-  const candidate = normalized?.ids.values().next().value;
-  return typeof candidate === "string" && /^\d+$/.test(candidate) ? candidate : undefined;
-}
 
 function isContextAborted(abortSignal?: AbortSignal): boolean {
   return Boolean(abortSignal?.aborted);

@@ -91,6 +91,12 @@ export function normalizeDiscordAllowList(raw: string[] | undefined, prefixes: s
   return { allowAll, ids, names } satisfies DiscordAllowList;
 }
 
+export function normalizeDiscordDmOwnerEntry(entry: string): string | undefined {
+  const normalized = normalizeDiscordAllowList([entry], ["discord:", "user:", "pk:"]);
+  const candidate = normalized?.ids.values().next().value;
+  return typeof candidate === "string" && /^\d+$/.test(candidate) ? candidate : undefined;
+}
+
 export function normalizeDiscordSlug(value: string) {
   return normalizeLowercaseStringOrEmpty(value)
     .replace(/^#/, "")

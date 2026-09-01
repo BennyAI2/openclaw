@@ -25,7 +25,7 @@ import {
 } from "./agent-components-helpers.js";
 import { readSessionUpdatedAt, resolveStorePath } from "./agent-components.deps.runtime.js";
 import {
-  normalizeDiscordAllowList,
+  normalizeDiscordDmOwnerEntry,
   resolveDiscordChannelConfigWithFallback,
   resolveDiscordGuildEntry,
 } from "./allow-list.js";
@@ -145,11 +145,7 @@ export async function dispatchDiscordComponentEvent(params: {
     ? resolvePinnedMainDmOwnerFromAllowlist({
         dmScope: ctx.cfg.session?.dmScope,
         allowFrom: channelConfig?.users ?? guildInfo?.users,
-        normalizeEntry: (entry: string) => {
-          const normalized = normalizeDiscordAllowList([entry], ["discord:", "user:", "pk:"]);
-          const candidate = normalized?.ids.values().next().value;
-          return typeof candidate === "string" && /^\d+$/.test(candidate) ? candidate : undefined;
-        },
+        normalizeEntry: normalizeDiscordDmOwnerEntry,
       })
     : null;
   const commandAuthorized = await resolveComponentCommandAuthorized({
