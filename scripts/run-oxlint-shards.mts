@@ -288,6 +288,7 @@ export async function main(
         bin: process.execPath,
         args: distArtifactEntryArgs(
           path.resolve("scripts/prepare-extension-package-boundary-artifacts.mts"),
+          ["--mode=package-boundary"],
         ),
         env,
         requireProcessTreeExit: process.platform !== "win32",
