@@ -34,10 +34,6 @@ const translations: Record<string, string> = {
     "Stop the foreground Gateway, update in the terminal, then launch it again.",
   "updates.failureReasons.default":
     "See the gateway logs for the exact failure and retry once the cause is fixed.",
-  "updates.verificationFailed":
-    "Update installed but running version did not change — restart may have been blocked.",
-  "updates.verificationFailedWithVersions":
-    "Update installed but running version did not change — restart may have been blocked. Expected v{expectedVersion}, running v{actualVersion}.",
   "updates.verificationFailedWithIdentity":
     "Update finished, but the running install does not match the expected revision. Expected {expected}, running {actual}.",
   "updates.outcomeUnknown": "The update outcome is unknown.",
