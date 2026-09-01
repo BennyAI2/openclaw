@@ -30,6 +30,8 @@ const CODEX_LOGIN_PROVIDER_ALIASES = new Set(["codex", "openai"]);
 
 export type ProviderLoginSessionEntry = {
   sessionId: string;
+  providerOverride?: string;
+  modelProvider?: string;
   authProfileOverride?: string;
   authProfileOverrideSource?: "auto" | "user";
   authProfileOverrideCompactionCount?: number;
@@ -112,6 +114,11 @@ function matchesLoginSnapshot(
   );
 }
 
+function resolvePersistedModelProvider(entry: ProviderLoginSessionEntry): string | undefined {
+  const provider = normalizeLowercaseStringOrEmpty(entry.providerOverride ?? entry.modelProvider);
+  return provider || undefined;
+}
+
 /** Decide one session-profile adoption from the authoritative row read immediately before write. */
 export function decideProviderLoginSessionAdoption(params: {
   currentModelProvider: string | undefined;
@@ -128,6 +135,17 @@ export function decideProviderLoginSessionAdoption(params: {
     normalizeLowercaseStringOrEmpty(params.currentModelProvider) !==
       normalizeLowercaseStringOrEmpty(params.loginProvider) ||
     !params.current
+  ) {
+    return { status: "unchanged" };
+  }
+  const currentProvider = resolvePersistedModelProvider(params.current);
+  const snapshotProvider = params.snapshot
+    ? resolvePersistedModelProvider(params.snapshot)
+    : undefined;
+  if (
+    (currentProvider &&
+      currentProvider !== normalizeLowercaseStringOrEmpty(params.loginProvider)) ||
+    (params.snapshot && currentProvider !== snapshotProvider)
   ) {
     return { status: "unchanged" };
   }

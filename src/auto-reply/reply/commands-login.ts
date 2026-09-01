@@ -176,6 +176,7 @@ async function switchLoginSessionProfile(params: {
     liveDecision.status === "patch" ? { ...liveEntry, ...liveDecision.patch } : liveEntry;
   delete nextEntry.authProfileOverrideCompactionCount;
   try {
+    let finalDecision = liveDecision;
     let persistedEntry: SessionEntry = nextEntry;
     if (commandParams.storePath) {
       let persistedDecision: ReturnType<typeof decideProviderLoginSessionAdoption> | undefined;
@@ -200,19 +201,22 @@ async function switchLoginSessionProfile(params: {
         },
       );
       if (
-        persistedDecision?.status === "rejected" ||
+        !persistedDecision ||
+        persistedDecision.status === "rejected" ||
         !persisted ||
-        persisted.authProfileOverride !== nextProfileId ||
-        persisted.authProfileOverrideSource !== "user" ||
-        persisted.authProfileOverrideCompactionCount !== undefined
+        (persistedDecision.status === "patch" &&
+          (persisted.authProfileOverride !== nextProfileId ||
+            persisted.authProfileOverrideSource !== "user" ||
+            persisted.authProfileOverrideCompactionCount !== undefined))
       ) {
         return "failed";
       }
+      finalDecision = persistedDecision;
       persistedEntry = persisted;
     }
     commandParams.sessionEntry = persistedEntry;
     sessionStore[commandParams.sessionKey] = persistedEntry;
-    if (liveDecision.status === "patch") {
+    if (finalDecision.status === "patch") {
       markCommandSessionMetadataChanged(commandParams);
       return "updated";
     }

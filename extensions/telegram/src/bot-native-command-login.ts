@@ -224,9 +224,10 @@ export async function executeTelegramLoginCommand(params: {
             entryObserved &&
             (adoptionDecision?.status === "rejected" ||
               !persisted ||
-              persisted.authProfileOverride !== nextProfileId ||
-              persisted.authProfileOverrideSource !== "user" ||
-              persisted.authProfileOverrideCompactionCount !== undefined)
+              (adoptionDecision?.status === "patch" &&
+                (persisted.authProfileOverride !== nextProfileId ||
+                  persisted.authProfileOverrideSource !== "user" ||
+                  persisted.authProfileOverrideCompactionCount !== undefined)))
           ) {
             terminalMessage = sessionSwitchFailedMessage;
           }

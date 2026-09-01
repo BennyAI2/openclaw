@@ -682,6 +682,56 @@ describe("registerTelegramNativeCommands /login", () => {
     );
   });
 
+  it("does not pin the login profile after the Telegram session switches providers", async () => {
+    const finishLogin = createDeferred<void>();
+    const sessionStore: Record<string, SessionEntry> = {
+      "agent:main:main": {
+        providerOverride: "openai",
+        modelOverride: "gpt-5.4",
+        authProfileOverride: "openai:owner@example.com",
+        sessionId: "sess-main",
+        updatedAt: 1,
+      },
+    };
+    loginSessionMocks.loadSessionStore.mockReturnValue(sessionStore);
+    const runModelsAuthLoginFlow = vi.fn<TelegramLoginFlow>(async (opts) => {
+      await opts.prompter.deviceCode?.({ title: "OpenAI Codex device code", code: "SWITCH" });
+      await finishLogin.promise;
+      return {
+        providerId: "openai",
+        methodId: "device-code",
+        profiles: [
+          { profileId: "openai:new-owner@example.com", provider: "openai", mode: "oauth" },
+        ],
+      };
+    });
+    const { handler, sendMessage } = registerLoginCommand({
+      accountId: "default",
+      cfg: { commands: { native: true, ownerAllowFrom: ["200"] } } as OpenClawConfig,
+      allowFrom: ["200"],
+      loginFlow: runModelsAuthLoginFlow,
+    });
+
+    await handler(createPrivateCommandContext({ match: "codex", userId: 200 }));
+    sessionStore["agent:main:main"] = {
+      ...sessionStore["agent:main:main"],
+      providerOverride: "anthropic",
+      modelOverride: "claude-sonnet-4-6",
+      updatedAt: 2,
+    } as SessionEntry;
+    finishLogin.resolve();
+
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        100,
+        "OpenAI login complete. Try your request again now.",
+        {},
+      ),
+    );
+    expect(sessionStore["agent:main:main"]?.providerOverride).toBe("anthropic");
+    expect(sessionStore["agent:main:main"]?.authProfileOverride).toBe("openai:owner@example.com");
+  });
+
   it("moves a session created while Telegram login is pending to the returned profile", async () => {
     const finishLogin = createDeferred<void>();
     let sessionStore: Record<string, SessionEntry> = {};

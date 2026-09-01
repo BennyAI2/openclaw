@@ -131,6 +131,17 @@ describe("provider channel login runtime", () => {
       status: "rejected",
     },
     {
+      name: "does not pin after the session switches providers",
+      params: {
+        currentModelProvider: "xai",
+        loginProvider: "xai",
+        nextProfileId: "xai:new",
+        snapshot: { ...snapshot, providerOverride: "xai" },
+        current: { ...snapshot, providerOverride: "openai" },
+      },
+      status: "unchanged",
+    },
+    {
       name: "does not pin credentials for another model provider",
       params: {
         currentModelProvider: "openai",
