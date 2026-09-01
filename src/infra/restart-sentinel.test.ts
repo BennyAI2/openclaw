@@ -849,8 +849,10 @@ describe("control-plane update restart sentinel", () => {
       after: { version: "2026.4.24" },
       steps: [],
       durationMs: 42,
+      recovery: { serviceRestartSafe: true } as const,
     };
     const meta = {
+      target: "version 2026.4.24",
       sessionKey: "agent:main:webchat:dm:user-123",
       continuationMessage: "Check the running version and finish the update report.",
     };
@@ -874,6 +876,10 @@ describe("control-plane update restart sentinel", () => {
     });
 
     expect(finalPayload.status).toBe("ok");
+    expect(finalPayload.stats).toMatchObject({
+      target: "version 2026.4.24",
+      recovery: { serviceRestartSafe: true },
+    });
     expect(finalPayload.continuation).toEqual({
       kind: "agentTurn",
       message: "Check the running version and finish the update report.",

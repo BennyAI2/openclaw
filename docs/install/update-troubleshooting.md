@@ -34,6 +34,17 @@ same attempt reports its final failure or cancellation. A newer recorded attempt
 can also replace it. Intentional cancellations, already-current installs, and
 updates still in progress do not start triage.
 
+For a final failed attempt, **Report update failure** is separate from **Retry**
+and **Ask OpenClaw**. It previews a bounded report containing the OpenClaw
+version, platform, update target, failed phase, sanitized diagnostics, and
+verified rollback outcome. The report excludes secrets, tokens, chat content,
+raw logs, private absolute paths, and recovery commands. Nothing is submitted
+until an administrator confirms that preview. OpenClaw then uses the existing
+authenticated GitHub CLI issue flow, or returns a prefilled issue link and a
+saved sanitized report when the CLI is missing, unauthenticated, or times out.
+The action is tied to one update-attempt identity and cannot submit that attempt
+twice; reconnecting or refreshing status never reports it automatically.
+
 Control UI remediation uses typed product actions only. It leads with an
 authenticated Gateway or native action when the connected UI has the required
 capability and scope, preserves confirmations for disruptive operations, and

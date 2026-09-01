@@ -1,0 +1,93 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import type { UpdateRunResult } from "../../infra/update-runner.js";
+import { runInteractiveUpdateFailureAction } from "./update-command-report.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+const failure: UpdateRunResult = {
+  status: "error",
+  mode: "npm",
+  reason: "global-install-failed",
+  before: { version: "2026.8.1" },
+  steps: [],
+  durationMs: 1,
+  recovery: { serviceRestartSafe: true },
+};
+
+function setup(action: "triage" | "report" | "dismiss", confirmed: boolean) {
+  const stateDir = tempDirs.make("openclaw-update-report-cli-");
+  const prepared = {
+    attemptId: "attempt-cli",
+    body: "sanitized preview",
+    previewDigest: "a".repeat(64),
+    savedReportPath: `${stateDir}/report.md`,
+    title: "Update failure",
+    url: "https://github.com/openclaw/openclaw/issues/new",
+  };
+  const prepare = vi.fn(async () => prepared);
+  const submit = vi.fn(async () => ({
+    savedReportPath: prepared.savedReportPath,
+    status: "created" as const,
+    url: "https://github.com/openclaw/openclaw/issues/123",
+  }));
+  const runtime = { log: vi.fn(), error: vi.fn() };
+  const run = () =>
+    runInteractiveUpdateFailureAction({
+      attemptId: "attempt-cli",
+      env: { OPENCLAW_STATE_DIR: stateDir },
+      result: failure,
+      runtime,
+      dependencies: {
+        prepare,
+        prompts: {
+          chooseAction: async () => action,
+          confirmSubmission: async () => confirmed,
+        },
+        submit,
+      },
+    });
+  return { prepare, prepared, run, runtime, submit };
+}
+
+describe("interactive update failure action", () => {
+  it("keeps diagnosis as a distinct action without preparing a report", async () => {
+    const fixture = setup("triage", false);
+
+    await expect(fixture.run()).resolves.toBe("triage");
+    expect(fixture.prepare).not.toHaveBeenCalled();
+    expect(fixture.submit).not.toHaveBeenCalled();
+  });
+
+  it("shows the sanitized preview and honors cancellation without submission", async () => {
+    const fixture = setup("report", false);
+
+    await expect(fixture.run()).resolves.toBe("handled");
+    expect(fixture.prepare).toHaveBeenCalledOnce();
+    expect(fixture.runtime.log).toHaveBeenCalledWith("sanitized preview");
+    expect(fixture.runtime.log).toHaveBeenCalledWith("Update failure report cancelled.");
+    expect(fixture.submit).not.toHaveBeenCalled();
+  });
+
+  it("submits the exact reviewed digest only after confirmation", async () => {
+    const fixture = setup("report", true);
+
+    await expect(fixture.run()).resolves.toBe("handled");
+    expect(fixture.submit).toHaveBeenCalledWith(
+      fixture.prepared,
+      fixture.prepared.previewDigest,
+      expect.any(Object),
+    );
+    expect(fixture.runtime.log).toHaveBeenCalledWith(
+      "Created GitHub issue: https://github.com/openclaw/openclaw/issues/123",
+    );
+  });
+
+  it("does nothing when the action menu is dismissed", async () => {
+    const fixture = setup("dismiss", true);
+
+    await expect(fixture.run()).resolves.toBe("handled");
+    expect(fixture.prepare).not.toHaveBeenCalled();
+    expect(fixture.submit).not.toHaveBeenCalled();
+  });
+});

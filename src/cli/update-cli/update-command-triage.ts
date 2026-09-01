@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   sanitizeTriageUpdateFailure,
   writeTriageUpdateFailure,
@@ -15,6 +16,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
 import { isTerminalInteractive } from "../terminal-interactivity.js";
 import { resolveNodeRunner, resolveUpdateRoot, type UpdateCommandOptions } from "./shared.js";
+import { runInteractiveUpdateFailureAction } from "./update-command-report.js";
 import { UpdateCommandFailure } from "./update-command-result.js";
 
 export type UpdateTriageTarget = TriageTarget & { failureResult?: UpdateRunResult };
@@ -24,6 +26,7 @@ export async function withUpdateFailureTriage(
   target: UpdateTriageTarget,
   run: () => Promise<void>,
 ): Promise<void> {
+  const updateAttemptId = randomUUID();
   try {
     await run();
   } catch (error) {
@@ -65,20 +68,40 @@ export async function withUpdateFailureTriage(
           );
         }
       } else {
-        await runUpdateFailureTriage({
-          failure,
-          target: { ...target, nodeRunner: target.nodeRunner ?? resolveNodeRunner() },
-          resolveRoot: resolveUpdateRoot,
-          mode: opts.json
-            ? "json"
-            : !opts.yes && isTerminalInteractive()
-              ? "interactive"
-              : "non-interactive",
-          runtime: {
-            log: opts.json ? defaultRuntime.error : defaultRuntime.log,
-            error: defaultRuntime.error,
-          },
-        });
+        const mode = opts.json
+          ? "json"
+          : !opts.yes && isTerminalInteractive()
+            ? "interactive"
+            : "non-interactive";
+        let nextAction: "triage" | "handled" = "triage";
+        if (mode === "interactive") {
+          try {
+            nextAction = await runInteractiveUpdateFailureAction({
+              attemptId: updateAttemptId,
+              env: target.env,
+              ...(failure.error ? { error: failure.error } : {}),
+              ...(failure.result ? { result: failure.result } : {}),
+              runtime: defaultRuntime,
+            });
+          } catch (reportError) {
+            defaultRuntime.error(
+              `Update failure report could not be prepared: ${formatErrorMessage(reportError)}`,
+            );
+            nextAction = "handled";
+          }
+        }
+        if (nextAction === "triage") {
+          await runUpdateFailureTriage({
+            failure,
+            target: { ...target, nodeRunner: target.nodeRunner ?? resolveNodeRunner() },
+            resolveRoot: resolveUpdateRoot,
+            mode,
+            runtime: {
+              log: opts.json ? defaultRuntime.error : defaultRuntime.log,
+              error: defaultRuntime.error,
+            },
+          });
+        }
       }
     }
     if (reportedFailure) {

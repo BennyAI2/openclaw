@@ -3,7 +3,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createSessionSqliteGithubIssue: vi.fn(),
+  createGithubIssue: vi.fn(),
   runPostUpgradeProbes: vi.fn(),
   runDoctorStateSqliteCompact: vi.fn(),
   runDoctorSessionSqlite: vi.fn(),
@@ -30,8 +30,8 @@ vi.mock("./doctor-sqlite-maintenance-lock.js", () => ({
   withDoctorSqliteMaintenanceLock: mocks.withDoctorSqliteMaintenanceLock,
 }));
 
-vi.mock("./doctor-session-sqlite-github-issue.js", () => ({
-  createSessionSqliteGithubIssue: mocks.createSessionSqliteGithubIssue,
+vi.mock("../infra/github-issue.js", () => ({
+  createGithubIssue: mocks.createGithubIssue,
 }));
 
 vi.mock("../plugins/installed-plugin-index-store-path.js", () => ({
@@ -312,7 +312,7 @@ describe("doctorCommand", () => {
       },
     };
     mocks.runDoctorSessionSqlite.mockResolvedValueOnce(report);
-    mocks.createSessionSqliteGithubIssue.mockReturnValueOnce({
+    mocks.createGithubIssue.mockReturnValueOnce({
       ok: true,
       url: "https://github.com/openclaw/openclaw/issues/123",
     });
@@ -334,7 +334,7 @@ describe("doctorCommand", () => {
       }),
     ).rejects.toThrow("exit:0");
 
-    expect(mocks.createSessionSqliteGithubIssue).toHaveBeenCalledWith(supportIssue);
+    expect(mocks.createGithubIssue).toHaveBeenCalledWith(supportIssue);
     expect(runtime.log).toHaveBeenCalledWith(
       "session-sqlite recover: created GitHub issue https://github.com/openclaw/openclaw/issues/123",
     );
@@ -383,7 +383,7 @@ describe("doctorCommand", () => {
       }),
     ).rejects.toThrow("exit:0");
 
-    expect(mocks.createSessionSqliteGithubIssue).not.toHaveBeenCalled();
+    expect(mocks.createGithubIssue).not.toHaveBeenCalled();
     expect((report.supportIssue as { github?: unknown }).github).toEqual({ status: "skipped" });
     expect(runtime.log).not.toHaveBeenCalled();
     expect(runtime.writeJson).toHaveBeenCalledWith(report, 2);

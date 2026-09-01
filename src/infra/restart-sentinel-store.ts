@@ -25,6 +25,7 @@ type RestartSentinelStep = {
 type RestartSentinelStats = {
   mode?: string;
   root?: string;
+  target?: string;
   requiresRestart?: boolean;
   handoffId?: string;
   before?: Record<string, unknown> | null;
@@ -32,6 +33,7 @@ type RestartSentinelStats = {
   steps?: RestartSentinelStep[];
   reason?: string | null;
   durationMs?: number | null;
+  recovery?: { serviceRestartSafe: true } | { serviceRestartSafe: false; reason: string };
 };
 
 export type RestartSentinelContinuation =
@@ -177,17 +179,26 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
   }
   const mode = parseOptionalNullableString(value, "mode");
   const root = parseOptionalNullableString(value, "root");
+  const target = parseOptionalNullableString(value, "target");
   const handoffId = parseOptionalNullableString(value, "handoffId");
   const reason = parseOptionalNullableString(value, "reason");
   const before = value.before;
   const after = value.after;
   const steps = value.steps;
   const durationMs = value.durationMs;
+  const recovery = value.recovery;
+  const validRecovery =
+    recovery === undefined ||
+    (isPlainRecord(recovery) &&
+      (recovery.serviceRestartSafe === true ||
+        (recovery.serviceRestartSafe === false && typeof recovery.reason === "string")));
   if (
     mode === false ||
     mode === null ||
     root === false ||
     root === null ||
+    target === false ||
+    target === null ||
     handoffId === false ||
     handoffId === null ||
     reason === false ||
@@ -196,7 +207,8 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
     (after !== undefined && after !== null && !isPlainRecord(after)) ||
     (steps !== undefined &&
       (!Array.isArray(steps) || steps.some((step) => !parseRestartSentinelStep(step)))) ||
-    (durationMs !== undefined && durationMs !== null && !isFiniteNumber(durationMs))
+    (durationMs !== undefined && durationMs !== null && !isFiniteNumber(durationMs)) ||
+    !validRecovery
   ) {
     return null;
   }
@@ -206,6 +218,9 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
   }
   if (root !== undefined) {
     result.root = root;
+  }
+  if (target !== undefined) {
+    result.target = target;
   }
   if (value.requiresRestart !== undefined) {
     result.requiresRestart = value.requiresRestart as boolean;
@@ -227,6 +242,15 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
   }
   if (durationMs !== undefined) {
     result.durationMs = durationMs as number | null;
+  }
+  if (recovery !== undefined) {
+    result.recovery =
+      recovery.serviceRestartSafe === true
+        ? { serviceRestartSafe: true }
+        : {
+            serviceRestartSafe: false,
+            reason: typeof recovery.reason === "string" ? recovery.reason : "unknown",
+          };
   }
   return result;
 }

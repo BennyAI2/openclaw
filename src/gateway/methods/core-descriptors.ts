@@ -218,6 +218,7 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["skills.proposals.reject", "skills", "operator.admin", "<=2026.7"],
   ["skills.proposals.quarantine", "skills", "operator.admin", "<=2026.7"],
   ["update.status", "update", "operator.admin", "<=2026.7"],
+  ["update.report", "update", "operator.admin", "2026.8", { controlPlaneWrite: true }],
   ["update.run", "update", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
   ["voicewake.get", "voicewake", "operator.read", "<=2026.7"],
   ["voicewake.set", "voicewake", "operator.write", "<=2026.7"],

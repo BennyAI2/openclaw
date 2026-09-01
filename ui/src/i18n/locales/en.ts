@@ -547,6 +547,7 @@ export const en: TranslationMap & {
       hostHint:
         "If Ask OpenClaw is unavailable, run `openclaw triage` on the Gateway host. Diagnose the cause before retrying.",
     },
+    report: {},
     failureReasons: {
       dirty: "Commit or stash changes, then retry.",
       noUpstream: "Set an upstream branch, then retry.",

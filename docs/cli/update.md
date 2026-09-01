@@ -54,6 +54,13 @@ that cannot safely stop its parent Gateway process. Diagnosis preserves that
 refusal: it does not stop the Gateway, retry the update, or bypass safety checks. See
 [Update troubleshooting](/install/update-troubleshooting).
 
+After a final interactive update failure, **Diagnose update failure** and
+**Report update failure** are separate choices. Reporting first shows the exact
+sanitized issue body and defaults confirmation to **No**. After confirmation,
+OpenClaw uses an authenticated GitHub CLI when available; otherwise it keeps the
+sanitized report locally and provides a prefilled issue link. `--yes`, `--json`,
+non-interactive runs, and managed-service handoffs never submit a report.
+
 ## Options
 
 | Flag                                             | Description                                                                                                                                                                                                                                                                                                                                   |

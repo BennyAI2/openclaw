@@ -9,6 +9,10 @@ import { defaultRuntime } from "../../runtime.js";
 import { UpdateCommandFailure } from "./update-command-result.js";
 import { withUpdateFailureTriage, type UpdateTriageTarget } from "./update-command-triage.js";
 
+const runInteractiveUpdateFailureAction = vi.hoisted(() => vi.fn(async () => "triage" as const));
+
+vi.mock("./update-command-report.js", () => ({ runInteractiveUpdateFailureAction }));
+
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const failedUpdate: UpdateRunResult = {
@@ -102,6 +106,7 @@ async function createManagedTriageTarget() {
 }
 
 beforeEach(() => {
+  runInteractiveUpdateFailureAction.mockClear();
   vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
   vi.spyOn(defaultRuntime, "log").mockImplementation(() => undefined);
   vi.spyOn(defaultRuntime, "error").mockImplementation(() => undefined);
@@ -141,6 +146,7 @@ describe("update failure triage boundary", () => {
       expect(defaultRuntime.writeJson).toHaveBeenCalledExactlyOnceWith(failedUpdate);
       expect(defaultRuntime.log).not.toHaveBeenCalled();
       expect(defaultRuntime.error).toHaveBeenCalledWith(expect.stringContaining('"promptPath":'));
+      expect(runInteractiveUpdateFailureAction).not.toHaveBeenCalled();
     },
   );
 
@@ -165,6 +171,7 @@ describe("update failure triage boundary", () => {
       result: { recovery: { serviceRestartSafe: false } },
     });
     expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runInteractiveUpdateFailureAction).not.toHaveBeenCalled();
   });
 
   it.each(["reported", "unexpected"] as const)(
@@ -219,6 +226,7 @@ describe("update failure triage boundary", () => {
       });
       expect(defaultRuntime.writeJson).not.toHaveBeenCalled();
       expect(defaultRuntime.log).not.toHaveBeenCalled();
+      expect(runInteractiveUpdateFailureAction).not.toHaveBeenCalled();
     },
   );
 

@@ -11,6 +11,7 @@ import type { UpdateRunResult } from "./update-runner.js";
 /** Metadata needed to route update restart continuation messages. */
 export type UpdateRestartSentinelMeta = {
   root?: string;
+  target?: string;
   sessionKey?: string;
   deliveryContext?: {
     channel?: string;
@@ -64,6 +65,7 @@ export function buildUpdateRestartSentinelPayload(params: {
     stats: {
       mode: result.mode,
       ...(meta.root || result.root ? { root: meta.root ?? result.root } : {}),
+      ...(meta.target ? { target: meta.target } : {}),
       ...(meta.handoffId ? { handoffId: meta.handoffId } : {}),
       before: result.before ?? null,
       after: result.after ?? null,
@@ -80,6 +82,7 @@ export function buildUpdateRestartSentinelPayload(params: {
       })),
       reason: result.reason ?? null,
       durationMs: result.durationMs,
+      ...(result.recovery ? { recovery: result.recovery } : {}),
     },
   };
 }

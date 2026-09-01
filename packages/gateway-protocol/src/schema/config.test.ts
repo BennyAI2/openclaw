@@ -6,6 +6,8 @@ import {
   UpdateAvailableSchema,
   UpdateHoldParamsSchema,
   UpdateHoldResultSchema,
+  UpdateReportParamsSchema,
+  UpdateReportResultSchema,
   UpdateRunParamsSchema,
   UpdateScheduleStateSchema,
   UpdateStatusParamsSchema,
@@ -57,6 +59,34 @@ describe("ConfigSchemaLookupResultSchema", () => {
 });
 
 describe("update protocol schemas", () => {
+  it("requires an explicit report action and reviewed digest", () => {
+    const attemptId = "handoff-failed";
+    const previewDigest = "a".repeat(64);
+    expect(Value.Check(UpdateReportParamsSchema, { action: "preview", attemptId })).toBe(true);
+    expect(
+      Value.Check(UpdateReportParamsSchema, { action: "submit", attemptId, previewDigest }),
+    ).toBe(true);
+    expect(Value.Check(UpdateReportParamsSchema, { action: "submit", attemptId })).toBe(false);
+    expect(
+      Value.Check(UpdateReportParamsSchema, {
+        action: "submit",
+        attemptId,
+        previewDigest,
+        confirmed: true,
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(UpdateReportResultSchema, {
+        status: "ready",
+        attemptId,
+        body: "sanitized",
+        previewDigest,
+        savedReportPath: "/tmp/report.md",
+        title: "Update failure",
+      }),
+    ).toBe(true);
+  });
+
   it("accepts only closed, exact tracked Git targets for update.run", () => {
     const target = {
       kind: "git",
