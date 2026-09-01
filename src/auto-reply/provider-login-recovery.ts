@@ -1,7 +1,12 @@
+import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { OAuthRefreshFailureReason } from "../agents/auth-profiles/oauth-refresh-failure.js";
 import type { FailoverReason } from "../agents/failover/signal.js";
 import type { MessagePresentation } from "../interactive/payload.js";
-import { resolveProviderChannelLoginChoice } from "../plugins/provider-login-options.js";
+import {
+  listProviderChannelLoginChoices,
+  resolveProviderChannelLoginChoice,
+  type ProviderChannelLoginResolution,
+} from "../plugins/provider-login-options.js";
 
 export type ProviderLoginRecoveryEvidence = {
   provider?: string | null;
@@ -21,6 +26,21 @@ const AUTH_PROFILE_LOGIN_REASONS = new Set<FailoverReason>([
   "session_expired",
 ]);
 
+function resolveRecoveryLoginChoice(
+  provider: string | null | undefined,
+): ProviderChannelLoginResolution {
+  // Recovery supplies a provider id, not an explicit auth choice. Prefer its one chat route
+  // before an exact choice id such as "openai" can select a Control UI-only method.
+  const providerId = normalizeLowercaseStringOrEmpty(provider);
+  const direct = listProviderChannelLoginChoices().filter(
+    (choice) =>
+      choice.mode === "chat" && normalizeLowercaseStringOrEmpty(choice.providerId) === providerId,
+  );
+  return direct.length === 1
+    ? { status: "resolved", choice: direct[0]! }
+    : resolveProviderChannelLoginChoice(provider ?? undefined);
+}
+
 /** Build an actionable login only from OAuth failure evidence and a trusted channel choice. */
 export function buildProviderLoginRecovery(
   evidence: ProviderLoginRecoveryEvidence,
@@ -34,7 +54,7 @@ export function buildProviderLoginRecovery(
   if (!needsLogin) {
     return undefined;
   }
-  const resolution = resolveProviderChannelLoginChoice(evidence.provider ?? undefined);
+  const resolution = resolveRecoveryLoginChoice(evidence.provider);
   if (resolution.status !== "resolved") {
     return undefined;
   }
