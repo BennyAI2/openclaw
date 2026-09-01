@@ -195,7 +195,7 @@ function projectProviderChannelLoginChoices(
     }
   }
   return metadata
-    .map((choice) => {
+    .map((choice): ProviderChannelLoginChoice => {
       const firstAlias = choice.channelLogin?.aliases?.[0];
       const provider = normalizeLoginInput(choice.providerId);
       return {

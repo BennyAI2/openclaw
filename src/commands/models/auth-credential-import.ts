@@ -72,15 +72,24 @@ export async function tryImportProviderCredential(params: {
   const imported = result.items.find(
     (item) => item.id === spec.itemId && item.status === "migrated",
   );
+  if (!imported) {
+    throw new Error(
+      "The existing provider credential changed during import. Start the sign-in again.",
+    );
+  }
   const profileId = imported?.details?.profileId;
   const provider = imported?.details?.provider;
   const credentialKind = imported?.details?.credentialKind;
+  const mode =
+    credentialKind === "api_key" || credentialKind === "oauth" || credentialKind === "token"
+      ? credentialKind
+      : undefined;
   if (
     typeof profileId !== "string" ||
     !profileId.trim() ||
     typeof provider !== "string" ||
     !provider.trim() ||
-    credentialKind !== spec.credentialKind
+    mode !== spec.credentialKind
   ) {
     throw new Error(
       "The existing provider credential changed during import. Start the sign-in again.",
@@ -89,7 +98,7 @@ export async function tryImportProviderCredential(params: {
   return {
     profileId: profileId.trim(),
     provider: provider.trim(),
-    mode: credentialKind,
+    mode,
     configUpdated: imported.details?.configUpdated === true,
   };
 }
