@@ -12,18 +12,10 @@ import {
   TSGO_CORE_GRAPHS,
   TSGO_CORE_TEST_SHARDS,
 } from "./lib/tsgo-core-test-shards.mts";
+import { normalizeTsgoPath } from "./lib/tsgo-output-path.mts";
 const repoRoot = resolveRepoRoot(import.meta.url);
 const tsgoPath = resolveRepoToolBinPath("tsgo", { cwd: repoRoot });
 const canonicalCoreTestConfig = "test/tsconfig/tsconfig.core.test.json";
-
-function normalizeFilePath(filePath: string) {
-  const normalized = filePath.trim().replaceAll("\\", "/");
-  const normalizedRoot = repoRoot.replaceAll("\\", "/");
-  if (normalized.startsWith(`${normalizedRoot}/`)) {
-    return normalized.slice(normalizedRoot.length + 1);
-  }
-  return normalized;
-}
 
 export class CoreTsgoBoundaryInterruptedError extends Error {
   readonly exitCode: number;
@@ -107,7 +99,7 @@ export type CoreTsgoGraph = {
 export async function checkCoreTsgoGraphBoundary(): Promise<CoreTsgoGraph[]> {
   const testRootPattern = /\.test\.(?:ts|tsx)$/u;
   const canonicalRoots = ((await readGraphConfig(canonicalCoreTestConfig)).files ?? [])
-    .map(normalizeFilePath)
+    .map((file) => normalizeTsgoPath(repoRoot, file))
     .filter((file) => testRootPattern.test(file));
   const shardConfigs = [];
   for (const shard of TSGO_CORE_TEST_SHARDS) {
@@ -118,7 +110,7 @@ export async function checkCoreTsgoGraphBoundary(): Promise<CoreTsgoGraph[]> {
     shards: shardConfigs.map((shard) => ({
       name: shard.name,
       roots: (shard.expanded.files ?? [])
-        .map(normalizeFilePath)
+        .map((file) => normalizeTsgoPath(repoRoot, file))
         .filter((file) => testRootPattern.test(file)),
     })),
   });
@@ -157,13 +149,15 @@ export async function checkCoreTsgoGraphBoundary(): Promise<CoreTsgoGraph[]> {
       await runTsgoQuery(graph.config, "--listFilesOnly", `${graph.name} file listing`)
     )
       .split(/\r?\n/u)
-      .map(normalizeFilePath)
+      .map((file) => normalizeTsgoPath(repoRoot, file))
       .filter(Boolean);
     graphs.push({
       ...graph,
       files,
       roots: (shardConfigs.find((shard) => shard.config === graph.config)?.expanded.files ?? [])
-        .map((file) => normalizeFilePath(path.resolve(repoRoot, path.dirname(graph.config), file)))
+        .map((file) =>
+          normalizeTsgoPath(repoRoot, path.resolve(repoRoot, path.dirname(graph.config), file)),
+        )
         .filter((file) => testRootPattern.test(file)),
     });
     const extensionFiles = files.filter((file) => file.startsWith("extensions/"));

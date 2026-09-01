@@ -10,6 +10,7 @@ import { applyLocalTsgoPolicy, resolveRepoToolBinPath } from "./lib/local-check-
 import { createManagedCommandInvocation } from "./lib/managed-child-process.mts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import { TSGO_CORE_TEST_SHARDS, type TsgoCoreTestShard } from "./lib/tsgo-core-test-shards.mts";
+import { normalizeTsgoPath } from "./lib/tsgo-output-path.mts";
 const repoRoot = resolveRepoRoot(import.meta.url);
 const artifactRoot = path.resolve(repoRoot, ".artifacts/tsgo-profile");
 const tsgoPath = resolveRepoToolBinPath("tsgo", { cwd: repoRoot });
@@ -207,15 +208,6 @@ function parseDiagnostics(output: string): Diagnostics {
   return diagnostics;
 }
 
-function normalizeFilePath(filePath: string): string {
-  const normalized = filePath.trim().replaceAll("\\", "/");
-  const normalizedRoot = repoRoot.replaceAll("\\", "/");
-  if (normalized.startsWith(`${normalizedRoot}/`)) {
-    return normalized.slice(normalizedRoot.length + 1);
-  }
-  return normalized;
-}
-
 function packageNameFromNodeModule(parts: string[], startIndex: number): string {
   const first = parts[startIndex + 1];
   if (!first) {
@@ -269,7 +261,7 @@ function countBy<T>(values: T[], keyFn: (value: T) => string) {
 function summarizeFiles(stdout: string) {
   const files = stdout
     .split(/\r?\n/u)
-    .map(normalizeFilePath)
+    .map((file) => normalizeTsgoPath(repoRoot, file))
     .filter(Boolean)
     .filter((line) => !line.startsWith("Files:"));
 
