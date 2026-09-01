@@ -250,7 +250,7 @@ describeControlUiE2e("Control UI provider login", () => {
       await page.getByRole("button", { name: "Set up vLLM" }).click();
       await page.getByLabel("vLLM base URL").fill("http://127.0.0.1:8000/v1");
       await page.getByRole("button", { name: "Submit" }).click();
-      await page.getByRole("status").filter({ hasText: "Provider setup saved." }).waitFor();
+      await page.getByRole("status").filter({ hasText: "Configured" }).waitFor();
 
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
       expect(await gateway.getRequests("models.authLogin.start")).toHaveLength(1);

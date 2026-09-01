@@ -286,7 +286,7 @@ function renderProviderActions(card: ModelProviderCard, props: ModelProvidersVie
             class="btn btn--sm"
             aria-label=${t(
               option.mode === "login"
-                ? "modelProviders.login.action"
+                ? "modelSetup.unavailable.signIn"
                 : "modelProviders.setup.action",
               { provider: option.label },
             )}
@@ -296,9 +296,7 @@ function renderProviderActions(card: ModelProviderCard, props: ModelProvidersVie
           >
             ${option.mode === "setup"
               ? t("modelProviders.setup.action", { provider: option.label })
-              : isConfigured
-                ? t("modelProviders.login.again", { provider: option.label })
-                : t("modelProviders.login.action", { provider: option.label })}
+              : t("modelSetup.unavailable.signIn", { provider: option.label })}
           </button>
         `,
       )}

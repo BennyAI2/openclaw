@@ -44,9 +44,9 @@ export class ModelProviderLoginController implements ReactiveController {
         }
         this.host.requestUpdate();
       },
-      requestFailedMessage: () => t("modelProviders.login.failed"),
-      cancelledMessage: () => t("modelProviders.login.cancelled"),
-      sessionExpiredMessage: () => t("modelProviders.login.expired"),
+      requestFailedMessage: () => t("modelSetup.errors.requestFailed"),
+      cancelledMessage: () => t("modelSetup.wizard.cancelled"),
+      sessionExpiredMessage: () => t("modelSetup.wizard.sessionExpired"),
     });
   }
 
@@ -121,7 +121,7 @@ export class ModelProviderLoginController implements ReactiveController {
         text: t(
           completion.startMethod === "models.authLogin.start"
             ? "modelProviders.login.done"
-            : "modelProviders.setup.done",
+            : "common.configured",
         ),
       });
     }
