@@ -86,6 +86,8 @@ export function decodeVisibleMessageRow(row: {
   return {
     event: JSON.parse(row.event_json) as TranscriptEvent,
     eventSeq: row.event_seq,
+    // Visible cursors use one-based message positions; raw event sequences include
+    // control rows and would make adjacent pages overlap.
     seq: row.message_position + 1,
   };
 }
