@@ -1047,6 +1047,12 @@ describe("modelsAuthLoginCommand", () => {
     const runInteractiveLogin = vi.fn();
     const refreshAuthState = vi.fn(async () => undefined);
     currentConfig = {
+      auth: {
+        profiles: {
+          "openai:default": { provider: "openai", mode: "api_key" },
+        },
+        order: { openai: ["openai:default"] },
+      },
       agents: {
         defaults: {
           model: { primary: "anthropic/claude-fable-5" },
@@ -1091,6 +1097,16 @@ describe("modelsAuthLoginCommand", () => {
     });
 
     expect(runInteractiveLogin).not.toHaveBeenCalled();
+    expect(mocks.promoteAuthProfileInOrder).toHaveBeenCalledWith({
+      agentDir: "/tmp/openclaw/agents/main",
+      provider: "openai",
+      profileId: "openai:account-owner",
+      createIfMissing: true,
+      createFromOrder: ["openai:default"],
+    });
+    expect(mocks.promoteAuthProfileInOrder.mock.invocationCallOrder[0]).toBeLessThan(
+      refreshAuthState.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
     expect(refreshAuthState).toHaveBeenCalledWith("main");
     expect(result.profiles).toEqual([
       { profileId: "openai:account-owner", provider: "openai", mode: "oauth" },

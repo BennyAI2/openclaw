@@ -566,10 +566,6 @@ async function persistProviderAuthResult(params: {
       env: params.env,
     });
     const profile = expectDefined(prepared.profiles[0], "prepared auth profile");
-    const configuredSelection = resolveConfiguredAuthSelectionForProvider(
-      params.config,
-      profile.credential.provider,
-    );
     try {
       await upsertAuthProfileAfterLoginWithLockOrThrow({
         profileId: profile.profileId,
@@ -591,18 +587,12 @@ async function persistProviderAuthResult(params: {
       throw error;
     }
     persistedProfiles.push(profile);
-    const promoted = await promoteAuthProfileInOrder({
+    await promotePersistedAuthProfile({
+      config: params.config,
       agentDir: params.agentDir,
       provider: profile.credential.provider,
       profileId: profile.profileId,
-      createIfMissing: configuredSelection.createIfMissing,
-      ...(configuredSelection.order ? { createFromOrder: configuredSelection.order } : {}),
     });
-    if (promoted === null) {
-      throw new Error(
-        "The auth profile was saved, but its order could not be updated because the auth store is busy. Wait a moment, then retry the login.",
-      );
-    }
   }
 
   // Auth login owns the credential store. Keep openclaw.json untouched unless
@@ -684,6 +674,30 @@ function resolveConfiguredAuthSelectionForProvider(
   return profileIds.length > 0
     ? { createIfMissing: true, order: profileIds }
     : { createIfMissing: false };
+}
+
+async function promotePersistedAuthProfile(params: {
+  config: OpenClawConfig;
+  agentDir: string;
+  provider: string;
+  profileId: string;
+}): Promise<void> {
+  const configuredSelection = resolveConfiguredAuthSelectionForProvider(
+    params.config,
+    params.provider,
+  );
+  const promoted = await promoteAuthProfileInOrder({
+    agentDir: params.agentDir,
+    provider: params.provider,
+    profileId: params.profileId,
+    createIfMissing: configuredSelection.createIfMissing,
+    ...(configuredSelection.order ? { createFromOrder: configuredSelection.order } : {}),
+  });
+  if (promoted === null) {
+    throw new Error(
+      "The auth profile was saved, but its order could not be updated because the auth store is busy. Wait a moment, then retry the login.",
+    );
+  }
 }
 
 async function runProviderAuthMethod(params: {
@@ -1276,6 +1290,12 @@ export async function runModelsAuthLoginFlowCore(
         `Credential import for provider "${selectedProvider.id}" returned provider "${importedCredential.provider}".`,
       );
     }
+    await promotePersistedAuthProfile({
+      config: context.config,
+      agentDir: context.agentDir,
+      provider: importedCredential.provider,
+      profileId: importedCredential.profileId,
+    });
     return await finalizeProviderLogin(
       {
         agentId: context.agentId,
