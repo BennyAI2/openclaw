@@ -143,4 +143,62 @@ describe("tryImportProviderCredential", () => {
     ).resolves.toBeUndefined();
     expect(beforePersistentEffect).not.toHaveBeenCalled();
   });
+
+  it("stops after a fenced import changes instead of falling through to interactive login", async () => {
+    const beforePersistentEffect = vi.fn();
+    mocks.tryResolveMigrationProvider.mockReturnValue(
+      migrationProvider({
+        plan: async () => ({
+          providerId: "codex",
+          source: "/tmp/codex",
+          summary: {
+            total: 1,
+            planned: 1,
+            migrated: 0,
+            skipped: 0,
+            conflicts: 0,
+            errors: 0,
+            sensitive: 1,
+          },
+          items: [
+            {
+              id: "auth:openai",
+              kind: "auth",
+              action: "create",
+              status: "planned",
+              details: {
+                profileId: "openai:account-owner",
+                provider: "openai",
+                credentialKind: "oauth",
+              },
+            },
+          ],
+        }),
+        apply: async (_ctx, plan) => {
+          if (!plan) {
+            throw new Error("expected selected migration plan");
+          }
+          return {
+            ...plan,
+            items: plan.items.map((item) => ({
+              ...item,
+              status: "skipped" as const,
+              reason: "source changed",
+            })),
+          };
+        },
+      }),
+    );
+
+    await expect(
+      tryImportProviderCredential({
+        method,
+        config: { agents: { list: [{ id: "main", default: true }] } },
+        agentId: "main",
+        runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+        beforePersistentEffect,
+      }),
+    ).rejects.toThrow("credential changed during import");
+    expect(beforePersistentEffect).toHaveBeenCalledOnce();
+  });
 });

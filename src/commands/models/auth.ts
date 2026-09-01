@@ -472,10 +472,12 @@ async function persistProviderAuthResult(params: {
       try {
         prepared.rollback();
       } catch (rollbackError) {
+        // Both errors are retained; persistence remains the primary cause, not rollback.
+        // oxlint-disable-next-line preserve-caught-error -- AggregateError.errors preserves the rollback error.
         throw new AggregateError(
           [error, rollbackError],
           "Provider auth persistence failed and protected-store rollback could not be confirmed.",
-          { cause: rollbackError },
+          { cause: error },
         );
       }
       throw error;

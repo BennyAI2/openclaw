@@ -55,7 +55,7 @@ export function buildCodexMigrationProvider(
     plan: buildCodexMigrationPlan,
     deferredApply: { retrySafe: true },
     prepareApply(ctx) {
-      if (isMemoryOnlyMigration(ctx)) {
+      if (isMemoryOnlyMigration(ctx) || isAuthOnlyMigration(ctx)) {
         return undefined;
       }
       return prepareTargetCodexAppServer(ctx);

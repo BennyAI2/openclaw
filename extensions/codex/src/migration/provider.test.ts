@@ -268,6 +268,7 @@ describe("buildCodexMigrationProvider", () => {
       status: "planned",
       sensitive: true,
     });
+    expect(await provider.prepareApply?.(ctx)).toBeUndefined();
     expect(sourceAppServerClientScope).not.toHaveBeenCalled();
   });
 

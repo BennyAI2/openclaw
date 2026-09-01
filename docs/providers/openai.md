@@ -663,7 +663,9 @@ An explicit OpenAI subscription login also checks the operator's personal
 action import a valid ChatGPT OAuth credential into the selected agent's
 OpenClaw auth store, then refresh the running Gateway. If no valid credential
 is available, the normal browser or device flow starts. This one-time pickup
-does not run during `/models` or model catalog discovery.
+does not run during `/models` or model catalog discovery. The login fast path
+does not copy Codex model-cache entries into OpenClaw settings; current
+subscription models still come from Codex `model/list` catalog refreshes.
 
 A local ChatGPT/Codex subscription sign-in is not replaced just because the
 gateway process also has `OPENAI_API_KEY` for direct OpenAI models or
