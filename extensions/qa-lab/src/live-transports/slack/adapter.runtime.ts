@@ -14,6 +14,7 @@ import {
   acquireQaCredentialLease,
   startQaCredentialLeaseHeartbeat,
 } from "../shared/credential-lease.runtime.js";
+import { assertPollingTransportHealthy } from "../shared/live-transport-health.js";
 import { createSlackQaScenarioEnvironment } from "./scenario-environment.js";
 import { getSlackQaMessageWriteCursor, readSlackQaMessageWrites } from "./slack-live.capture.js";
 import {
@@ -265,12 +266,7 @@ export async function createSlackQaTransportAdapter(
     accountId,
     requiredPluginIds: ["slack"],
     supportedActions: [],
-    assertTransportHealthy() {
-      if (pollingError) {
-        throw pollingError;
-      }
-      heartbeat.throwIfFailed();
-    },
+    assertTransportHealthy: () => assertPollingTransportHealthy(pollingError, heartbeat),
     async sendInbound(input) {
       heartbeat.throwIfFailed();
       logicalConversationId = input.conversation.id;

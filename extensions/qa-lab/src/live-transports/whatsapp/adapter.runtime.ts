@@ -11,6 +11,7 @@ import {
   acquireQaCredentialLease,
   startQaCredentialLeaseHeartbeat,
 } from "../shared/credential-lease.runtime.js";
+import { assertPollingTransportHealthy } from "../shared/live-transport-health.js";
 import { createWhatsAppQaScenarioEnvironment } from "./scenario-environment.js";
 import {
   buildWhatsAppQaConfig,
@@ -138,12 +139,7 @@ export async function createWhatsAppQaTransportAdapter(
     accountId,
     requiredPluginIds: ["whatsapp"],
     supportedActions: [],
-    assertTransportHealthy() {
-      if (pollingError) {
-        throw pollingError;
-      }
-      heartbeat.throwIfFailed();
-    },
+    assertTransportHealthy: () => assertPollingTransportHealthy(pollingError, heartbeat),
     async sendInbound(input) {
       heartbeat.throwIfFailed();
       logicalConversationId = input.conversation.id;

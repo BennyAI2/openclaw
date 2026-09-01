@@ -5,6 +5,7 @@ import {
   acquireQaCredentialLease,
   startQaCredentialLeaseHeartbeat,
 } from "../shared/credential-lease.runtime.js";
+import { assertPollingTransportHealthy } from "../shared/live-transport-health.js";
 import { discordQaScenarioSupport } from "./discord-live.runtime.js";
 import { createDiscordQaScenarioEnvironment } from "./scenario-environment.js";
 
@@ -112,12 +113,7 @@ export async function createDiscordQaTransportAdapter(
     accountId,
     requiredPluginIds: ["discord"],
     supportedActions: [],
-    assertTransportHealthy() {
-      if (pollingError) {
-        throw pollingError;
-      }
-      heartbeat.throwIfFailed();
-    },
+    assertTransportHealthy: () => assertPollingTransportHealthy(pollingError, heartbeat),
     async sendInbound(input) {
       const text = input.text.replaceAll("@openclaw", `<@${runtimeEnv.sutApplicationId}>`);
       const sent = await discordQaScenarioSupport.testing.sendChannelMessage(
