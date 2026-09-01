@@ -322,7 +322,7 @@ export const handleLoginCommand: CommandHandler = async (params, allowTextComman
         text:
           resolution.status === "ambiguous"
             ? `Choose one provider login: ${available}.`
-            : `Unsupported login provider. Available private-chat logins: ${available}. Providers that need extra input are available in Control UI → Models.`,
+            : `Unsupported login provider. Available provider access commands: ${available}.`,
       },
     };
   }
@@ -333,6 +333,13 @@ export const handleLoginCommand: CommandHandler = async (params, allowTextComman
       reply: {
         text: `Provider login codes are only sent in a private chat or Control UI session. Open a private chat with OpenClaw and send \`${providerChannelLoginRuntime.formatCommand(resolution.choice)}\` there.`,
       },
+    };
+  }
+
+  if (resolution.choice.mode !== "chat") {
+    return {
+      shouldContinue: false,
+      reply: { text: providerChannelLoginRuntime.formatControlUiHandoff(resolution.choice) },
     };
   }
 

@@ -671,11 +671,11 @@ describe("models.authStatus", () => {
         provider: "github-copilot",
         apiKeySupported: false,
         quickApiKeySetup: false,
-        loginOptions: [
+        accessOptions: [
           {
             id: "github-copilot-oauth",
             label: "GitHub Copilot OAuth",
-            kind: "device-code",
+            mode: "login",
           },
         ],
       },
@@ -683,7 +683,18 @@ describe("models.authStatus", () => {
         provider: "openai",
         apiKeySupported: true,
         quickApiKeySetup: true,
-        loginOptions: [{ id: "openai-oauth", label: "OpenAI OAuth", kind: "oauth" }],
+        accessOptions: [
+          {
+            id: "openai-api-key",
+            label: "OpenAI API key",
+            mode: "login",
+          },
+          {
+            id: "openai-oauth",
+            label: "OpenAI OAuth",
+            mode: "login",
+          },
+        ],
       },
     ]);
   });

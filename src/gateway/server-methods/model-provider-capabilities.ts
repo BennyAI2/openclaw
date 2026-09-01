@@ -1,8 +1,11 @@
 import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
-import { resolveManifestProviderAuthChoices } from "../../plugins/provider-auth-choices.js";
-import { listProviderLoginOptions } from "../../plugins/provider-login-options.js";
+import {
+  resolveManifestDeclaredProviderAuthChoices,
+  resolveManifestProviderAuthChoices,
+} from "../../plugins/provider-auth-choices.js";
+import { listProviderAccessOptions } from "../../plugins/provider-login-options.js";
 import { supportsSetupManualSecret } from "../../system-agent/setup-inference-auth-options.js";
 import type { ModelProviderCapability } from "./models-auth-status.types.js";
 
@@ -33,26 +36,41 @@ export function resolveModelProviderCapabilities(params: {
     includeWorkspacePlugins: false,
     metadataSnapshot: params.metadataSnapshot,
   });
-  const loginOptionsByChoiceId = new Map(
-    listProviderLoginOptions(authChoices).map((option) => [option.id, option]),
+  const accessOptionsByChoiceId = new Map(
+    listProviderAccessOptions(
+      resolveManifestDeclaredProviderAuthChoices({
+        config: params.config,
+        env,
+        workspaceDir: params.workspaceDir,
+        includeUntrustedWorkspacePlugins: false,
+        includeWorkspacePlugins: false,
+        metadataSnapshot: params.metadataSnapshot,
+      }),
+    ).map((option) => [option.id, option]),
   );
   for (const choice of authChoices) {
     const provider = resolveProvider(choice.providerId);
     const current = capabilities.get(provider);
     const apiKeySupported = choice.methodId === "api-key";
     const quickApiKeySetup = apiKeySupported && supportsSetupManualSecret(choice);
-    const loginOption = loginOptionsByChoiceId.get(choice.choiceId);
-    const loginOptions = [
-      ...(current?.loginOptions ?? []),
-      ...(loginOption && !current?.loginOptions?.some((option) => option.id === loginOption.id)
-        ? [{ id: loginOption.id, label: loginOption.label, kind: loginOption.kind }]
+    const accessOption = accessOptionsByChoiceId.get(choice.choiceId);
+    const accessOptions = [
+      ...(current?.accessOptions ?? []),
+      ...(accessOption && !current?.accessOptions?.some((option) => option.id === accessOption.id)
+        ? [
+            {
+              id: accessOption.id,
+              label: accessOption.label,
+              mode: accessOption.mode,
+            },
+          ]
         : []),
     ];
     capabilities.set(provider, {
       provider,
       apiKeySupported: current?.apiKeySupported === true || apiKeySupported,
       quickApiKeySetup: current?.quickApiKeySetup === true || quickApiKeySetup,
-      ...(loginOptions.length > 0 ? { loginOptions } : {}),
+      ...(accessOptions.length > 0 ? { accessOptions } : {}),
     });
   }
   return {

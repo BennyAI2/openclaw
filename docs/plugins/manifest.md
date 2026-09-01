@@ -517,6 +517,13 @@ stops and directs the owner to the Control UI if the provider asks for text,
 selection, or confirmation. Choice, provider, default, and alias collisions
 also stop with an explicit list of unambiguous `/login <choice>` commands.
 
+The Control UI lists every manifest-declared provider auth choice. Choices with
+`appGuidedAuth`, or `appGuidedSecret` without `appGuidedDiscovery`, run as
+credential-only **Sign in** flows. Other declared choices run as **Set up**
+flows because their endpoint, local runtime, or cloud configuration is part of
+the provider contract. Descriptor-only `setup.providers[].authMethods` entries
+remain discovery facts and do not create executable Control UI actions.
+
 ## cliCommands reference
 
 Declare every plugin-owned root command in `cliCommands` so root help and command-owner routing stay metadata-only:

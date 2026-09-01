@@ -1,6 +1,7 @@
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { compareProviderAuthChoiceGroups } from "./provider-auth-choice-order.js";
 import {
+  resolveManifestDeclaredProviderAuthChoices,
   resolveManifestProviderAuthChoices,
   type ProviderAuthChoiceMetadata,
 } from "./provider-auth-choices.js";
@@ -13,8 +14,13 @@ export type ProviderLoginOption = {
   groupLabel?: string;
   icon?: string;
   website?: string;
-  kind: "oauth" | "device-code";
+  kind: "oauth" | "device-code" | "secret";
   featured: boolean;
+};
+
+export type ProviderAccessOption = Omit<ProviderLoginOption, "kind"> & {
+  kind: ProviderLoginOption["kind"] | "setup";
+  mode: "login" | "setup";
 };
 
 export type ProviderChannelLoginChoice = {
@@ -25,6 +31,7 @@ export type ProviderChannelLoginChoice = {
   label: string;
   providerLabel: string;
   command: string;
+  mode: "chat" | "control-ui" | "setup";
 };
 
 export type ProviderChannelLoginResolution =
@@ -44,11 +51,14 @@ function toProviderLoginOption(
   choice: ProviderAuthChoiceMetadata,
 ): ProviderLoginOption | undefined {
   const id = choice.choiceId.trim();
+  const kind =
+    choice.appGuidedAuth ??
+    (choice.appGuidedSecret === true && choice.appGuidedDiscovery !== true ? "secret" : undefined);
   if (
     !id ||
     !supportsProviderAuthChoiceTextInference(choice.onboardingScopes) ||
     choice.assistantVisibility === "manual-only" ||
-    !choice.appGuidedAuth
+    !kind
   ) {
     return undefined;
   }
@@ -60,7 +70,7 @@ function toProviderLoginOption(
     ...(choice.groupLabel?.trim() ? { groupLabel: choice.groupLabel.trim() } : {}),
     ...(choice.icon ? { icon: choice.icon } : {}),
     ...(choice.website ? { website: choice.website } : {}),
-    kind: choice.appGuidedAuth,
+    kind,
     featured: choice.onboardingFeatured === true,
   };
 }
@@ -100,6 +110,59 @@ export function listProviderLoginOptions(
     .map(({ option }) => option);
 }
 
+function toProviderSetupOption(
+  choice: ProviderAuthChoiceMetadata,
+): ProviderAccessOption | undefined {
+  const id = choice.choiceId.trim();
+  if (!id || choice.assistantVisibility === "manual-only") {
+    return undefined;
+  }
+  return {
+    id,
+    brandId: choice.providerId,
+    label: choice.choiceLabel,
+    ...(choice.choiceHint?.trim() ? { hint: choice.choiceHint.trim() } : {}),
+    ...(choice.groupLabel?.trim() ? { groupLabel: choice.groupLabel.trim() } : {}),
+    ...(choice.icon ? { icon: choice.icon } : {}),
+    ...(choice.website ? { website: choice.website } : {}),
+    kind: "setup",
+    mode: "setup",
+    featured: choice.onboardingFeatured === true,
+  };
+}
+
+export function listProviderAccessOptions(
+  authChoices: readonly ProviderAuthChoiceMetadata[],
+): ProviderAccessOption[] {
+  const loginById = new Map(
+    listProviderLoginOptions(authChoices).map((option) => [option.id, option] as const),
+  );
+  return authChoices
+    .flatMap((choice) => {
+      const login = loginById.get(choice.choiceId);
+      const option = login ? { ...login, mode: "login" as const } : toProviderSetupOption(choice);
+      return option ? [{ metadata: choice, option }] : [];
+    })
+    .toSorted(
+      (a, b) =>
+        Number(b.option.featured) - Number(a.option.featured) ||
+        compareProviderAuthChoiceGroups(
+          {
+            id: a.metadata.groupId ?? a.metadata.providerId,
+            label: a.metadata.groupLabel ?? a.metadata.choiceLabel,
+          },
+          {
+            id: b.metadata.groupId ?? b.metadata.providerId,
+            label: b.metadata.groupLabel ?? b.metadata.choiceLabel,
+          },
+        ) ||
+        (a.metadata.assistantPriority ?? 0) - (b.metadata.assistantPriority ?? 0) ||
+        a.option.label.localeCompare(b.option.label, "en") ||
+        a.option.id.localeCompare(b.option.id, "en"),
+    )
+    .map(({ option }) => option);
+}
+
 function normalizeLoginInput(value: string | undefined): string {
   return normalizeLowercaseStringOrEmpty(value ?? "").replace(/_/gu, "-");
 }
@@ -111,20 +174,25 @@ function uniqueChoices(choices: readonly ProviderChannelLoginChoice[]) {
 function readProviderChannelLoginMetadata(
   params?: Parameters<typeof resolveManifestProviderAuthChoices>[0],
 ): ProviderAuthChoiceMetadata[] {
-  return resolveManifestProviderAuthChoices({
+  const choices = resolveManifestDeclaredProviderAuthChoices({
     ...params,
     includeUntrustedWorkspacePlugins: false,
     includeWorkspacePlugins: false,
-  }).filter((choice) => choice.channelLogin);
+  });
+  return choices.filter((choice) => choice.assistantVisibility !== "manual-only");
 }
 
 function projectProviderChannelLoginChoices(
   metadata: readonly ProviderAuthChoiceMetadata[],
 ): ProviderChannelLoginChoice[] {
   const providerCounts = new Map<string, number>();
+  const directProviderCounts = new Map<string, number>();
   for (const choice of metadata) {
     const provider = normalizeLoginInput(choice.providerId);
     providerCounts.set(provider, (providerCounts.get(provider) ?? 0) + 1);
+    if (choice.channelLogin) {
+      directProviderCounts.set(provider, (directProviderCounts.get(provider) ?? 0) + 1);
+    }
   }
   return metadata
     .map((choice) => {
@@ -139,7 +207,11 @@ function projectProviderChannelLoginChoices(
         providerLabel: choice.groupLabel?.trim() || choice.choiceLabel,
         command:
           firstAlias ??
-          ((providerCounts.get(provider) ?? 0) === 1 ? choice.providerId : choice.choiceId),
+          ((choice.channelLogin && (directProviderCounts.get(provider) ?? 0) === 1) ||
+          (providerCounts.get(provider) ?? 0) === 1
+            ? choice.providerId
+            : choice.choiceId),
+        mode: choice.channelLogin ? "chat" : toProviderLoginOption(choice) ? "control-ui" : "setup",
       };
     })
     .toSorted(
@@ -190,7 +262,8 @@ export function resolveProviderChannelLoginChoice(
       normalizeLoginInput(choice.groupId) === normalized,
   );
   if (providerOrGroup.length > 0) {
-    return select(providerOrGroup);
+    const direct = providerOrGroup.filter((choice) => choice.channelLogin);
+    return select(direct.length > 0 ? direct : providerOrGroup);
   }
   const aliases = metadata.filter((choice) =>
     choice.channelLogin?.aliases?.some((alias) => normalizeLoginInput(alias) === normalized),

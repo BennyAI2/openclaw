@@ -116,7 +116,7 @@ export async function executeTelegramLoginCommand(params: {
     await sendLoginMessage(
       resolution.status === "ambiguous"
         ? `Choose one provider login: ${available}.`
-        : `Unsupported login provider. Available private-chat logins: ${available}. Providers that need extra input are available in Control UI → Models.`,
+        : `Unsupported login provider. Available provider access commands: ${available}.`,
     );
     return false;
   }
@@ -125,6 +125,10 @@ export async function executeTelegramLoginCommand(params: {
     await sendLoginMessage(
       `For safety, provider login codes are only sent in a private chat with this bot. DM this bot \`${providerChannelLoginRuntime.formatCommand(loginChoice)}\` to sign in.`,
     );
+    return true;
+  }
+  if (loginChoice.mode !== "chat") {
+    await sendLoginMessage(providerChannelLoginRuntime.formatControlUiHandoff(loginChoice));
     return true;
   }
   const flowKey = buildTelegramProviderLoginFlowKey(dispatch);

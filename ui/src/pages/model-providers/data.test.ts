@@ -96,7 +96,13 @@ describe("buildModelProviderCards", () => {
             provider: "xai",
             apiKeySupported: true,
             quickApiKeySetup: true,
-            loginOptions: [{ id: "xai-oauth", label: "xAI OAuth", kind: "device-code" }],
+            accessOptions: [
+              {
+                id: "xai-oauth",
+                label: "xAI OAuth",
+                mode: "login",
+              },
+            ],
           },
         ],
       ),
@@ -105,7 +111,7 @@ describe("buildModelProviderCards", () => {
     expect(cards).toHaveLength(1);
     expect(firstCard(cards)).toMatchObject({
       id: "xai",
-      loginOptions: [{ id: "xai-oauth", label: "xAI OAuth", kind: "device-code" }],
+      accessOptions: [{ id: "xai-oauth", label: "xAI OAuth", mode: "login" }],
     });
   });
 

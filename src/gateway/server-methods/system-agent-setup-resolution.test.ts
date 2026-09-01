@@ -602,6 +602,52 @@ describe("models.authLogin.start", () => {
     expect(session.cancel()).toBe(false);
   });
 
+  it("runs guided secret auth through a masked wizard step", async () => {
+    modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValueOnce({
+      pluginId: "groq",
+      providerId: "groq",
+      methodId: "api-key",
+      choiceId: "groq-api-key",
+      choiceLabel: "Groq API key",
+      appGuidedSecret: true,
+    });
+    modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
+      await options.prompter.text({
+        message: "Enter Groq API key",
+        initialValue: "must-not-cross-client-boundary",
+        sensitive: true,
+      });
+      return {
+        providerId: "groq",
+        methodId: "api-key",
+        profiles: [{ profileId: "groq:default", provider: "groq", mode: "api_key" }],
+      };
+    });
+    const { context } = makeContext();
+    const { respond } = makeRespond();
+
+    await expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "secret-login", authChoice: "groq-api-key" },
+      respond,
+      context,
+    } as never);
+
+    const prompt = await callWizardNext(context, { sessionId: "secret-login" });
+    expect(prompt).toMatchObject({
+      done: false,
+      step: { type: "text", sensitive: true, message: "Enter Groq API key" },
+    });
+    expect(prompt.step).not.toHaveProperty("initialValue");
+    const done = await callWizardNext(context, {
+      sessionId: "secret-login",
+      answer: { stepId: expectDefined(prompt.step, "secret prompt").id, value: "test-key" },
+    });
+    expect(done).toEqual({ done: true, status: "done" });
+  });
+
   it("rejects a stale provider choice before starting a wizard", async () => {
     modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValueOnce(undefined);
     const { wizardSessions, context } = makeContext();

@@ -227,6 +227,26 @@ describe("registerTelegramNativeCommands /login", () => {
     );
   });
 
+  it("hands guided secret login to the masked Control UI wizard", async () => {
+    const loginFlow = vi.fn();
+    const { handler, sendMessage } = registerLoginCommand({
+      cfg: {
+        commands: { native: true, ownerAllowFrom: ["200"] },
+        agents: { list: [{ id: "main", default: true }] },
+      } as OpenClawConfig,
+      loginFlow,
+    });
+
+    await handler(createPrivateCommandContext({ match: "groq", userId: 200 }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      100,
+      "Groq API key needs secure input that chat must not store. Open Control UI → Models, find Groq, and choose “Sign in with Groq API key”.",
+      {},
+    );
+    expect(loginFlow).not.toHaveBeenCalled();
+  });
+
   it("releases the chat lane only after structured device-code delivery", async () => {
     const allowDeviceCode = createDeferred<void>();
     const finishLogin = createDeferred<void>();

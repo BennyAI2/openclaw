@@ -19,7 +19,9 @@ export type SetupInferenceManualProvider = {
   website?: string;
 };
 
-export type SetupInferenceAuthOption = ProviderLoginOption;
+export type SetupInferenceAuthOption = ProviderLoginOption & {
+  kind: "oauth" | "device-code";
+};
 
 export type SetupInferencePrepareOption = {
   /** Provider-auth choice id sent to `openclaw.setup.prepare.start`. */
@@ -73,7 +75,14 @@ export function listSetupInferenceManualProviders(
   );
 }
 
-export const listSetupInferenceAuthOptions = listProviderLoginOptions;
+export function listSetupInferenceAuthOptions(
+  authChoices: readonly ProviderAuthChoiceMetadata[],
+): SetupInferenceAuthOption[] {
+  return listProviderLoginOptions(authChoices).filter(
+    (option): option is SetupInferenceAuthOption =>
+      option.kind === "oauth" || option.kind === "device-code",
+  );
+}
 
 export function listSetupInferencePrepareOptions(
   authChoices: readonly ProviderAuthChoiceMetadata[],

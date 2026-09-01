@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { ModelProviderLoginController } from "./login-controller.ts";
 
+const XAI_LOGIN_OPTION = { id: "xai-oauth", label: "xAI OAuth", mode: "login" } as const;
+const VLLM_SETUP_OPTION = { id: "vllm", label: "vLLM", mode: "setup" } as const;
+
 describe("ModelProviderLoginController", () => {
   it("cancels an admitted Gateway wizard on reset before another login starts", async () => {
     let runningSessionId: string | null = null;
@@ -63,7 +66,7 @@ describe("ModelProviderLoginController", () => {
       setMessage: vi.fn(),
     });
 
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await vi.waitFor(() =>
       expect(request).toHaveBeenCalledWith("wizard.next", expect.anything(), expect.anything()),
     );
@@ -84,14 +87,14 @@ describe("ModelProviderLoginController", () => {
         { timeoutMs: 30_000 },
       ),
     );
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await Promise.resolve();
     expect(starts).toBe(1);
     expect(controller.busy).toBe(true);
 
     confirmRelease();
     await vi.waitFor(() => expect(controller.busy).toBe(false));
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await vi.waitFor(() => expect(starts).toBe(2));
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });
@@ -131,7 +134,7 @@ describe("ModelProviderLoginController", () => {
       setMessage: vi.fn(),
     });
 
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await vi.waitFor(() => expect(starts).toBe(1));
     controller.reset();
     await vi.waitFor(() =>
@@ -142,7 +145,7 @@ describe("ModelProviderLoginController", () => {
       ),
     );
 
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await vi.waitFor(() =>
       expect(request.mock.calls.filter(([method]) => method === "wizard.cancel")).toHaveLength(2),
     );
@@ -151,7 +154,43 @@ describe("ModelProviderLoginController", () => {
 
     running = false;
     await vi.waitFor(() => expect(controller.busy).toBe(false));
-    controller.start("xai", { id: "xai-oauth", label: "xAI OAuth", kind: "device-code" });
+    controller.start("xai", XAI_LOGIN_OPTION);
     await vi.waitFor(() => expect(starts).toBe(2));
+  });
+
+  it("routes provider setup choices through the shared prepare wizard", async () => {
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "openclaw.setup.prepare.start") {
+        return { sessionId: params?.sessionId, done: true, status: "done" };
+      }
+      throw new Error(`unexpected request ${method}`);
+    });
+    const setMessage = vi.fn();
+    const controller = new ModelProviderLoginController(
+      { addController: vi.fn(), requestUpdate: vi.fn() } as unknown as ReactiveControllerHost,
+      {
+        getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+        getAgentId: () => "main",
+        canStart: () => true,
+        refresh: vi.fn(async () => undefined),
+        setMessage,
+      },
+    );
+
+    controller.start("vllm", VLLM_SETUP_OPTION);
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "openclaw.setup.prepare.start",
+        expect.objectContaining({ agentId: "main", authChoice: "vllm" }),
+        { timeoutMs: null },
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(setMessage).toHaveBeenCalledWith("vllm", {
+        kind: "success",
+        text: "Provider setup saved.",
+      }),
+    );
   });
 });

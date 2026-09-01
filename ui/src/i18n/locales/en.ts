@@ -4679,6 +4679,10 @@ export const en: TranslationMap & {
       cancelled: "Sign-in cancelled.",
       expired: "Sign-in expired. Close and try again.",
     },
+    setup: {
+      action: "Set up {provider}",
+      done: "Provider setup saved.",
+    },
     add: {
       title: "Add provider",
       subtitle: "Choose a known model provider and save its API key.",

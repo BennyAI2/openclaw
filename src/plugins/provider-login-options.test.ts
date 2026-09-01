@@ -21,22 +21,34 @@ function choice(params: {
   choiceId: string;
   aliases?: string[];
   default?: boolean;
+  guided?: "auth" | "secret" | "setup";
+  channelLogin?: boolean;
 }) {
+  const guided = params.guided ?? "auth";
   return {
     provider: params.provider,
     method: params.method,
     choiceId: params.choiceId,
     choiceLabel: params.choiceId,
-    channelLogin: {
-      ...(params.aliases ? { aliases: params.aliases } : {}),
-      ...(params.default ? { default: true } : {}),
-    },
+    ...(guided === "secret"
+      ? { appGuidedSecret: true }
+      : guided === "auth"
+        ? { appGuidedAuth: "oauth" }
+        : {}),
+    ...(params.channelLogin === false
+      ? {}
+      : {
+          channelLogin: {
+            ...(params.aliases ? { aliases: params.aliases } : {}),
+            ...(params.default ? { default: true } : {}),
+          },
+        }),
   };
 }
 
 describe("provider channel login choices", () => {
   it("lists the trusted bundled fixed-input login surface", () => {
-    expect(listProviderChannelLoginChoices()).toEqual([
+    expect(listProviderChannelLoginChoices().filter((entry) => entry.mode === "chat")).toEqual([
       expect.objectContaining({ command: "codex", providerId: "openai", methodId: "device-code" }),
       expect.objectContaining({
         command: "minimax-cn-oauth",
@@ -50,6 +62,64 @@ describe("provider channel login choices", () => {
       }),
       expect.objectContaining({ command: "xai", providerId: "xai", methodId: "oauth" }),
     ]);
+  });
+
+  it("resolves guided secret providers to a secure Control UI handoff", () => {
+    const snapshot = metadataSnapshot([
+      choice({
+        provider: "alpha",
+        method: "api-key",
+        choiceId: "alpha-api-key",
+        guided: "secret",
+        channelLogin: false,
+      }),
+    ]);
+
+    expect(resolveProviderChannelLoginChoice("alpha", { metadataSnapshot: snapshot })).toEqual({
+      status: "resolved",
+      choice: expect.objectContaining({
+        command: "alpha",
+        mode: "control-ui",
+        providerId: "alpha",
+      }),
+    });
+  });
+
+  it("prefers a provider's direct chat login over its guided secret method", () => {
+    const snapshot = metadataSnapshot([
+      choice({ provider: "alpha", method: "device", choiceId: "alpha-device" }),
+      choice({
+        provider: "alpha",
+        method: "api-key",
+        choiceId: "alpha-api-key",
+        guided: "secret",
+        channelLogin: false,
+      }),
+    ]);
+
+    expect(resolveProviderChannelLoginChoice("alpha", { metadataSnapshot: snapshot })).toEqual({
+      status: "resolved",
+      choice: expect.objectContaining({ choiceId: "alpha-device", mode: "chat" }),
+    });
+  });
+
+  it("resolves manifest-declared provider setup without treating it as login", () => {
+    const snapshot = metadataSnapshot([
+      choice({
+        provider: "self-hosted",
+        method: "custom",
+        choiceId: "self-hosted",
+        guided: "setup",
+        channelLogin: false,
+      }),
+    ]);
+
+    expect(
+      resolveProviderChannelLoginChoice("self-hosted", { metadataSnapshot: snapshot }),
+    ).toEqual({
+      status: "resolved",
+      choice: expect.objectContaining({ mode: "setup", providerId: "self-hosted" }),
+    });
   });
 
   it("prefers an exact choice id over a colliding alias", () => {

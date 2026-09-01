@@ -15,6 +15,7 @@ const choice: ProviderChannelLoginChoice = {
   label: "xAI OAuth",
   providerLabel: "xAI (Grok)",
   command: "xai",
+  mode: "chat",
 };
 
 const snapshot: ProviderLoginSessionEntry = {
