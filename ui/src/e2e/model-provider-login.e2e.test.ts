@@ -55,7 +55,13 @@ describeControlUiE2e("Control UI provider login", () => {
       },
     ];
     const gateway = await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "models.authLogin.start", "wizard.next"],
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "config.patch",
+        "models.authLogin.start",
+        "wizard.next",
+      ],
       methodResponses: {
         "config.get": {
           config: { agents: { defaults: { model: "openai/gpt-5.5" } } },
@@ -175,6 +181,7 @@ describeControlUiE2e("Control UI provider login", () => {
       featureMethods: [
         "chat.metadata",
         "chat.startup",
+        "config.patch",
         "models.authLogin.start",
         "openclaw.setup.prepare.start",
         "wizard.next",
