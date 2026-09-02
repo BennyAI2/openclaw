@@ -44,7 +44,7 @@ export function respondChatSessionRoutingChanged(respond: GatewayRequestHandlerO
   );
 }
 
-export function respondChatActiveLeafChanged(respond: GatewayRequestHandlerOptions["respond"]) {
+function respondChatActiveLeafChanged(respond: GatewayRequestHandlerOptions["respond"]) {
   respond(
     false,
     undefined,
