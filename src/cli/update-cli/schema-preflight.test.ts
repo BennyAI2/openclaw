@@ -89,12 +89,12 @@ describe("target-release database schema preflight", () => {
       { config, env },
     );
 
-    expect(result.incompatible.filter((database) => database.kind === "agent")).toEqual(
-      expect.arrayContaining(
-        [configuredPath, unregisteredPath, registeredCustomPath].map((pathname) =>
-          expect.objectContaining({ path: pathname }),
-        ),
-      ),
+    const incompatibleAgentPaths = result.incompatible
+      .filter((database) => database.kind === "agent")
+      .map((database) => database.path)
+      .toSorted();
+    expect(incompatibleAgentPaths).toEqual(
+      [configuredPath, unregisteredPath, registeredCustomPath].toSorted(),
     );
     expect(result.indeterminate).toEqual([]);
     expect(

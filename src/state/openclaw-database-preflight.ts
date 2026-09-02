@@ -429,6 +429,7 @@ export function preflightOpenClawDatabaseSchemas(options: {
     })),
   ];
   const inspectedAgentPaths = new Set<string>();
+  const inspectedAgentTargets = new Set<string>();
   for (const row of inspectionTargets) {
     const agentPath = row.path;
     if (!existsSync(agentPath)) {
@@ -437,10 +438,15 @@ export function preflightOpenClawDatabaseSchemas(options: {
     let agentDatabase: DatabaseSync | undefined;
     try {
       const realAgentPath = realpathSync(agentPath);
-      if (row.agentId === undefined && inspectedAgentPaths.has(realAgentPath)) {
+      const inspectionKey = `${realAgentPath}\0${row.agentId ?? ""}`;
+      if (
+        inspectedAgentTargets.has(inspectionKey) ||
+        (row.agentId === undefined && inspectedAgentPaths.has(realAgentPath))
+      ) {
         continue;
       }
       inspectedAgentPaths.add(realAgentPath);
+      inspectedAgentTargets.add(inspectionKey);
       agentDatabase = openNodeSqliteDatabase(agentPath, {
         readOnly: true,
       });
