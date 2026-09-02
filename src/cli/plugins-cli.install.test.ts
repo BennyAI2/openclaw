@@ -1168,7 +1168,7 @@ describe("plugins cli install", () => {
             pluginId: "demo",
             packageName: "demo",
             version: "1.2.3",
-            channel: "stable",
+            channel: "official",
           }),
         );
       },
