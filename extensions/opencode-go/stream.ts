@@ -18,21 +18,23 @@ import {
 
 export function createOpencodeGoAttributionWrapper(
   baseStreamFn: ProviderWrapStreamFnContext["streamFn"],
+  sourceApi?: ProviderWrapStreamFnContext["sourceApi"],
 ): ProviderWrapStreamFnContext["streamFn"] {
   if (!baseStreamFn) {
     return undefined;
   }
   return (model, context, options) => {
+    const api = sourceApi ?? model.api;
     // OpenAI transports already consume the central policy; Anthropic does not.
     // Keep this narrow so each request resolves attribution exactly once.
-    if (model.provider !== "opencode-go" || model.api !== "anthropic-messages") {
+    if (model.provider !== "opencode-go" || api !== "anthropic-messages") {
       return baseStreamFn(model, context, options);
     }
     return baseStreamFn(model, context, {
       ...options,
       headers: resolveProviderRequestHeaders({
         provider: model.provider,
-        api: model.api,
+        api,
         baseUrl: model.baseUrl,
         capability: "llm",
         transport: "stream",

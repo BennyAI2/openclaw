@@ -65,6 +65,7 @@ export type ProviderEndpointClass =
   | "openai-public"
   | "openai"
   | "opencode-native"
+  | "opencode-go-native"
   | "azure-openai"
   | "openrouter"
   | "xai-native"
@@ -536,7 +537,7 @@ export function resolveProviderRequestPolicy(
   } else if (
     provider === "opencode-go" &&
     policy?.enabledByDefault &&
-    endpointClass === "opencode-native"
+    endpointClass === "opencode-go-native"
   ) {
     // The documented identification contract belongs to Go's native endpoint.
     // A custom baseUrl is a proxy and must not inherit OpenClaw attribution.
@@ -604,6 +605,7 @@ export function resolveProviderRequestCapabilities(
     endpointClass === "openai-public" ||
     endpointClass === "openai" ||
     endpointClass === "opencode-native" ||
+    endpointClass === "opencode-go-native" ||
     endpointClass === "azure-openai" ||
     endpointClass === "openrouter" ||
     endpointClass === "xai-native" ||

@@ -119,7 +119,8 @@ export default defineSingleProviderPluginEntry({
     ...buildProviderReplayFamilyHooks({ family: "passthrough-gemini" }),
     resolveThinkingProfile,
     wrapStreamFn: (ctx) => createOpencodeGoWrapper(ctx.streamFn, ctx.thinkingLevel),
-    wrapSimpleCompletionStreamFn: (ctx) => createOpencodeGoAttributionWrapper(ctx.streamFn),
+    wrapSimpleCompletionStreamFn: (ctx) =>
+      createOpencodeGoAttributionWrapper(ctx.streamFn, ctx.sourceApi),
     isModernModelRef: () => true,
   },
   register(api) {

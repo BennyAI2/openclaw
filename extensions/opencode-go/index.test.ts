@@ -597,17 +597,29 @@ describe("opencode-go provider plugin", () => {
 
   it("identifies native Anthropic stream and simple requests without tagging proxies", async () => {
     const provider = await registerSingleProviderPlugin(plugin);
-    for (const wrap of [provider.wrapStreamFn, provider.wrapSimpleCompletionStreamFn]) {
+    for (const testCase of [
+      {
+        wrap: provider.wrapStreamFn,
+        runtimeApi: "anthropic-messages",
+        sourceApi: undefined,
+      },
+      {
+        wrap: provider.wrapSimpleCompletionStreamFn,
+        runtimeApi: "openclaw-provider-simple:opencode-go:qwen3.8-max",
+        sourceApi: "anthropic-messages",
+      },
+    ] as const) {
       const capturedHeaders: Array<Record<string, string> | undefined> = [];
       const baseStreamFn = (_model: unknown, _context: unknown, options: unknown) => {
         capturedHeaders.push((options as { headers?: Record<string, string> })?.headers);
         return {} as never;
       };
-      const streamFn = wrap?.({
+      const streamFn = testCase.wrap?.({
         streamFn: baseStreamFn as never,
         providerId: "opencode-go",
         modelId: "qwen3.8-max",
         thinkingLevel: "high",
+        sourceApi: testCase.sourceApi,
       } as never);
 
       expect(streamFn).toBeTypeOf("function");
@@ -615,7 +627,7 @@ describe("opencode-go provider plugin", () => {
         {
           provider: "opencode-go",
           id: "qwen3.8-max",
-          api: "anthropic-messages",
+          api: testCase.runtimeApi,
           baseUrl: "https://opencode.ai/zen/go",
         } as never,
         {} as never,
@@ -625,7 +637,7 @@ describe("opencode-go provider plugin", () => {
         {
           provider: "opencode-go",
           id: "qwen3.8-max",
-          api: "anthropic-messages",
+          api: testCase.runtimeApi,
           baseUrl: "https://proxy.example.com",
         } as never,
         {} as never,

@@ -35,7 +35,14 @@ const providerEndpointPlugins = vi.hoisted(() => [
       { endpointClass: "deepseek-native", hosts: ["api.deepseek.com"] },
       { endpointClass: "github-copilot-native", hostSuffixes: [".githubcopilot.com"] },
       { endpointClass: "groq-native", hosts: ["api.groq.com"] },
-      { endpointClass: "opencode-native", hostSuffixes: ["opencode.ai"] },
+      {
+        endpointClass: "opencode-native",
+        baseUrls: ["https://opencode.ai/zen", "https://opencode.ai/zen/v1"],
+      },
+      {
+        endpointClass: "opencode-go-native",
+        baseUrls: ["https://opencode.ai/zen/go", "https://opencode.ai/zen/go/v1"],
+      },
       { endpointClass: "openrouter", hostSuffixes: ["openrouter.ai"] },
       { endpointClass: "zai-native", hosts: ["api.z.ai"] },
       { endpointClass: "google-generative-ai", hosts: ["generativelanguage.googleapis.com"] },
@@ -566,7 +573,7 @@ describe("provider attribution", () => {
     );
 
     expectRecordFields(nativeGo, {
-      endpointClass: "opencode-native",
+      endpointClass: "opencode-go-native",
       attributionProvider: "opencode-go",
       allowsHiddenAttribution: false,
     });
@@ -583,6 +590,20 @@ describe("provider attribution", () => {
         capability: "llm",
       }).attributionHeaders,
     ).toBeUndefined();
+    expectRecordFields(
+      resolveProviderRequestPolicy({
+        provider: "opencode-go",
+        api: "openai-completions",
+        baseUrl: "https://opencode.ai/zen/v1",
+        transport: "stream",
+        capability: "llm",
+      }),
+      {
+        endpointClass: "opencode-native",
+        attributionProvider: undefined,
+        attributionHeaders: undefined,
+      },
+    );
     expect(
       resolveProviderRequestPolicy({
         provider: "opencode",
@@ -833,8 +854,16 @@ describe("provider attribution", () => {
       endpointClass: "nvidia-native",
       hostname: "integrate.api.nvidia.com",
     });
-    expectRecordFields(resolveProviderEndpoint("https://opencode.ai/api"), {
+    expectRecordFields(resolveProviderEndpoint("https://opencode.ai/zen/v1"), {
       endpointClass: "opencode-native",
+      hostname: "opencode.ai",
+    });
+    expectRecordFields(resolveProviderEndpoint("https://opencode.ai/zen/go/v1"), {
+      endpointClass: "opencode-go-native",
+      hostname: "opencode.ai",
+    });
+    expectRecordFields(resolveProviderEndpoint("https://opencode.ai/api"), {
+      endpointClass: "custom",
       hostname: "opencode.ai",
     });
     expectRecordFields(resolveProviderEndpoint("https://api.xiaomimimo.com/v1"), {
