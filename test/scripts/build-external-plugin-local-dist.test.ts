@@ -133,8 +133,12 @@ describe("external plugin local dist build", () => {
     }
   });
 
-  it("retains each plugin's dependency owner and the shared host SDK", async () => {
+  it("retains source dependencies across metadata profiles and the shared host SDK", async () => {
     const repoRoot = tempDirs.make("openclaw-external-plugin-owners-");
+    const plugins = [
+      ["first", "1.0.0"],
+      ["second", "2.0.0"],
+    ] as const;
     fs.writeFileSync(
       path.join(repoRoot, "package.json"),
       JSON.stringify({
@@ -145,10 +149,7 @@ describe("external plugin local dist build", () => {
       }),
     );
     fs.writeFileSync(path.join(repoRoot, "probe.js"), "export const shared = {};\n");
-    for (const [pluginId, version] of [
-      ["first", "1.0.0"],
-      ["second", "2.0.0"],
-    ] as const) {
+    for (const [pluginId, version] of plugins) {
       const packageDir = path.join(repoRoot, "extensions", pluginId);
       const dependencyDir = path.join(packageDir, "node_modules", "private-dep");
       fs.mkdirSync(dependencyDir, { recursive: true });
@@ -175,6 +176,7 @@ describe("external plugin local dist build", () => {
         path.join(dependencyDir, "index.js"),
         `export default ${JSON.stringify(version)};\n`,
       );
+      fs.writeFileSync(path.join(dependencyDir, "SKILL.md"), `# Private dependency ${version}\n`);
       fs.symlinkSync(
         repoRoot,
         path.join(packageDir, "node_modules", "openclaw"),
@@ -190,9 +192,37 @@ describe("external plugin local dist build", () => {
       );
     }
     await buildExternalPluginLocalDist({ repoRoot, env: {}, logLevel: "silent" });
-    copyBundledPluginMetadata({ repoRoot, env: {} });
-    // Repeating postbuild must not remove source packages through the output link.
-    copyBundledPluginMetadata({ repoRoot, env: {} });
+    // Old output links belong to the previous profile, even when the new plan is unified.
+    for (const [profile, env, isolated] of [
+      ["isolated", {}, true],
+      ["Docker unified", { [DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV]: "first,second" }, false],
+      ["isolated again", {}, true],
+      ["isolated repeated", {}, true],
+    ] as const) {
+      copyBundledPluginMetadata({ repoRoot, env });
+      for (const [pluginId, version] of plugins) {
+        const sourceModules = path.join(repoRoot, "extensions", pluginId, "node_modules");
+        const outputRoot = path.join(repoRoot, "dist", "extensions", pluginId);
+        expect(
+          fs.readFileSync(path.join(sourceModules, "private-dep", "SKILL.md"), "utf8"),
+          profile,
+        ).toBe(`# Private dependency ${version}\n`);
+        expect(
+          fs
+            .lstatSync(path.join(outputRoot, "node_modules"), { throwIfNoEntry: false })
+            ?.isSymbolicLink() ?? false,
+          profile,
+        ).toBe(isolated);
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(outputRoot, "openclaw.plugin.json"), "utf8"),
+        );
+        expect(manifest.skills, profile).toEqual(["./bundled-skills/private-dep"]);
+        expect(
+          fs.readFileSync(path.join(outputRoot, manifest.skills[0], "SKILL.md"), "utf8"),
+          profile,
+        ).toBe(`# Private dependency ${version}\n`);
+      }
+    }
     const entryUrl = (pluginId: string) =>
       pathToFileURL(path.join(repoRoot, "dist", "extensions", pluginId, "index.js")).href;
     const stagedDir = path.join(repoRoot, "staged", "first");
