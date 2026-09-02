@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { PluginRuntimeApplication } from "../plugins/lifecycle.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import type { RunEmbeddedAgentParamsWithSessionFile } from "./embedded-agent-runner/run/internal-params.js";
+import type { EmbeddedRunAttemptResult } from "./embedded-agent-runner/run/types.js";
 
 type Refresh = {
   active: boolean;
@@ -64,7 +65,7 @@ export function hasAgentPluginRuntimeRefresh(): boolean {
 /** Called only after the attempt has persisted its completed tool results and released its tools. */
 export function continueAgentAfterPluginRuntimeRefresh(
   params: RunEmbeddedAgentParamsWithSessionFile,
-  committedToolContext = "",
+  committedMessages?: EmbeddedRunAttemptResult["pluginRuntimeRefreshMessages"],
 ): boolean {
   const owner = refreshScope.getStore();
   if (!owner?.active || !owner.requested || owner.holds > 0) {
@@ -73,14 +74,16 @@ export function continueAgentAfterPluginRuntimeRefresh(
   owner.continuation = {
     ...params,
     pluginGeneration: undefined,
-    pluginRuntimeRefreshContinuation: true,
+    pluginRuntimeRefreshMessages: [
+      ...(params.pluginRuntimeRefreshMessages ?? []),
+      ...(committedMessages ?? []),
+    ],
     contextEngineLogicalTurnLease: undefined,
     modelHasVision: undefined,
     modelThinkingCapability: undefined,
     modelFallbackAvailability: undefined,
     suppressNextUserMessagePersistence: true,
     prompt:
-      committedToolContext +
       "The plugin runtime has been refreshed. Continue the current task from the transcript using the updated tools. Verify the requested change; do not repeat completed actions or the original user request.",
   };
   return true;

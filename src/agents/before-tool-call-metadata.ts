@@ -1,3 +1,4 @@
+import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import type { HookContext } from "./agent-tools.before-tool-call.types.js";
 import type { AnyAgentTool } from "./tools/common.js";
 
@@ -13,9 +14,12 @@ type BeforeToolCallMetadata = {
   hookContext?: HookContext;
 };
 
-// Provider hooks may return lifecycle-owned views. Host metadata must not
-// introduce fixed properties that conflict with those views' plugin members.
-const metadataByTool = new WeakMap<AnyAgentTool, BeforeToolCallMetadata>();
+// Plugin views cannot carry fixed host properties. Source-transformed SDK modules
+// and compiled hosts share this map so helpers recognize the same wrappers.
+const metadataByTool = resolveGlobalSingleton(
+  Symbol.for("openclaw.beforeToolCallMetadata"),
+  () => new WeakMap<AnyAgentTool, BeforeToolCallMetadata>(),
+);
 
 export function bindBeforeToolCallMetadata(
   tool: AnyAgentTool,

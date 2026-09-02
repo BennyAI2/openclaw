@@ -51,6 +51,7 @@ import {
   withPreparedModelRuntimePluginGenerationScope,
 } from "../prepared-model-runtime-generation-scope.js";
 import type { PreparedModelRuntimePluginGeneration } from "../prepared-model-runtime.types.js";
+import type { AgentMessage } from "../runtime/index.js";
 import { markCoreTtsAttemptResult } from "../tools/tts-tool-result-provenance.js";
 import { makeAttemptResult } from "./run.overflow-compaction.fixture.js";
 import {
@@ -773,17 +774,27 @@ describe("prepared harness source delivery", () => {
   });
 
   it.each([
-    { name: "ordinary history", pluginRuntimeRefreshContext: undefined },
-    {
-      name: "preserved native history",
-      pluginRuntimeRefreshContext:
-        "<conversation_context>slow-call: sibling committed; reload-call: generation 2 committed</conversation_context>\nCurrent user request:\n",
-    },
+    { name: "ordinary history", nativeHistory: false },
+    { name: "preserved native history", nativeHistory: true },
   ])(
-    "re-admits a committed reload with $name outside old scopes without replaying the user or changing run authority",
-    async ({ pluginRuntimeRefreshContext }) => {
+    "re-admits repeated reloads with $name without losing committed work or changing run authority",
+    async ({ nativeHistory }) => {
       const { runEmbeddedAgent } = await loadSourceDeliveryHarness();
       const { getAgentRunContext } = await import("../../infra/agent-run-registry.js");
+      const originalPrompt = "edit and reload twice";
+      const originalMessage = { role: "user" as const, content: originalPrompt, timestamp: 1 };
+      const nativeSnapshots: AgentMessage[][] = [1, 2].map((index) => [
+        ...(index === 1 ? [originalMessage] : []),
+        {
+          role: "toolResult",
+          toolCallId: `committed-${index}`,
+          toolName: "plugins",
+          content: [{ type: "text", text: `generation ${index + 1} committed` }],
+          isError: false,
+          timestamp: index + 1,
+        },
+      ]);
+      const onUserMessagePersisted = vi.fn();
       const base = await mockedAcquireAgentRunPreparedModelRuntime({
         agentId: "main",
         agentDir: state.agentDir(),
@@ -792,7 +803,7 @@ describe("prepared harness source delivery", () => {
       });
       // Generations need independent registry identities; mutating the shared fixture masks stale ownership.
       // oxlint-disable-next-line no-map-spread
-      const snapshots = ["first", "next"].map((policyHash) => ({
+      const snapshots = ["first", "next", "final"].map((policyHash) => ({
         ...base.snapshot,
         metadataSnapshot: {
           ...base.snapshot.metadataSnapshot,
@@ -805,98 +816,112 @@ describe("prepared harness source delivery", () => {
         },
       }));
       const first = snapshots[0]!;
-      const next = snapshots[1]!;
       const generation: PreparedModelRuntimePluginGeneration = {
         configuredCatalogEntries: [],
         inlineProviderModels: [],
         pluginMetadataSnapshot: first.metadataSnapshot,
         pluginRegistry: first.pluginRegistry,
       };
-      const releaseFirst = vi.fn();
-      const releaseNext = vi.fn();
+      const releases = snapshots.map(() => vi.fn());
       const caller = { isWebchatConnect: () => false, invokeWithSessionNodeAuthority: vi.fn() };
       mockedAcquireAgentRunPreparedModelRuntime.mockClear();
-      mockedAcquireAgentRunPreparedModelRuntime
-        .mockImplementationOnce(async () => ({ ...base, snapshot: first, release: releaseFirst }))
-        .mockImplementationOnce(async () => {
-          expect(releaseFirst).toHaveBeenCalledOnce();
-          expect(getPreparedModelRuntimePluginGeneration()).toBeUndefined();
-          expect(getPluginRuntimeGenerationRegistry()).toBeUndefined();
-          expect(getPluginRuntimeGatewayRequestScope()?.pluginRegistry).toBeUndefined();
-          expect(getPluginRuntimeGatewayRequestScope()?.invokeWithSessionNodeAuthority).toBe(
-            caller.invokeWithSessionNodeAuthority,
-          );
-          return { ...base, snapshot: next, release: releaseNext };
-        });
       let admittedOwner: unknown;
-      let staleOwner: ReturnType<typeof captureAgentPluginRuntimeRefresh> | undefined;
-      mockedRunEmbeddedAttempt
-        .mockImplementationOnce(async (params) => {
-          admittedOwner = getAgentRunContext(params.runId)?.delegatedAuthority;
-          expect(admittedOwner).toBeDefined();
-          expect(params.hostCapabilities).toBeDefined();
-          params.hostCapabilities?.assertActive();
-          staleOwner = captureAgentPluginRuntimeRefresh();
-          expect(getPluginRuntimeGenerationRegistry()).toBe(first.pluginRegistry);
-          expect(
-            staleOwner.request({ operationId: "reload", generation: 2, pluginIds: ["fixture"] }),
-          ).toBe(true);
-          params.onUserMessagePersisted?.({
-            role: "user",
-            content: params.prompt,
-            timestamp: Date.now(),
-          });
-          return makeAttemptResult({
-            assistantTexts: [],
-            sessionIdUsed: params.sessionId,
-            toolMetas: [{ toolName: "plugins" }],
-            pluginRuntimeRefreshContext,
-          });
-        })
-        .mockImplementationOnce(async (params) => {
-          expect(getAgentRunContext(params.runId)?.delegatedAuthority).toBe(admittedOwner);
+      const staleOwners: ReturnType<typeof captureAgentPluginRuntimeRefresh>[] = [];
+      for (const [index, snapshot] of snapshots.entries()) {
+        mockedAcquireAgentRunPreparedModelRuntime.mockImplementationOnce(async () => {
+          if (index > 0) {
+            expect(releases[index - 1]).toHaveBeenCalledOnce();
+            expect(getPreparedModelRuntimePluginGeneration()).toBeUndefined();
+            expect(getPluginRuntimeGenerationRegistry()).toBeUndefined();
+            expect(getPluginRuntimeGatewayRequestScope()?.pluginRegistry).toBeUndefined();
+            expect(getPluginRuntimeGatewayRequestScope()?.invokeWithSessionNodeAuthority).toBe(
+              caller.invokeWithSessionNodeAuthority,
+            );
+          }
+          return { ...base, snapshot, release: releases[index]! };
+        });
+        mockedRunEmbeddedAttempt.mockImplementationOnce(async (params) => {
+          if (index === 0) {
+            admittedOwner = getAgentRunContext(params.runId)?.delegatedAuthority;
+            expect(admittedOwner).toBeDefined();
+            expect(params.prompt).toBe(originalPrompt);
+            params.onUserMessagePersisted?.(originalMessage);
+          } else {
+            expect(getAgentRunContext(params.runId)?.delegatedAuthority).toBe(admittedOwner);
+            expect(params.prompt).toContain("Continue the current task from the transcript");
+            expect(params.prompt).toContain("do not repeat completed actions");
+            expect(params.prompt).not.toContain(originalPrompt);
+            expect(params.skipPreparedUserTurnMessage).toBe(true);
+            expect(params.suppressNextUserMessagePersistence).toBe(true);
+            expect(params.pluginRuntimeRefreshMessages).toEqual(
+              nativeHistory ? nativeSnapshots.slice(0, index).flat() : [],
+            );
+            for (const stale of staleOwners) {
+              expect(() => stale.assertCurrent()).toThrow("Plugin runtime changed");
+            }
+          }
           expect(params.hostCapabilities).toBeDefined();
           params.hostCapabilities?.assertActive();
           expect(params.sessionId).toBe("test-session");
-          expect(params.prompt).toContain("Continue the current task from the transcript");
-          expect(params.prompt).toContain("do not repeat completed actions");
-          if (pluginRuntimeRefreshContext) {
-            expect(params.prompt.startsWith(pluginRuntimeRefreshContext)).toBe(true);
-            expect(params.prompt.length).toBeLessThanOrEqual(3840);
+          expect(getPluginRuntimeGenerationRegistry()).toBe(snapshot.pluginRegistry);
+          if (index < nativeSnapshots.length) {
+            const owner = captureAgentPluginRuntimeRefresh();
+            staleOwners.push(owner);
+            expect(
+              owner.request({
+                operationId: `reload-${index}`,
+                generation: index + 2,
+                pluginIds: ["fixture"],
+              }),
+            ).toBe(true);
+            return makeAttemptResult({
+              assistantTexts: [],
+              sessionIdUsed: params.sessionId,
+              toolMetas: [{ toolName: "plugins" }],
+              messagesSnapshot: nativeHistory
+                ? nativeSnapshots[index]!
+                : nativeSnapshots.slice(0, index + 1).flat(),
+              ...(nativeHistory ? { pluginRuntimeRefreshMessages: nativeSnapshots[index]! } : {}),
+            });
           }
-          expect(params.prompt).not.toBe("edit and reload once");
-          expect(params.skipPreparedUserTurnMessage).toBe(true);
-          expect(params.suppressNextUserMessagePersistence).toBe(true);
-          expect(getPluginRuntimeGenerationRegistry()).toBe(next.pluginRegistry);
-          expect(() => staleOwner?.assertCurrent()).toThrow("Plugin runtime changed");
           return makeAttemptResult({
             assistantTexts: ["new behavior verified"],
             sessionIdUsed: params.sessionId,
           });
         });
+      }
       mockedBuildEmbeddedRunPayloads.mockReturnValue([{ text: "new behavior verified" }]);
       useOpenAIPlatformAuthFixture();
-      const result = await withPluginRuntimeGatewayRequestScope(caller, () =>
-        withPreparedModelRuntimePluginGenerationScope(
-          generation,
-          () =>
-            withPluginRuntimeGenerationScope(first, () =>
-              runEmbeddedAgent({
-                ...createOverflowRunParams(state),
-                prompt: "edit and reload once",
-                provider: "openai",
-                model: "gpt-5.4",
-                sessionKey: undefined,
-              }),
-            ),
-          () => first as NonNullable<ReturnType<typeof getPreparedModelRuntimeBorrowedSnapshot>>,
-        ),
-      );
-      expect(result.payloads).toEqual([{ text: "new behavior verified" }]);
-      expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(2);
-      expect(mockedAcquireAgentRunPreparedModelRuntime).toHaveBeenCalledTimes(2);
-      expect(releaseFirst).toHaveBeenCalledOnce();
-      expect(releaseNext).toHaveBeenCalledOnce();
+      try {
+        const result = await withPluginRuntimeGatewayRequestScope(caller, () =>
+          withPreparedModelRuntimePluginGenerationScope(
+            generation,
+            () =>
+              withPluginRuntimeGenerationScope(first, () =>
+                runEmbeddedAgent({
+                  ...createOverflowRunParams(state),
+                  prompt: originalPrompt,
+                  onUserMessagePersisted,
+                  provider: "openai",
+                  model: "gpt-5.4",
+                  sessionKey: undefined,
+                }),
+              ),
+            () => first as NonNullable<ReturnType<typeof getPreparedModelRuntimeBorrowedSnapshot>>,
+          ),
+        );
+        expect(result.payloads).toEqual([{ text: "new behavior verified" }]);
+        expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(3);
+        expect(mockedAcquireAgentRunPreparedModelRuntime).toHaveBeenCalledTimes(3);
+        expect(onUserMessagePersisted).toHaveBeenCalledExactlyOnceWith(originalMessage);
+        for (const release of releases) {
+          expect(release).toHaveBeenCalledOnce();
+        }
+      } finally {
+        // A failed generation must not leave queued replies in the next table row.
+        mockedAcquireAgentRunPreparedModelRuntime.mockReset();
+        mockedRunEmbeddedAttempt.mockReset();
+      }
     },
   );
 

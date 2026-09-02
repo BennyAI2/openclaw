@@ -185,6 +185,8 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   onDeferredLifecycleAbort?: (reason?: "user_abort" | "restart" | "superseded") => void;
   /** Host-requested runtime replacement takes effect after the current tool batch is persisted. */
   pluginRuntimeRefreshPending?: () => boolean;
+  /** Committed native attempt messages from this run, beyond its transcript admission fence. */
+  pluginRuntimeRefreshMessages?: readonly AgentMessage[];
   /** Run-owned permission changes survive native attempt replacement, never user cancellation. */
   permissionChange?: {
     readonly owner: object;
@@ -300,8 +302,8 @@ export type EmbeddedRunAttemptResult = {
   /** Saved provider retry setting resolved by the prepared session owner. */
   providerRetryMaxRetries?: number;
   messagesSnapshot: AgentMessage[];
-  /** Bounded committed tool results for a refresh that preserves native history. */
-  pluginRuntimeRefreshContext?: string;
+  /** Native-only current attempt snapshot; embedded snapshots include the whole session. */
+  pluginRuntimeRefreshMessages?: readonly AgentMessage[];
   /** Owner-eligible settled finalization, with frozen evidence or an unavailable projection. */
   settledTurnFinalizationContext?:
     | { readonly source: "openclaw-transcript"; readonly messages: readonly AgentMessage[] }

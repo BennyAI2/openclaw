@@ -1,7 +1,9 @@
 // Runtime plan tool tests cover schema normalization and diagnostics when the
 // runtime plan owns tool policy, with legacy provider fallback still available.
 
+import { fileURLToPath } from "node:url";
 import { expectDefined } from "@openclaw/normalization-core";
+import { createJiti } from "jiti";
 import type { AgentTool } from "openclaw/plugin-sdk/agent-core";
 import {
   createNativeOpenAIResponsesModel,
@@ -325,6 +327,17 @@ describe("AgentRuntimePlan tool policy helpers", () => {
         setBeforeToolCallDiagnosticsEnabled(projected, false);
         expect(getBeforeToolCallDiagnosticOptions(source)?.emitDiagnostics).toBe(false);
         expect(Object.keys(projected)).toContain("parameters");
+        // Source plugins can load a transformed SDK copy beside compiled host code.
+        const sourceMetadata = await createJiti(import.meta.url, {
+          tryNative: false,
+          moduleCache: false,
+          fsCache: false,
+        }).import<typeof import("../before-tool-call-metadata.js")>(
+          fileURLToPath(new URL("../before-tool-call-metadata.ts", import.meta.url)),
+        );
+        expect(sourceMetadata.isToolWrappedWithBeforeToolCallHook(projected)).toBe(true);
+        sourceMetadata.setBeforeToolCallDiagnosticsEnabled(projected, true);
+        expect(getBeforeToolCallDiagnosticOptions(source)?.emitDiagnostics).toBe(true);
       } finally {
         await instance.dispose();
       }

@@ -1487,77 +1487,149 @@ describe("startGatewayConfigReloader", () => {
   });
 
   it.each([
-    "same-source",
-    "changed-bytes",
-    "committed",
-    "failed-cleanup",
-    "repeated-echo",
-  ] as const)("rebases an explicit watcher echo only before publication: %s", async (scenario) => {
-    const config: OpenClawConfig = { gateway: { reload: {} } };
-    const operationIds: string[] = [];
-    let reads = 0;
-    const harness = createReloaderHarness(
-      async () =>
-        makeSnapshot({
-          config,
-          sourceConfig: config,
-          hash: ++reads > 1 && scenario === "changed-bytes" ? "changed" : "same",
-        }),
-      {
-        initialConfig: config,
-        onHotReload: async (plan, nextConfig, ownership) => {
-          if (!plan.pluginLifecycle) {
-            throw new Error("Missing plugin operation owner");
-          }
-          const operationId = plan.pluginLifecycle.operationId;
-          operationIds.push(operationId);
-          if (operationIds.length === 1 || scenario === "repeated-echo") {
-            if (scenario === "committed") {
-              ownership.markRuntimeCommitted(nextConfig, plan);
+    { boundary: "activation", scenario: "same-source" },
+    { boundary: "activation", scenario: "changed-bytes" },
+    { boundary: "activation", scenario: "committed" },
+    { boundary: "activation", scenario: "failed-cleanup" },
+    { boundary: "activation", scenario: "repeated-echo" },
+    { boundary: "snapshot", scenario: "same-source" },
+    { boundary: "snapshot", scenario: "changed-bytes" },
+    { boundary: "snapshot", scenario: "changed-source" },
+    { boundary: "snapshot", scenario: "pending-write" },
+    { boundary: "snapshot", scenario: "watched-write" },
+    { boundary: "snapshot", scenario: "repeated-echo" },
+  ] as const)(
+    "rebases an explicit watcher echo only before publication ($boundary, $scenario)",
+    async ({ boundary, scenario }) => {
+      const config: OpenClawConfig = {
+        gateway: { reload: {} },
+        plugins: { entries: { notes: { enabled: false } } },
+      };
+      const enabledConfig: OpenClawConfig = {
+        ...config,
+        plugins: { entries: { notes: { enabled: true } } },
+      };
+      const writeNotification: ConfigWriteNotification = {
+        ...makeZeroDebounceHookWrite("same"),
+        sourceConfig: config,
+        runtimeConfig: config,
+        afterWrite: { mode: "none", reason: "plugin lifecycle applies runtime" },
+      };
+      const newerApplication = createRuntimeConfigWriteApplication();
+      const operationIds: string[] = [];
+      let applying = false;
+      let reads = 0;
+      const harness = createReloaderHarness(
+        async () => {
+          const read = applying ? ++reads : 0;
+          const sourceConfig = read > 1 && scenario === "changed-source" ? enabledConfig : config;
+          const snapshot = makeSnapshot({
+            config: sourceConfig,
+            sourceConfig,
+            hash: read > 1 && scenario === "changed-bytes" ? "changed" : "same",
+          });
+          if (boundary === "snapshot" && applying && (read === 1 || scenario === "repeated-echo")) {
+            if (scenario === "pending-write" || scenario === "watched-write") {
+              harness.emitWrite(
+                attachRuntimeConfigWriteApplication({ ...writeNotification }, newerApplication),
+              );
+              if (scenario === "watched-write") {
+                harness.watcher.emit("change");
+              }
+            } else {
+              harness.watcher.emit("change");
             }
-            harness.watcher.emit("change");
-            const superseded = new GatewayConfigReloadSupersededError();
-            throw new PluginRuntimeApplicationError(
-              "Plugin operation superseded",
-              {
-                operationId,
-                generation: 1,
-                pluginIds: ["notes"],
-                phase: "activate",
-                committed: scenario === "committed",
-              },
-              {
-                cause:
-                  scenario === "failed-cleanup"
-                    ? new AggregateError([superseded, new Error("cleanup failed")])
-                    : superseded,
-              },
-            );
           }
-          ownership.markRuntimeCommitted(nextConfig, plan);
-          return {
-            status: "applied",
-            runtime: { operationId, generation: 2, pluginIds: ["notes"] },
-          };
+          return snapshot;
         },
-      },
-    );
-    const operation = harness.reloader.applyPluginLifecycleChange({
-      config,
-      pluginIds: ["notes"],
-      reason: "reload",
-    });
-    if (scenario === "same-source") {
-      await expect(operation).resolves.toMatchObject({ generation: 2 });
-      expect(operationIds).toHaveLength(2);
-      expect(operationIds[1]).toBe(operationIds[0]);
-    } else {
-      await expect(operation).rejects.toBeInstanceOf(PluginRuntimeApplicationError);
-      expect(operationIds).toHaveLength(scenario === "repeated-echo" ? 2 : 1);
-    }
-    expect(harness.onRestart).not.toHaveBeenCalled();
-    await harness.reloader.stop();
-  });
+        {
+          initialConfig: boundary === "snapshot" ? enabledConfig : config,
+          onHotReload: async (plan, nextConfig, ownership) => {
+            if (!plan.pluginLifecycle) {
+              throw new Error("Missing plugin operation owner");
+            }
+            const operationId = plan.pluginLifecycle.operationId;
+            operationIds.push(operationId);
+            if (
+              boundary === "activation" &&
+              (operationIds.length === 1 || scenario === "repeated-echo")
+            ) {
+              if (scenario === "committed") {
+                ownership.markRuntimeCommitted(nextConfig, plan);
+              }
+              harness.watcher.emit("change");
+              const superseded = new GatewayConfigReloadSupersededError();
+              throw new PluginRuntimeApplicationError(
+                "Plugin operation superseded",
+                {
+                  operationId,
+                  generation: 1,
+                  pluginIds: ["notes"],
+                  phase: "activate",
+                  committed: scenario === "committed",
+                },
+                {
+                  cause:
+                    scenario === "failed-cleanup"
+                      ? new AggregateError([superseded, new Error("cleanup failed")])
+                      : superseded,
+                },
+              );
+            }
+            ownership.markRuntimeCommitted(nextConfig, plan);
+            return {
+              status: "applied",
+              runtime: { operationId, generation: 2, pluginIds: ["notes"] },
+            };
+          },
+        },
+      );
+      try {
+        if (boundary === "snapshot") {
+          // The writer's source-only pass can finish before its delayed filesystem echo.
+          harness.emitWrite(writeNotification);
+          await vi.runOnlyPendingTimersAsync();
+          expect(harness.onHotReload).not.toHaveBeenCalled();
+          expect(harness.onConfigAccepted).toHaveBeenLastCalledWith(
+            config,
+            expect.anything(),
+            config,
+            { runtimeApplied: false },
+          );
+        }
+        applying = true;
+        const operation = harness.reloader.applyPluginLifecycleChange({
+          config,
+          ...(boundary === "snapshot"
+            ? { write: { persistedHash: "same", persistedSourceConfig: config } }
+            : {}),
+          pluginIds: ["notes"],
+          reason: boundary === "snapshot" ? "disable" : "reload",
+        });
+        if (scenario === "same-source") {
+          await expect(operation).resolves.toMatchObject({ generation: 2 });
+          expect(operationIds).toHaveLength(boundary === "snapshot" ? 1 : 2);
+          if (boundary === "activation") {
+            expect(operationIds[1]).toBe(operationIds[0]);
+          } else {
+            await vi.runOnlyPendingTimersAsync();
+            expect(harness.onHotReload).toHaveBeenCalledOnce();
+          }
+        } else {
+          await expect(operation).rejects.toBeInstanceOf(PluginRuntimeApplicationError);
+          expect(operationIds).toHaveLength(
+            boundary === "snapshot" ? 0 : scenario === "repeated-echo" ? 2 : 1,
+          );
+        }
+        expect(harness.onRestart).not.toHaveBeenCalled();
+      } finally {
+        await harness.reloader.stop();
+      }
+      if (scenario === "pending-write" || scenario === "watched-write") {
+        await expect(newerApplication.result).resolves.toBe("stopped");
+      }
+    },
+  );
 
   it("watches resolved includes and reconciles them after an accepted reload", async () => {
     const initialConfig = makeGatewayPortConfig(18789);

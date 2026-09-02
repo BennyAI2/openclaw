@@ -15,10 +15,7 @@ import {
 } from "./attempt-results.js";
 import { attemptTerminal, type EmbeddedRunAttemptResult } from "./attempt-terminal.js";
 import { TURN_FINALIZE_DRAIN_ABORT_GRACE_MS } from "./attempt-timeouts.js";
-import {
-  buildCodexContinuityCalibration,
-  projectContextEngineAssemblyForCodex,
-} from "./context-engine-projection.js";
+import { buildCodexContinuityCalibration } from "./context-engine-projection.js";
 import { flattenCodexDynamicToolFunctions } from "./protocol.js";
 import { readCodexRateLimitsRevision, readRecentCodexRateLimits } from "./rate-limit-cache.js";
 import type { CodexAttemptActiveTurn } from "./run-attempt-active-turn.js";
@@ -538,20 +535,7 @@ export async function finalizeCodexAttempt(
     ...(terminalAnchor ? { contextEngineTerminalAnchor: terminalAnchor } : {}),
     ...(settledTurnFinalizationContext ? { settledTurnFinalizationContext } : {}),
     ...(turnSucceeded && params.pluginRuntimeRefreshPending?.() === true
-      ? {
-          // Native interruption drops waiting tool replies; ordinary history elides
-          // their payloads. Carry this attempt's bounded receipts into either thread.
-          pluginRuntimeRefreshContext: projectContextEngineAssemblyForCodex({
-            assembledMessages: result.messagesSnapshot.filter(
-              (message) => message.role === "toolResult",
-            ),
-            originalHistoryMessages: [],
-            prompt: "",
-            toolPayloadMode: "preserve",
-            // Reserve room for the quoted-context wrapper and refresh instruction.
-            maxRenderedContextChars: Math.min(context.codexContinuityProjectionMaxChars, 3200),
-          }).promptText,
-        }
+      ? { pluginRuntimeRefreshMessages: result.messagesSnapshot }
       : {}),
     ...(resourceState.runtimeArtifact ? { runtimeArtifact: resourceState.runtimeArtifact } : {}),
     ...(resourceState.runtimeContinuationStarted ? { runtimeContinuationStarted: true } : {}),

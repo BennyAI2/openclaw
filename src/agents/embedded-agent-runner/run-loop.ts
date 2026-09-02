@@ -242,7 +242,7 @@ export async function runPreparedEmbeddedLoop(
     resolvedSessionKey,
     lifecycleGeneration,
   });
-  if (params.pluginRuntimeRefreshContinuation) {
+  if (params.pluginRuntimeRefreshMessages) {
     sessionPromptState.activateInternalPrompt(params.prompt);
   }
   const originalCompactionTarget = { ...sessionPromptState.sessionTarget };
@@ -418,7 +418,7 @@ export async function runPreparedEmbeddedLoop(
             },
             initialTurnTainted: turnTaintState.isTainted(),
           },
-          dispatchedAttempt.rawAttempt.pluginRuntimeRefreshContext,
+          dispatchedAttempt.rawAttempt.pluginRuntimeRefreshMessages,
         );
         return {
           meta: {

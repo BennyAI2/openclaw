@@ -299,6 +299,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
   }
   const attemptParams: EmbeddedRunAttemptInternalParams = {
     pluginRuntimeRefreshPending: captureAgentPluginRuntimeRefresh().isPending,
+    pluginRuntimeRefreshMessages: params.pluginRuntimeRefreshMessages,
     permissionChange: input.permissionChange,
     admittedRunContext: params.admittedRunContext,
     startedAtMs: input.runStartedAtMs,

@@ -1189,7 +1189,6 @@ export function startGatewayConfigReloader(opts: {
             throw new Error("Plugin runtime application requires a valid persisted config.");
           }
           if (
-            configWriteEpoch !== epoch ||
             !expectedSourceConfig ||
             (params.write &&
               (typeof params.write.persistedHash !== "string" ||
@@ -1210,6 +1209,9 @@ export function startGatewayConfigReloader(opts: {
           }
           activeInProcessConfig = candidate;
           try {
+            if (configWriteEpoch !== epoch) {
+              throw new GatewayConfigReloadSupersededError();
+            }
             // Keep the invoking admission so plugin drain excludes the request
             // awaiting this receipt. Watcher echoes may transfer only this write.
             const runtime = await applySnapshot(
@@ -1245,7 +1247,7 @@ export function startGatewayConfigReloader(opts: {
                 (error instanceof PluginRuntimeApplicationError &&
                   !error.details.committed &&
                   error.cause instanceof GatewayConfigReloadSupersededError));
-            // Rebase a single harmless echo only after rollback. Changed bytes,
+            // Rebase one harmless echo before activation or after rollback. Changed bytes,
             // failed cleanup, and every published generation must never replay.
             if (attempt > 0 || !supersededBeforeCommit) {
               throw error;
