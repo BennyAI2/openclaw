@@ -264,6 +264,61 @@ describe.skipIf(process.platform === "win32")("native test launch ownership", ()
     expect(f.calls().filter((call) => call.tool === "swift")).toHaveLength(1);
   });
 
+  it.each([0, 17])("captures fresh XCTest reports only after a failed launch (%s)", (exitCode) => {
+    const f = fixture();
+    // Only the Swift stand-in writes reports; no native app or system tool runs.
+    fs.writeFileSync(
+      path.join(f.root, "bin/swift"),
+      `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+for (const [home, label] of [[process.env.HOME, 'isolated'], [${JSON.stringify(f.env.HOME)}, 'runner']]) {
+  const dir = path.join(home, 'Library/Logs/DiagnosticReports');
+  fs.mkdirSync(dir, {recursive: true});
+  fs.writeFileSync(path.join(dir, 'xctest-current.ips'), 'fresh-' + label + '-XCTest');
+  const old = path.join(dir, 'xctest-old.crash');
+  fs.writeFileSync(old, 'old-crash-must-not-leak');
+  fs.utimesSync(old, 1, 1);
+  fs.writeFileSync(path.join(dir, 'OtherApp-current.ips'), 'unrelated-crash-must-not-leak');
+  fs.symlinkSync(path.join(dir, 'OtherApp-current.ips'), path.join(dir, 'xctest-linked.ips'));
+}
+fs.writeFileSync(path.join(process.env.HOME, 'Library/Logs/DiagnosticReports/OpenClawPackageTests-large.ips'),
+  'large-current-XCTest' + 'x'.repeat(64 * 1024) + 'oversized-tail-must-not-leak');
+for (const suffix of ['a', 'b']) {
+  fs.writeFileSync(path.join(${JSON.stringify(f.env.HOME)},
+    'Library/Logs/DiagnosticReports/OpenClawPackageTests-budget-' + suffix + '.ips'), 'report-budget-' + suffix);
+}
+process.exit(${exitCode});
+`,
+    );
+    const result = f.run("node scripts/test-macos-native.mts default --skip-build");
+    expect(result.status, result.stderr).toBe(exitCode);
+    expect(fs.existsSync(path.dirname(f.calls()[0].env.HOME))).toBe(false);
+    if (exitCode === 0) {
+      expect(result.stderr).not.toContain("[macos-native] crash report");
+      return;
+    }
+    for (const expected of [
+      "fresh-isolated-XCTest",
+      "fresh-runner-XCTest",
+      "large-current-XCTest",
+    ]) {
+      expect(result.stderr).toContain(expected);
+    }
+    expect(result.stderr.match(/\[macos-native\] crash report /g)).toHaveLength(4);
+    expect(
+      ["report-budget-a", "report-budget-b"].filter((marker) => result.stderr.includes(marker)),
+    ).toHaveLength(1);
+    for (const unexpected of [
+      "old-crash-must-not-leak",
+      "unrelated-crash-must-not-leak",
+      "oversized-tail-must-not-leak",
+    ]) {
+      expect(result.stderr).not.toContain(unexpected);
+    }
+    expect(result.stderr.length).toBeLessThan(70 * 1024);
+  });
+
   it("uses fresh named preferences for successive launches", () => {
     const f = fixture();
     for (let index = 0; index < 2; index++) {
