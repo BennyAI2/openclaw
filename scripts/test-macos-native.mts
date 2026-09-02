@@ -5,54 +5,6 @@ import path from "node:path";
 import { runWithFailedTrailer } from "./lib/failed-trailer.mts";
 import { runManagedCommand } from "./lib/managed-child-process.mts";
 
-function writeRecentTestCrashes(homes: string[], startedAt: number) {
-  let reported = 0;
-  for (const home of homes) {
-    const directory = path.join(home, "Library/Logs/DiagnosticReports");
-    try {
-      if (!fs.existsSync(directory)) {
-        continue;
-      }
-      const entries = fs.readdirSync(directory, { withFileTypes: true });
-      entries.sort((left, right) => right.name.localeCompare(left.name));
-      for (const entry of entries) {
-        if (reported === 4) {
-          return;
-        }
-        if (
-          !entry.isFile() ||
-          !/^(?:xctest|OpenClawPackageTests)[_-].*\.(?:ips|crash)$/u.test(entry.name)
-        ) {
-          continue;
-        }
-        const fd = fs.openSync(
-          path.join(directory, entry.name),
-          fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-        );
-        try {
-          const stat = fs.fstatSync(fd);
-          if (!stat.isFile() || stat.mtimeMs < startedAt) {
-            continue;
-          }
-          const bytes = Buffer.alloc(64 * 1024);
-          const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
-          console.error(
-            `[macos-native] crash report ${entry.name} (${length}/${stat.size} bytes)\n${bytes.subarray(0, length).toString("utf8")}`,
-          );
-          reported += 1;
-        } finally {
-          fs.closeSync(fd);
-        }
-      }
-    } catch (error) {
-      console.error("[macos-native] crash diagnostics unavailable:", error);
-    }
-  }
-  if (reported === 0) {
-    console.error("[macos-native] no recent XCTest crash reports found");
-  }
-}
-
 await runWithFailedTrailer("macos-native", async () => {
   const env = process.env;
   // Invocation checks prevent accidental local use; these markers are not a sandbox.
@@ -164,13 +116,7 @@ await runWithFailedTrailer("macos-native", async () => {
           return;
         }
       }
-      const startedAt = Date.now();
       process.exitCode = await run("swift", ["test", ...args]);
-      if (process.exitCode !== 0) {
-        // XCTest can abort without a backtrace. Preserve its bounded reports
-        // before cleanup removes the isolated HOME; ReportCrash may use either HOME.
-        writeRecentTestCrashes([home, env.HOME], startedAt);
-      }
     } finally {
       // A completed failed create may leave a database. Never delete it until every child closed.
       if (canRemove && fs.existsSync(keychain)) {
