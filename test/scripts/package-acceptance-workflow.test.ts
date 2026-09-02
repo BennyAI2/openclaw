@@ -1532,6 +1532,7 @@ describe("package artifact reuse", () => {
     expect(workflow).toContain(
       "docker_e2e_release_checks:\n    name: Run Docker release-path validation\n    needs: [resolve_target, prepare_release_package]",
     );
+    expect(workflow).toContain("published_upgrade_survivor_baseline: 2026.7.1-2");
     expect(workflow).toContain("include_release_path_suites: false");
     expect(workflow).toContain("include_release_path_suites: true");
     expect(workflow).toContain("uses: ./.github/workflows/package-acceptance.yml");
