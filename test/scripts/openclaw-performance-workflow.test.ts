@@ -52,6 +52,15 @@ describe("OpenClaw performance workflow", () => {
     expect(workflow).toContain(`inputs.kova_ref || '${kovaRef}'`);
   });
 
+  it("rewrites only Kova files that own the performance model pin", () => {
+    const pinModel = findStep("Pin Kova OpenAI model to GPT 5.5").run ?? "";
+
+    expect(pinModel).toContain('"support/configure-openclaw-mock-auth.mjs"');
+    expect(pinModel).toContain('"support/configure-openclaw-live-auth.mjs"');
+    expect(pinModel).toContain('"states/mock-openai-provider.json"');
+    expect(pinModel).not.toContain('"support/mock-openai-server.mjs"');
+  });
+
   it("resolves dispatch target refs before checkout", () => {
     const resolveTarget = findStep("Resolve OpenClaw target ref");
     const checkout = findStep("Checkout OpenClaw");
@@ -104,6 +113,15 @@ describe("OpenClaw performance workflow", () => {
     expect(runKova.run).not.toContain("report.summary?.statuses ?? {}");
   });
 
+  it("selects the full Kova report instead of its summary", () => {
+    const runKova = findStep("Run Kova");
+    const validate = findStep("Validate Kova evidence");
+
+    expect(runKova.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
+    expect(validate.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
+    expect(runKova.run).not.toContain("tail -n 1");
+  });
+
   it("installs local workspace packages beside the OCM root tarball", () => {
     const configure = findStep("Configure OCM local workspace dependencies");
 
@@ -119,16 +137,56 @@ describe("OpenClaw performance workflow", () => {
     );
   });
 
+  it("installs Kova runtime dependencies before invoking its CLI", () => {
+    const install = findStep("Install OCM and Kova");
+
+    expect(install.run).toContain(
+      "https://codeload.github.com/${KOVA_REPOSITORY}/tar.gz/${KOVA_REF}",
+    );
+    expect(install.run).toContain('if [[ "$KOVA_REF" == "$KOVA_TRUSTED_LIVE_REF" ]]');
+    expect(install.run).toContain(
+      "--retry 8 --retry-max-time 180 --retry-all-errors --retry-connrefused",
+    );
+    expect(readWorkflow().env?.KOVA_ARCHIVE_SHA256).toBe(
+      "3b0d49b28c3e73a9022ab704d9c884bab092b7fae1f27167e36bf787b774701d",
+    );
+    expect(install.run).toContain(
+      'echo "${KOVA_ARCHIVE_SHA256}  ${kova_archive}" | sha256sum -c -',
+    );
+    expect(install.run).toContain('tar -xzf "$kova_archive" --strip-components=1');
+    expect(
+      install.run.indexOf('echo "${KOVA_ARCHIVE_SHA256}  ${kova_archive}" | sha256sum -c -'),
+    ).toBeLessThan(install.run.indexOf('tar -xzf "$kova_archive" --strip-components=1'));
+    expect(install.run).toContain(
+      'git -C "$KOVA_SRC" fetch --filter=blob:none --depth 1 origin "$KOVA_REF"',
+    );
+    expect(install.run).toContain(
+      'npm --prefix "$KOVA_SRC" ci --ignore-scripts --no-audit --no-fund',
+    );
+    expect(install.run).toContain('require.resolve("mock-ai-provider/package.json", {');
+    expect(install.run).toContain('packageJson.bin?.["mock-ai-provider"]');
+    expect(install.run).toContain('path.join(root, "node_modules", ".bin", "mock-ai-provider")');
+    expect(install.run).toContain("fs.constants.X_OK");
+    expect(install.run).toContain('require.resolve("zod", { paths: [root] })');
+    expect(install.run).not.toContain('require.resolve("mock-ai-provider",');
+  });
+
   it("fails selected live Kova lanes when live auth is missing", () => {
+    const decideLane = findStep("Decide lane");
     const configureAuth = findStep("Configure live OpenAI auth");
     const runKova = findStep("Run Kova");
 
+    expect(decideLane.run).toContain('"$KOVA_REF" != "$KOVA_TRUSTED_LIVE_REF"');
+    expect(decideLane.run).toContain("only executes the checksum-verified Kova default");
     expect(configureAuth.if).toContain("matrix.live == 'true'");
     expect(configureAuth.env?.OPENAI_API_KEY).toBe("${{ secrets.OPENAI_API_KEY }}");
     expect(configureAuth.run).toContain('if [[ -z "${OPENAI_API_KEY:-}" ]]; then');
     expect(configureAuth.run).toContain("cannot run without live evidence");
     expect(configureAuth.run).toContain("exit 1");
     expect(configureAuth.run).not.toContain("will be skipped");
+    expect(runKova.env?.OPENAI_API_KEY).toBe(
+      "${{ matrix.live == 'true' && secrets.OPENAI_API_KEY || '' }}",
+    );
     expect(runKova.run).not.toContain('echo "skipped=true" >> "$GITHUB_OUTPUT"');
   });
 
@@ -138,7 +196,7 @@ describe("OpenClaw performance workflow", () => {
 
     expect(validateEvidence.if).toContain("always()");
     expect(validateEvidence.if).toContain("steps.lane.outputs.run == 'true'");
-    expect(validateEvidence.run).toContain('"$REPORT_DIR" -maxdepth 1 -type f -name');
+    expect(validateEvidence.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
     expect(validateEvidence.run).toContain('"$BUNDLE_DIR/bundle.json"');
     expect(validateEvidence.run).toContain('"$SUMMARY_DIR/${LANE_ID}.md"');
     expect(validateEvidence.run).toContain("exit 1");
