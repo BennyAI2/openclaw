@@ -15,6 +15,7 @@ import {
   requireRecord,
   readOutboxPayloadAttachments,
 } from "./chat-flow.test-support.ts";
+import { waitForCommittedComposerDraft } from "./settle.test-support.ts";
 
 const suite = createChatFlowE2eSuite();
 const proofDir = path.resolve(".artifacts/control-ui-e2e/outbox-capacity/after");
@@ -87,6 +88,7 @@ suite.define(() => {
         { serviceWorkers: "block", locale: "en-US", viewport: { width: 1280, height: 900 } },
         async ({ page }) => {
           const destination = legacySessionKey === "global" ? "agent:main:main" : legacySessionKey;
+          const draftScope = `chat:v3:${destination}\u0000agent:main`;
           const gateway = await installMockGateway(page, {
             sessionKey: destination,
             sessions: [
@@ -109,6 +111,12 @@ suite.define(() => {
           await gateway.setOnline(false);
           await waitForControlUiGatewayReconnecting(page);
           await stage(page, "Mock Gateway: retained v3 Blob submission");
+          await waitForCommittedComposerDraft(
+            page,
+            draftScope,
+            "Mock Gateway: retained v3 Blob submission",
+            [file.name],
+          );
           await paneFor(page).getByRole("button", { name: "Send message", exact: true }).click();
           await expect.poll(async () => (await readQueue(page)).length).toBe(1);
           const original = (await readQueue(page))[0]!;
@@ -117,6 +125,8 @@ suite.define(() => {
             reference,
             "Admission must own the complete Blob before seeding the legacy envelope",
           );
+          // Finish the durable clear before deleting v4's revision fence for the legacy seed.
+          await waitForCommittedComposerDraft(page, draftScope, null, 0);
           await page.route("**/outbox-legacy-seed", (route) =>
             route.fulfill({ contentType: "text/html", body: "Synthetic v3 metadata seed" }),
           );
