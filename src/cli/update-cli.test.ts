@@ -5667,6 +5667,10 @@ describe("update-cli", () => {
       if (git) {
         vi.mocked(resolveOpenClawPackageRoot).mockResolvedValue(root);
         vi.mocked(runCommandWithTimeout).mockResolvedValue(commandResult({ stdout: sha }));
+        vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+          await options?.beforeGitMutation?.({ schemaVersions: { state: 3, agent: 11 } });
+          return makeOkUpdateResult({ mode: "git", root });
+        });
       }
       mockFileBackedPathExists();
       mockRunningManagedGateway([process.execPath, entryPath, "gateway", "run"]);
@@ -5707,7 +5711,14 @@ describe("update-cli", () => {
         handoffId: "test-handoff",
         installRoot: root,
       });
-      expectNoSideEffects(serviceStop, serviceRestart, runRestartScript, runGatewayUpdate);
+      expectNoSideEffects(serviceStop, serviceRestart, runRestartScript);
+      if (git) {
+        expect(runGatewayUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ beforeGitMutation: expect.any(Function) }),
+        );
+      } else {
+        expect(runGatewayUpdate).not.toHaveBeenCalled();
+      }
       expect(packageInstallCommandCall()).toBeUndefined();
       expect(defaultRuntime.exit).not.toHaveBeenCalledWith(1);
       expect(lastWriteJsonCall()).toMatchObject({
