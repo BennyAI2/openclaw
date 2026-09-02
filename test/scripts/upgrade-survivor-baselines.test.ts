@@ -77,6 +77,22 @@ describe("scripts/resolve-upgrade-survivor-baselines", () => {
     ).toEqual(["openclaw@2026.7.33"]);
   });
 
+  it.each(["alpha", "beta"])(
+    "rejects the mutable %s baseline when a maximum version freezes the candidate",
+    (tag) => {
+      expect(() =>
+        resolveBaselines(
+          new Map([
+            ["fallback", `openclaw@${tag}`],
+            ["maximum-version", "2026.7.33"],
+          ]),
+        ),
+      ).toThrow(
+        `mutable prerelease baseline is not allowed with --maximum-version: openclaw@${tag}`,
+      );
+    },
+  );
+
   it("resolves release-history to last six stable releases plus explicit legacy anchors", () => {
     const releases = (
       [

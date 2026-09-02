@@ -41,6 +41,14 @@ function capSpecsAtMaximum(specs, maximumVersion) {
   if (!parseReleaseVersion(maximumVersion)) {
     throw new Error(`invalid maximum baseline version: ${maximumVersion}`);
   }
+  const mutablePrereleaseSpec = specs.find(
+    (spec) => spec === "openclaw@alpha" || spec === "openclaw@beta",
+  );
+  if (mutablePrereleaseSpec) {
+    throw new Error(
+      `mutable prerelease baseline is not allowed with --maximum-version: ${mutablePrereleaseSpec}`,
+    );
+  }
   return specs
     .map((spec) => (spec === "openclaw@latest" ? `openclaw@${maximumVersion}` : spec))
     .filter((spec) => {
