@@ -1,11 +1,11 @@
 import { parseConfigPathArrayIndex } from "../shared/path-array-index.js";
 import type { ConfigUiHint, ConfigUiHints } from "./schema.hints.js";
-import type { ConfigSchemaResponse } from "./schema.js";
 import {
   asSchemaObject,
   findWildcardHintMatch,
   schemaHasChildren,
   type ConfigJsonSchemaObject as JsonSchemaObject,
+  type ConfigSchemaResponse,
 } from "./schema.shared.js";
 
 type JsonSchemaNode = Record<string, unknown>;

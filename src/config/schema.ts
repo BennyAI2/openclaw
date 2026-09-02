@@ -12,11 +12,13 @@ import {
   asSchemaObject,
   cloneSchema,
   type ConfigJsonSchemaObject as JsonSchemaObject,
+  type ConfigSchemaResponse,
 } from "./schema.shared.js";
 import { applyDerivedTags } from "./schema.tags.js";
 import { applyConfigTierHints, applyResolvedConfigTierHints } from "./schema.tiers.js";
 
 export { classifyConfigSchemaPathSegment, lookupConfigSchema } from "./schema.lookup.js";
+export type { ConfigSchemaResponse } from "./schema.shared.js";
 
 type ConfigSchema = Record<string, unknown>;
 
@@ -52,13 +54,6 @@ function mergeObjectSchema(base: JsonSchemaObject, extension: JsonSchemaObject):
   }
   return merged;
 }
-
-export type ConfigSchemaResponse = {
-  schema: ConfigSchema;
-  uiHints: ConfigUiHints;
-  version: string;
-  generatedAt: string;
-};
 
 export type PluginUiMetadata = {
   id: string;
