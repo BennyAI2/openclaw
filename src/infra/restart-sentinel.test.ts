@@ -874,7 +874,7 @@ describe("control-plane update restart sentinel", () => {
       after: { version: "2026.4.24" },
       steps: [],
       durationMs: 42,
-      recovery: { serviceRestartSafe: true } as const,
+      recovery: { serviceRestartSafe: true, version: "2026.4.24" } as const,
     };
     const meta = {
       target: "version 2026.4.24",
