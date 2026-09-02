@@ -456,6 +456,10 @@ suite.define(() => {
       );
       expect(await pickerWidth()).toBe(0);
       await expect.poll(pickerWidth).toBeGreaterThanOrEqual(27.5);
+      await page.mouse.move(0, 0);
+      await expect.poll(pickerWidth).toBe(0);
+      await voice.hover();
+      await expect.poll(pickerWidth).toBeGreaterThanOrEqual(27.5);
       const [voiceBeforeHold, pickerBeforeHold] = await Promise.all([
         voice.boundingBox(),
         microphonePicker.boundingBox(),
@@ -482,6 +486,11 @@ suite.define(() => {
       );
       await page.mouse.up();
       await page.mouse.move(0, 0);
+      await expect.poll(() => composer.locator(".chat-talk-control--holding").count()).toBe(0);
+      // Crossing the hold threshold can open the unavailable-dictation menu.
+      // Dismiss it through the editor before asserting the resting layout.
+      await textarea.click();
+      await expect.poll(() => microphonePickerShell.getAttribute("open")).toBeNull();
       await expect.poll(pickerWidth).toBe(0);
       await voice.hover();
       await voice.press("Tab");
