@@ -827,7 +827,6 @@ final class OpenClawSnapshotUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["chat-composer-surface"].exists)
         self.attachScreenshot(named: "assistant-message-selection")
 
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.2)).tap()
         let actions = app.buttons["chat-message-actions"]
         XCTAssertTrue(actions.waitForExistence(timeout: 3))
         actions.tap()

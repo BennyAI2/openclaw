@@ -636,6 +636,10 @@ public struct OpenClawChatView: View {
                     .buttonStyle(.borderless)
                     .font(OpenClawChatTypography.caption)
                     .foregroundStyle(.secondary)
+                    .frame(
+                        width: CleanChatComposerMetrics.controlTouchSize,
+                        height: CleanChatComposerMetrics.controlTouchSize)
+                    .contentShape(Rectangle())
                     .padding(.leading, 8)
                     .padding(.bottom, 8)
             }
