@@ -22,6 +22,7 @@ const resolveUserProfileId = vi.hoisted(() => vi.fn());
 const setUserProfileAuthLink = vi.hoisted(() => vi.fn());
 const clearUserProfileAuthLink = vi.hoisted(() => vi.fn());
 const listUserProfileAuthLinks = vi.hoisted(() => vi.fn());
+const readUserModelAuthProfile = vi.hoisted(() => vi.fn());
 const ensureAuthProfileStoreWithoutExternalProfiles = vi.hoisted(() => vi.fn());
 
 vi.mock("../../state/user-profiles.js", () => ({
@@ -37,9 +38,11 @@ vi.mock("../../state/user-profiles.js", () => ({
   UserProfileNotFoundError: class UserProfileNotFoundError extends Error {},
 }));
 
-vi.mock("../../state/user-profile-auth-links.js", () => ({
+vi.mock("../../state/user-model-accounts.js", () => ({
   clearUserProfileAuthLink,
+  connectUserModelAccount: vi.fn(),
   listUserProfileAuthLinks,
+  readUserModelAuthProfile,
   setUserProfileAuthLink,
 }));
 
@@ -99,8 +102,10 @@ describe("users gateway methods", () => {
     setUserProfileAuthLink.mockReset();
     clearUserProfileAuthLink.mockReset();
     listUserProfileAuthLinks.mockReset();
+    readUserModelAuthProfile.mockReset();
     ensureAuthProfileStoreWithoutExternalProfiles.mockReset();
     ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({ version: 1, profiles: {} });
+    getUserProfileListItem.mockReturnValue(profile);
     getUserProfileDisplay.mockReturnValue({
       id: profile.id,
       displayName: profile.displayName,
@@ -346,6 +351,7 @@ describe("users gateway methods", () => {
   it("validates and routes email links", async () => {
     linkEmail.mockReturnValue(profile);
     const refreshConnectedUserProfile = vi.fn();
+    const broadcast = vi.fn();
 
     const respond = await runUsersHandler(
       "users.linkEmail",
@@ -354,12 +360,13 @@ describe("users gateway methods", () => {
         targetProfileId: "profile-1",
       },
       undefined,
-      { refreshConnectedUserProfile },
+      { refreshConnectedUserProfile, broadcast },
     );
 
     expect(respond).toHaveBeenCalledWith(true, { profile });
     expect(validateUsersLinkEmailResult(respond.mock.calls[0]?.[1])).toBe(true);
     expect(linkEmail).toHaveBeenCalledWith("ada@example.com", "profile-1");
+    expect(broadcast).toHaveBeenCalledWith("chat.metadata.changed", {}, { dropIfSlow: true });
     expect(refreshConnectedUserProfile).toHaveBeenCalledWith({
       id: profile.id,
       displayName: profile.displayName,
@@ -762,12 +769,14 @@ describe("users gateway methods", () => {
     });
     const links = [{ provider: "openai", authProfileId: "openai:ada", updatedAt: 2 }];
     setUserProfileAuthLink.mockReturnValue(links);
+    const supersede = vi.fn();
+    const broadcast = vi.fn();
 
     const respond = await runUsersHandler(
       "users.linkAuthProfile",
       { profileId: "profile-1", authProfileId: "openai:ada" },
       adminClient,
-      { getRuntimeConfig: () => ({}) },
+      { getRuntimeConfig: () => ({}), modelAccountConnectService: { supersede }, broadcast },
     );
 
     expect(respond).toHaveBeenCalledWith(true, { links });
@@ -775,6 +784,33 @@ describe("users gateway methods", () => {
       profileId: "profile-1",
       provider: "openai",
       authProfileId: "openai:ada",
+    });
+    expect(supersede).toHaveBeenCalledWith("profile-1", "openai");
+    expect(broadcast).toHaveBeenCalledWith("chat.metadata.changed", {}, { dropIfSlow: true });
+    expect(setUserProfileAuthLink.mock.invocationCallOrder[0]).toBeLessThan(
+      supersede.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("resolves a personal credential through its owner store instead of the shared pool", async () => {
+    const authProfileId = "personal:profile-1:credential-1";
+    const links = [{ provider: "openai", authProfileId, updatedAt: 2 }];
+    readUserModelAuthProfile.mockReturnValue({ credential: { type: "oauth", provider: "openai" } });
+    setUserProfileAuthLink.mockReturnValue(links);
+
+    expect(
+      await runUsersHandler(
+        "users.linkAuthProfile",
+        { profileId: "profile-1", authProfileId },
+        adminClient,
+        { getRuntimeConfig: () => ({}), broadcast: vi.fn() },
+      ),
+    ).toHaveBeenCalledWith(true, { links });
+    expect(ensureAuthProfileStoreWithoutExternalProfiles).not.toHaveBeenCalled();
+    expect(setUserProfileAuthLink).toHaveBeenCalledWith({
+      profileId: "profile-1",
+      provider: "openai",
+      authProfileId,
     });
   });
 
@@ -789,6 +825,7 @@ describe("users gateway methods", () => {
       { profileId: "profile-1", authProfileId: "bedrock:team" },
       adminClient,
       {
+        broadcast: vi.fn(),
         getRuntimeConfig: () => ({
           auth: { profiles: { "bedrock:team": { provider: "amazon-bedrock", mode: "aws-sdk" } } },
         }),
@@ -851,11 +888,14 @@ describe("users gateway methods", () => {
     ensureProfileForEmail.mockReturnValue(profile);
     resolveUserProfileId.mockReturnValue(profile.id);
     clearUserProfileAuthLink.mockReturnValue([]);
+    const supersede = vi.fn();
+    const broadcast = vi.fn();
 
     const respond = await runUsersHandler(
       "users.unlinkAuthProfile",
       { profileId: "profile-1", provider: "openai" },
       selfClient,
+      { modelAccountConnectService: { supersede }, broadcast },
     );
 
     expect(respond).toHaveBeenCalledWith(true, { links: [] });
@@ -863,5 +903,10 @@ describe("users gateway methods", () => {
       profileId: "profile-1",
       provider: "openai",
     });
+    expect(supersede).toHaveBeenCalledWith("profile-1", "openai");
+    expect(broadcast).toHaveBeenCalledWith("chat.metadata.changed", {}, { dropIfSlow: true });
+    expect(clearUserProfileAuthLink.mock.invocationCallOrder[0]).toBeLessThan(
+      supersede.mock.invocationCallOrder[0]!,
+    );
   });
 });

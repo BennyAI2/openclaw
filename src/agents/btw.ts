@@ -150,6 +150,7 @@ function resolveBtwAuthProfileStore(params: {
   if (isOpenAIProvider(params.provider)) {
     return {
       store: ensureAuthProfileStore(params.agentDir, {
+        profileId: params.authProfileId,
         externalCliProviderIds: ["openai"],
         allowKeychainPrompt: false,
       }),
@@ -170,11 +171,13 @@ function resolveBtwAuthProfileStore(params: {
   let store: AuthProfileStore;
   if (externalCliAuthScope.providerIds) {
     store = ensureAuthProfileStore(params.agentDir, {
+      profileId: params.authProfileId,
       externalCliProviderIds: externalCliAuthScope.providerIds,
       allowKeychainPrompt: false,
     });
   } else {
     store = ensureAuthProfileStoreWithoutExternalProfiles(params.agentDir, {
+      profileId: params.authProfileId,
       allowKeychainPrompt: false,
     });
     externalCliAuthScope = resolveExternalCliAuthOverlayScopeFromSelection({
@@ -188,6 +191,7 @@ function resolveBtwAuthProfileStore(params: {
     });
     if (externalCliAuthScope.providerIds) {
       store = ensureAuthProfileStore(params.agentDir, {
+        profileId: params.authProfileId,
         externalCliProviderIds: externalCliAuthScope.providerIds,
         allowKeychainPrompt: false,
       });

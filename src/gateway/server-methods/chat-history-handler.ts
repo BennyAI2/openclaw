@@ -66,6 +66,7 @@ import { resolveVisibleActiveSessionRunState } from "./session-active-runs.js";
 import { resolveGatewayModelSelectionPolicy } from "./session-model-selection-policy.js";
 import { readSessionPlacementFields } from "./session-placement-read-projection.js";
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
+import { resolveAuthenticatedProfileId } from "./users-profile-access.js";
 import { assertValidParams } from "./validation.js";
 
 type ChatHistoryMethod = "chat.history" | "chat.startup";
@@ -114,6 +115,7 @@ async function handleChatMetadataRequest({
   params,
   respond,
   context,
+  client,
 }: GatewayRequestHandlerOptions): Promise<void> {
   if (!assertValidParams(params, validateChatMetadataParams, "chat.metadata", respond)) {
     return;
@@ -143,6 +145,7 @@ async function handleChatMetadataRequest({
           agentId: requested.agentId,
         }),
         sessionEntry: session.entry,
+        requesterProfileId: resolveAuthenticatedProfileId(client),
       }),
     );
     return;
@@ -163,6 +166,7 @@ async function handleChatMetadataRequest({
     true,
     await context.readChatMetadata({
       agentId: resolvedAgent.agentId,
+      requesterProfileId: resolveAuthenticatedProfileId(client),
     }),
   );
 }
@@ -302,6 +306,7 @@ async function handleChatHistoryRequest({
           return await context.readChatStartupProjection?.({
             agentId: sessionAgentId,
             sessionEntry: entry,
+            requesterProfileId: resolveAuthenticatedProfileId(client),
             readPolicy: method === "chat.history" ? "ready" : "current",
           });
         } catch (error) {

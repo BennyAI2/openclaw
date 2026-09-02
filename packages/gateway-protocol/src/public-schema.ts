@@ -1,7 +1,7 @@
 // Explicit schema exports keep public protocol changes reviewable.
-export * from "./public-schema-users.js";
 export * from "./schema/sessions-goal.js";
 export * from "./public-schema-push.js";
+export * from "./public-schema-users.js";
 export {
   isCloudWorkerPlacementState,
   ConnectParamsSchema,
@@ -561,8 +561,10 @@ export {
   CronStatusParamsSchema,
   CronGetParamsSchema,
   CronAddParamsSchema,
+  CronAddJobResultSchema,
   CronAddResultSchema,
   CronDeclarativeAddResultSchema,
+  CronDeliveryPreviewSchema,
   CronUpdateParamsSchema,
   CronRemoveParamsSchema,
   CronRunParamsSchema,

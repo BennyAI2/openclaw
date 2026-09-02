@@ -57,7 +57,8 @@
   font-size: var(--control-ui-text-md);
 }
 
-.profile-hero__badge {
+.profile-hero__badge,
+.model-accounts__provider {
   font-size: var(--control-ui-text-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -86,15 +87,6 @@
 
 .model-accounts__provider {
   margin-left: var(--space-2);
-  font-size: var(--control-ui-text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: var(--radius-full);
-  padding: 2px 8px;
   vertical-align: middle;
 }
 

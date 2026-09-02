@@ -1,162 +1,203 @@
-import { describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "../../config/sessions/types.js";
-import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
-  authStoreMocks,
-  createAuthStoreWithProfiles,
-  resolveSessionAuthSelection,
-  withAuthState,
-} from "./session-override.test-support.js";
+  clearUserProfileAuthLink,
+  connectUserModelAccount,
+  setUserProfileAuthLink,
+} from "../../state/user-model-accounts.js";
+import { ensureProfileForEmail } from "../../state/user-profiles.js";
+import {
+  type OpenClawTestState,
+  withOpenClawTestState,
+} from "../../test-utils/openclaw-test-state.js";
+import { resolveSessionAuthSelection } from "./session-override.js";
 
-const resolveUserProfileAuthLinkMock = vi.hoisted(() => vi.fn());
-vi.mock("../../state/user-profile-auth-links.js", () => ({
-  resolveUserProfileAuthLink: resolveUserProfileAuthLinkMock,
-}));
+const DEFAULT_PROFILE_ID = "openai:shared";
+const SESSION_KEY = "agent:main:main";
 
-const DEFAULT_PROFILE_ID = "openai:default@example.test";
-const LINKED_PROFILE_ID = "openai:alice@example.test";
-
-function prepareTwoProfileStore(): void {
-  authStoreMocks.state.hasSource = true;
-  authStoreMocks.state.store = createAuthStoreWithProfiles({
-    profiles: {
-      [DEFAULT_PROFILE_ID]: { type: "api_key", provider: "openai", key: "sk-default" },
-      [LINKED_PROFILE_ID]: { type: "api_key", provider: "openai", key: "sk-alice" },
+function connectAccount(profileId: string, label: string): string {
+  return connectUserModelAccount({
+    ownerProfileId: profileId,
+    credential: {
+      type: "oauth",
+      provider: "openai",
+      access: `synthetic-${label}-access`,
+      refresh: `synthetic-${label}-refresh`,
+      expires: Date.now() + 600_000,
     },
-    order: { openai: [DEFAULT_PROFILE_ID, LINKED_PROFILE_ID] },
+    assertCurrent() {},
+  }).authProfileId;
+}
+
+function selectForRequester(
+  state: OpenClawTestState,
+  sessionEntry: SessionEntry,
+  requesterProfileId?: string,
+  isNewSession = true,
+) {
+  return resolveSessionAuthSelection({
+    cfg: {},
+    provider: "openai",
+    modelId: "gpt-5.6-luna",
+    agentDir: state.agentDir(),
+    sessionEntry,
+    sessionStore: { [SESSION_KEY]: sessionEntry },
+    sessionKey: SESSION_KEY,
+    isNewSession,
+    requesterProfileId,
   });
 }
 
-async function selectForRequester(params: {
-  agentDir: string;
-  sessionEntry: SessionEntry;
-  sessionStore: Record<string, SessionEntry>;
-  requesterProfileId?: string;
-  isNewSession?: boolean;
-}) {
-  return await resolveSessionAuthSelection({
-    cfg: {} as OpenClawConfig,
-    provider: "openai",
-    modelId: "model-x",
-    agentDir: params.agentDir,
-    sessionEntry: params.sessionEntry,
-    sessionStore: params.sessionStore,
-    sessionKey: "agent:main:main",
-    isNewSession: params.isNewSession ?? true,
-    requesterProfileId: params.requesterProfileId,
-  });
+function withAuthState(run: (state: OpenClawTestState) => Promise<void>) {
+  return withOpenClawTestState({ layout: "state-only", prefix: "personal-session-auth-" }, run);
 }
 
 describe("person-linked session auth", () => {
-  it("establishes a sticky user-link pin for the requester's linked profile", async () => {
+  it("selects a personal account even when no shared auth store exists", async () => {
     await withAuthState(async (state) => {
-      prepareTwoProfileStore();
-      resolveUserProfileAuthLinkMock.mockReturnValue(LINKED_PROFILE_ID);
-      const sessionEntry: SessionEntry = { sessionId: "s1", updatedAt: 1 };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-        requesterProfileId: "profile-alice",
+      const alice = ensureProfileForEmail("alice@example.test");
+      const personalId = connectAccount(alice.id, "alice");
+      const sessionEntry: SessionEntry = { sessionId: "alice-session", updatedAt: 1 };
+
+      await expect(selectForRequester(state, sessionEntry, alice.id)).resolves.toEqual({
+        profileId: personalId,
+        source: "user",
+        routeRequirement: "subscription",
       });
-      expect(selection).toMatchObject({ profileId: LINKED_PROFILE_ID, source: "user" });
-      expect(sessionEntry.authProfileOverride).toBe(LINKED_PROFILE_ID);
       expect(sessionEntry.authProfileOverrideSource).toBe("user-link");
-      expect(resolveUserProfileAuthLinkMock).toHaveBeenCalledWith({
-        profileId: "profile-alice",
-        providers: ["openai"],
-      });
     });
   });
 
-  it("keeps default rotation when the requester has no link", async () => {
+  it.each([
+    { label: "configured default", source: undefined },
+    { label: "explicit session pin", source: "user" },
+    { label: "person-linked session pin", source: "user-link" },
+  ] as const)("selects the $label over other personal accounts", async ({ source }) => {
     await withAuthState(async (state) => {
-      prepareTwoProfileStore();
-      resolveUserProfileAuthLinkMock.mockReturnValue(undefined);
-      const sessionEntry: SessionEntry = { sessionId: "s1", updatedAt: 1 };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-        requesterProfileId: "profile-alice",
-      });
-      expect(selection).toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
-      expect(sessionEntry.authProfileOverrideSource).toBe("auto");
-    });
-  });
-
-  it("never consults links for turns without an authenticated requester", async () => {
-    await withAuthState(async (state) => {
-      prepareTwoProfileStore();
-      const sessionEntry: SessionEntry = { sessionId: "s1", updatedAt: 1 };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-      });
-      expect(selection).toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
-      expect(resolveUserProfileAuthLinkMock).not.toHaveBeenCalled();
-    });
-  });
-
-  it("leaves explicit /model user pins untouched", async () => {
-    await withAuthState(async (state) => {
-      prepareTwoProfileStore();
+      const configuredOwner = ensureProfileForEmail("configured@example.test");
+      const sessionOwner = ensureProfileForEmail("session@example.test");
+      const configuredId = connectAccount(configuredOwner.id, "configured");
+      const pinnedId = connectAccount(sessionOwner.id, "session");
       const sessionEntry: SessionEntry = {
-        sessionId: "s1",
+        sessionId: "configured-personal-session",
+        updatedAt: 1,
+        ...(source ? { authProfileOverride: pinnedId, authProfileOverrideSource: source } : {}),
+      };
+
+      await expect(
+        resolveSessionAuthSelection({
+          cfg: {},
+          provider: "openai",
+          modelId: "gpt-5.6-luna",
+          configuredProfileId: configuredId,
+          agentDir: state.agentDir(),
+          sessionEntry,
+          sessionStore: { [SESSION_KEY]: sessionEntry },
+          sessionKey: SESSION_KEY,
+          isNewSession: false,
+        }),
+      ).resolves.toEqual({
+        profileId: source ? pinnedId : configuredId,
+        source: "user",
+        routeRequirement: "subscription",
+      });
+    });
+  });
+
+  it("keeps personal accounts out of unrelated defaults and retains pins after unlinking", async () => {
+    await withAuthState(async (state) => {
+      await state.writeAuthProfiles({
+        version: 1,
+        profiles: {
+          [DEFAULT_PROFILE_ID]: {
+            type: "api_key",
+            provider: "openai",
+            key: "synthetic-shared-key",
+          },
+        },
+      });
+      const alice = ensureProfileForEmail("alice@example.test");
+      const bob = ensureProfileForEmail("bob@example.test");
+      const unlinked = ensureProfileForEmail("unlinked@example.test");
+      const aliceId = connectAccount(alice.id, "alice");
+      connectAccount(bob.id, "bob");
+
+      for (const requester of [undefined, unlinked.id]) {
+        await expect(
+          selectForRequester(state, { sessionId: randomUUID(), updatedAt: 1 }, requester),
+        ).resolves.toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
+      }
+
+      const sessionEntry: SessionEntry = { sessionId: "alice-session", updatedAt: 1 };
+      await selectForRequester(state, sessionEntry, alice.id);
+      clearUserProfileAuthLink({ profileId: alice.id, provider: "openai" });
+
+      await expect(selectForRequester(state, sessionEntry, bob.id, false)).resolves.toMatchObject({
+        profileId: aliceId,
+        source: "user",
+      });
+      await expect(
+        selectForRequester(state, { sessionId: "new-session", updatedAt: 1 }, alice.id),
+      ).resolves.toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
+    });
+  });
+
+  it("preserves explicit shared pins and ignores invalid shared account links", async () => {
+    await withAuthState(async (state) => {
+      await state.writeAuthProfiles({
+        version: 1,
+        profiles: {
+          [DEFAULT_PROFILE_ID]: {
+            type: "api_key",
+            provider: "openai",
+            key: "synthetic-shared-key",
+          },
+        },
+      });
+      const alice = ensureProfileForEmail("alice@example.test");
+      connectAccount(alice.id, "alice");
+      const sessionEntry: SessionEntry = {
+        sessionId: "explicit-session",
         updatedAt: 1,
         authProfileOverride: DEFAULT_PROFILE_ID,
         authProfileOverrideSource: "user",
       };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-        requesterProfileId: "profile-alice",
-        isNewSession: false,
+      await expect(selectForRequester(state, sessionEntry, alice.id, false)).resolves.toMatchObject(
+        {
+          profileId: DEFAULT_PROFILE_ID,
+          source: "user",
+        },
+      );
+
+      setUserProfileAuthLink({
+        profileId: alice.id,
+        provider: "openai",
+        authProfileId: "openai:missing",
       });
-      expect(selection).toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "user" });
-      expect(sessionEntry.authProfileOverrideSource).toBe("user");
-      expect(resolveUserProfileAuthLinkMock).not.toHaveBeenCalled();
+      await expect(
+        selectForRequester(state, { sessionId: "invalid-link-session", updatedAt: 1 }, alice.id),
+      ).resolves.toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
     });
   });
 
-  it("stays pinned to the establishing person when another linked person steers later", async () => {
+  it("does not replace a missing personal pin with the next participant's account", async () => {
     await withAuthState(async (state) => {
-      prepareTwoProfileStore();
-      resolveUserProfileAuthLinkMock.mockReturnValue(DEFAULT_PROFILE_ID);
+      const alice = ensureProfileForEmail("alice@example.test");
+      const bob = ensureProfileForEmail("bob@example.test");
+      connectAccount(bob.id, "bob");
+      const missingId = `personal:${alice.id}:${randomUUID()}`;
       const sessionEntry: SessionEntry = {
-        sessionId: "s1",
+        sessionId: "missing-owner-session",
         updatedAt: 1,
-        authProfileOverride: LINKED_PROFILE_ID,
+        authProfileOverride: missingId,
         authProfileOverrideSource: "user-link",
       };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-        requesterProfileId: "profile-bob",
-        isNewSession: false,
-      });
-      expect(selection).toMatchObject({ profileId: LINKED_PROFILE_ID, source: "user" });
-      expect(sessionEntry.authProfileOverride).toBe(LINKED_PROFILE_ID);
-      expect(resolveUserProfileAuthLinkMock).not.toHaveBeenCalled();
-    });
-  });
 
-  it("ignores links that resolve to unknown or incompatible profiles", async () => {
-    await withAuthState(async (state) => {
-      prepareTwoProfileStore();
-      resolveUserProfileAuthLinkMock.mockReturnValue("anthropic:alice@example.test");
-      const sessionEntry: SessionEntry = { sessionId: "s1", updatedAt: 1 };
-      const selection = await selectForRequester({
-        agentDir: state.agentDir(),
-        sessionEntry,
-        sessionStore: { "agent:main:main": sessionEntry },
-        requesterProfileId: "profile-alice",
-      });
-      expect(selection).toMatchObject({ profileId: DEFAULT_PROFILE_ID, source: "auto" });
-      expect(sessionEntry.authProfileOverrideSource).toBe("auto");
+      await expect(selectForRequester(state, sessionEntry, bob.id, false)).rejects.toThrow(
+        "personal model account is unavailable",
+      );
+      expect(sessionEntry.authProfileOverride).toBe(missingId);
     });
   });
 });

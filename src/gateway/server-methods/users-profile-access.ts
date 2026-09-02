@@ -25,7 +25,7 @@ export function resolveAuthenticatedProfileId(
   return ensureProfileForEmail(authenticatedUserId).id;
 }
 
-export function canMutateProfile(
+function canMutateProfile(
   client: GatewayRequestHandlerOptions["client"],
   profileId: string,
 ): boolean {
@@ -39,12 +39,8 @@ export function canMutateProfile(
   );
 }
 
-/**
- * Attaching an existing stored credential to a person is admin-only: profile
- * ownership is not credential ownership, and a linked id becomes both a strict
- * billing pin and the reconnect refresh target for that person's sessions.
- * Self-service stays on the connect flows, which prove account control.
- */
+// Attaching existing credentials is admin-only: profile ownership is not credential ownership.
+// Personal reconnects prove account control without replacing shared credentials.
 export function requireAdminProfileAccess(
   client: GatewayRequestHandlerOptions["client"],
   respond: GatewayRequestHandlerOptions["respond"],

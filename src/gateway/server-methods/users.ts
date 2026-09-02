@@ -19,12 +19,14 @@ import { resolveSharedMainAuthAgentDir } from "../../agents/auth-profiles/shared
 import { ensureAuthProfileStoreWithoutExternalProfiles } from "../../agents/auth-profiles/store.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { getUserPreferences, setUserPreferences } from "../../state/user-preferences.js";
+import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import {
   clearUserProfileAuthLink,
   listUserProfileAuthLinks,
+  readUserModelAuthProfile,
   setUserProfileAuthLink,
-} from "../../state/user-profile-auth-links.js";
+} from "../../state/user-model-accounts.js";
+import { getUserPreferences, setUserPreferences } from "../../state/user-preferences.js";
 import {
   getUserProfileDisplay,
   getUserProfileListItem,
@@ -37,12 +39,14 @@ import {
   UserProfileNotFoundError,
 } from "../../state/user-profiles.js";
 import { invalidateOperatorRolePolicy } from "../operator-role-policy.js";
+import { broadcastChatMetadataChanged } from "../server-chat-metadata-lifecycle.js";
 import {
   authenticatedProfileUnavailableError,
   isGatewayClientProfilePending,
 } from "./gateway-client-identity.js";
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
 import { usersAuthConnectHandlers } from "./users-auth-connect.js";
+import { usersGitHubHandlers } from "./users-github.js";
 import {
   requireAdminProfileAccess,
   requireProfileMutationAccess,
@@ -88,6 +92,9 @@ function resolveLinkableAuthProfileProvider(
   cfg: OpenClawConfig,
   authProfileId: string,
 ): string | undefined {
+  if (isUserModelAuthProfileId(authProfileId)) {
+    return readUserModelAuthProfile(authProfileId)?.credential.provider;
+  }
   const store = ensureAuthProfileStoreWithoutExternalProfiles(resolveSharedMainAuthAgentDir(), {
     readOnly: true,
   });
@@ -97,6 +104,7 @@ function resolveLinkableAuthProfileProvider(
 
 export const usersHandlers: GatewayRequestHandlers = {
   ...usersAuthConnectHandlers,
+  ...usersGitHubHandlers,
   "users.listAuthLinks": ({ client, params, respond }) => {
     if (
       !assertValidParams(params, validateUsersListAuthLinksParams, "users.listAuthLinks", respond)
@@ -144,18 +152,20 @@ export const usersHandlers: GatewayRequestHandlers = {
         );
         return;
       }
-      respond(true, {
-        links: setUserProfileAuthLink({
-          profileId: params.profileId,
-          provider,
-          authProfileId: params.authProfileId,
-        }),
+      const owner = getUserProfileListItem(params.profileId).id;
+      const links = setUserProfileAuthLink({
+        profileId: owner,
+        provider,
+        authProfileId: params.authProfileId,
       });
+      context.modelAccountConnectService?.supersede(owner, provider);
+      broadcastChatMetadataChanged(context);
+      respond(true, { links });
     } catch (error) {
       respond(false, undefined, profileError(error));
     }
   },
-  "users.unlinkAuthProfile": ({ client, params, respond }) => {
+  "users.unlinkAuthProfile": ({ client, context, params, respond }) => {
     if (
       !assertValidParams(
         params,
@@ -170,12 +180,14 @@ export const usersHandlers: GatewayRequestHandlers = {
       if (!requireProfileMutationAccess(client, params.profileId, respond)) {
         return;
       }
-      respond(true, {
-        links: clearUserProfileAuthLink({
-          profileId: params.profileId,
-          provider: params.provider,
-        }),
+      const owner = getUserProfileListItem(params.profileId).id;
+      const links = clearUserProfileAuthLink({
+        profileId: owner,
+        provider: params.provider,
       });
+      context.modelAccountConnectService?.supersede(owner, params.provider);
+      broadcastChatMetadataChanged(context);
+      respond(true, { links });
     } catch (error) {
       respond(false, undefined, profileError(error));
     }
@@ -330,6 +342,7 @@ export const usersHandlers: GatewayRequestHandlers = {
     try {
       const profile = linkEmail(email, params.targetProfileId);
       refreshConnectedProfile(context, profile);
+      broadcastChatMetadataChanged(context);
       respond(true, { profile });
     } catch (error) {
       respond(false, undefined, profileError(error));

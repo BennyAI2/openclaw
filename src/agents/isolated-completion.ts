@@ -532,6 +532,7 @@ export async function runIsolatedCompletion(
           }
           modelMaxTokens = runtimeModel.maxTokens;
           authProfileStore = ensureAuthProfileStore(agentDir, {
+            profileId: request.authProfileId,
             readOnly: true,
             allowKeychainPrompt: false,
             config,

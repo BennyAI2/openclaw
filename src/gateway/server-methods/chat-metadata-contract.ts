@@ -6,6 +6,7 @@ export type ChatMetadataSessionEntry = {
 
 export type ChatMetadataReadParams = {
   agentId: string;
+  requesterProfileId?: string;
   sessionEntry?: ChatMetadataSessionEntry;
 };
 

@@ -149,7 +149,9 @@ suite.define(() => {
         ).toBeDisabled();
         await expect(page.getByRole("textbox", { name: "GitHub username" })).toHaveCount(0);
         await expect(
-          page.getByRole("button", { name: /Link GitHub|Change|Disconnect/u }),
+          page
+            .locator("#settings-profile-identity")
+            .getByRole("button", { name: /Link GitHub|Change|Disconnect/u }),
         ).toHaveCount(0);
         await screenshot(page, "08-github-identity-unlinked.png");
 
@@ -506,59 +508,119 @@ suite.define(() => {
     );
   });
 
-  it("renders linked model accounts and opens the ChatGPT connect flow", async () => {
-    await suite.withPage(undefined, async ({ page }) => {
-      await openProfilePage(page, {
-        "users.listAuthLinks": {
+  it("cancels and completes ChatGPT connections through their recorded gateway status", async () => {
+    await suite.withPage(
+      {
+        ...(captureUiProof
+          ? { recordVideo: { dir: proofDir, size: { width: 1280, height: 800 } } }
+          : {}),
+        viewport: { width: 1280, height: 800 },
+      },
+      async ({ page }) => {
+        const gateway = await openProfilePage(page, {
+          "users.listAuthLinks": {
+            links: [
+              { provider: "openai", authProfileId: "openai:scott", updatedAt: 1_700_000_000_000 },
+            ],
+          },
+          "users.authConnect.start": {
+            sequence: [1, 2].map((attempt) => ({
+              connectId: `connect-${attempt}`,
+              url: `https://auth.openai.com/oauth/authorize?state=demo-${attempt}`,
+              expiresAtMs: Date.now() + 60_000,
+              autoCallback: true,
+            })),
+          },
+          "users.authConnect.status": { status: "pending" },
+        });
+        // Anchor on the always-rendered manual-link row: the Connect button swaps
+        // for the flow UI once clicked, so it cannot identify the section.
+        const section = page.locator("section.settings-section", {
+          has: page.locator(".profile-auth-link-input"),
+        });
+
+        await expect(section.locator(".model-accounts__id").textContent()).resolves.toBe(
+          "openai:scott",
+        );
+        await expect(section.locator(".model-accounts__provider").textContent()).resolves.toContain(
+          "ChatGPT",
+        );
+        await expect(section.locator(".profile-auth-link-unlink").isEnabled()).resolves.toBe(true);
+        if (captureUiProof) {
+          await section.screenshot({
+            animations: "disabled",
+            path: path.join(proofDir, "model-accounts-linked.png"),
+          });
+        }
+
+        await section.locator(".profile-auth-connect-start").click();
+        const openSignIn = section.locator(".profile-auth-connect-open");
+        await openSignIn.waitFor({ timeout: 10_000 });
+        await expect(openSignIn.getAttribute("href")).resolves.toBe(
+          "https://auth.openai.com/oauth/authorize?state=demo-1",
+        );
+        // Finish stays disabled until a redirect URL is pasted; auto mode shows the wait hint.
+        await expect(section.locator(".profile-auth-connect-finish").isEnabled()).resolves.toBe(
+          false,
+        );
+        await expect(section.locator(".model-accounts-hint").isVisible()).resolves.toBe(true);
+        if (captureUiProof) {
+          await section.screenshot({
+            animations: "disabled",
+            path: path.join(proofDir, "model-accounts-flow.png"),
+          });
+        }
+
+        await gateway.deferNext("users.authConnect.cancel");
+        await section.locator(".profile-auth-connect-cancel").click();
+        const cancellation = await gateway.waitForRequest("users.authConnect.cancel");
+        expect(cancellation.params).toEqual({ profileId: testProfile.id, connectId: "connect-1" });
+        await expect(section.locator(".model-accounts-flow")).toBeVisible();
+        await expect(section.locator(".profile-auth-connect-cancel")).toBeDisabled();
+        await gateway.resolveDeferred("users.authConnect.cancel", { status: "cancelled" });
+        await expect(section.locator(".model-accounts-flow")).toHaveCount(0);
+        await expect(section.locator('[role="status"]')).toContainText("Sign-in cancelled.");
+        await expect(section.locator(".model-accounts__id")).toHaveText("openai:scott");
+        if (captureUiProof) {
+          await section.screenshot({
+            animations: "disabled",
+            path: path.join(proofDir, "model-accounts-cancelled.png"),
+          });
+        }
+
+        await gateway.setMethodResponse("users.authConnect.status", { status: "exchanging" });
+        await section.locator(".profile-auth-connect-start").click();
+        await expect(section.locator(".model-accounts-hint")).toHaveText("Completing sign-in…");
+        await page.locator(".profile-refresh").click();
+        await expect.poll(async () => (await gateway.getRequests("users.self")).length).toBe(2);
+        await expect(section.locator(".profile-auth-connect-cancel")).toBeEnabled();
+        if (captureUiProof) {
+          await section.screenshot({
+            animations: "disabled",
+            path: path.join(proofDir, "model-accounts-exchanging.png"),
+          });
+        }
+        await gateway.setMethodResponse("users.authConnect.status", {
+          status: "connected",
+          authProfileId: "openai:personal",
           links: [
-            { provider: "openai", authProfileId: "openai:scott", updatedAt: 1_700_000_000_000 },
+            { provider: "openai", authProfileId: "openai:personal", updatedAt: 1_700_000_000_000 },
           ],
-        },
-        "users.authConnect.start": {
-          connectId: "connect-1",
-          url: "https://auth.openai.com/oauth/authorize?demo",
-          expiresAtMs: 4_100_000_000_000,
-          autoCallback: true,
-        },
-      });
-      // Anchor on the always-rendered manual-link row: the Connect button swaps
-      // for the flow UI once clicked, so it cannot identify the section.
-      const section = page.locator("section.settings-section", {
-        has: page.locator(".profile-auth-link-input"),
-      });
-
-      await expect(section.locator(".model-accounts__id").textContent()).resolves.toBe(
-        "openai:scott",
-      );
-      await expect(section.locator(".model-accounts__provider").textContent()).resolves.toContain(
-        "ChatGPT",
-      );
-      await expect(section.locator(".profile-auth-link-unlink").isEnabled()).resolves.toBe(true);
-      if (captureUiProof) {
-        await section.screenshot({
-          animations: "disabled",
-          path: path.join(proofDir, "model-accounts-linked.png"),
         });
-      }
-
-      await section.locator(".profile-auth-connect-start").click();
-      const openSignIn = section.locator(".profile-auth-connect-open");
-      await openSignIn.waitFor({ timeout: 10_000 });
-      await expect(openSignIn.getAttribute("href")).resolves.toBe(
-        "https://auth.openai.com/oauth/authorize?demo",
-      );
-      // Finish stays disabled until a redirect URL is pasted; auto mode shows the wait hint.
-      await expect(section.locator(".profile-auth-connect-finish").isEnabled()).resolves.toBe(
-        false,
-      );
-      await expect(section.locator(".model-accounts-hint").isVisible()).resolves.toBe(true);
-      if (captureUiProof) {
-        await section.screenshot({
-          animations: "disabled",
-          path: path.join(proofDir, "model-accounts-flow.png"),
-        });
-      }
-    });
+        await expect(section.locator(".model-accounts-flow")).toHaveCount(0);
+        await expect(section.locator(".model-accounts__id")).toHaveText("openai:personal");
+        await expect(section.locator('[role="status"]')).toContainText("Model account connected.");
+        await expect(section.locator(".profile-auth-connect-start")).toBeEnabled();
+        const polls = await gateway.getRequests("users.authConnect.status");
+        expect(polls.at(-1)?.params).toEqual({ profileId: testProfile.id, connectId: "connect-2" });
+        if (captureUiProof) {
+          await section.screenshot({
+            animations: "disabled",
+            path: path.join(proofDir, "model-accounts-connected.png"),
+          });
+        }
+      },
+    );
   });
 
   it("retries the missing identity bootstrap and opens the profile editor", async () => {

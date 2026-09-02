@@ -79,6 +79,14 @@ owning its prepared environment. Direct providers use
 requested proof requires another environment; capacity or hydration failure
 does not make a different provider equivalent.
 
+The direct `.github/workflows/windows-blacksmith-testbox.yml` workflow runs
+native Windows. The wrapper's Blacksmith adapter supports Linux only; explicit
+`--provider blacksmith-testbox` prevents automatic Azure routing but does not
+enable Windows support. Blacksmith CLI 0.4.57 targets `runner` and has no native
+username override, so supported CLI sync/run on this Windows image remains
+blocked. Native SSH inspection with the per-Testbox key is not CLI end-to-end
+proof.
+
 The wrapper checks an executable sibling `../crabbox/bin/crabbox`, then `PATH`,
 then the sibling of the Git common checkout. Verify the selected binary and
 its source rather than trusting a directory name. If it needs repair or is
@@ -170,9 +178,15 @@ reconcile dependencies before the remote wrapper starts.
 
 ## Core commands
 
-Maintained JavaScript tooling wrappers and root package commands use tsx's
-in-process transform cache. They skip its shared disk cache before the loader
-starts, and child tooling inherits that policy. This cache policy does not clean
+Maintained JavaScript tooling wrappers and root package commands load TypeScript
+through `scripts/tsx.mjs`, using tsx's ESM entry. This preserves native loading of
+compiled ESM plugins and their import-only dependencies, including when loaded
+through `require()`. Source TypeScript imports and tsconfig path aliases remain
+available.
+
+These launchers retain tsx's in-process transform cache and Node's module cache.
+They skip tsx's shared disk cache before the loader starts, and child tooling
+inherits that policy. This cache policy does not clean
 existing temporary directories, Node or Vitest caches, or other global caches. Standalone
 `pnpm ui:build` keeps native startup and applies the same preload to its post-build
 validators; it does not require `TSX_DISABLE_CACHE` in the invoking shell. Raw
@@ -197,6 +211,10 @@ launches them with `--import tsx` for their own syntax, while Bun handles that
 syntax natively without the Node loader. Only their runtime imports change.
 Existing package build entry paths and Vitest source parents stay unchanged. Other
 Worker-thread entries and arbitrary source CLI fixtures remain outside this declared set.
+
+The session-title retention test declares its title-reader and session-utils roots
+in this same generation. Each fresh heap-measurement child runs their JavaScript
+without spending its execution deadline on TypeScript imports.
 
 Preparation is lazy across both projects and shards. Config imports, listing
 tests, and tiny tests that do not import these declarations do not load the
@@ -236,6 +254,12 @@ reads current source rather than reusing a compiled snapshot. Existing Vitest
 watch dependency tracking still determines when tests rerun.
 
 Test wrapper runs end with a short `[test] passed|failed|skipped ... in ...` summary; Vitest's own duration line stays the per-shard detail.
+
+A failed invocation ends with one `[test] FAILED (exit N)` line after child
+processes, cleanup, and report publication settle. Direct `run-vitest.mts` calls
+use `[vitest]` instead. Nested runners retain their diagnostics and exit status;
+the top-level CLI owns the final failure line. Successful runs emit no failure
+trailer.
 
 | Command                                           | What it does                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -287,8 +311,8 @@ machine-readable tool output. Successful runs have no failure trailer. Signals
 forwarded during child execution and shard timeouts fail the command; whole-host
 loss or `SIGKILL` of the reporting process can prevent a final line.
 
-Local plugin lint and package-boundary compilation consume native declarations in
-`packages/plugin-sdk/dist` and seven separate plugin API trees in
+Local plugin lint consumes native SDK declarations in `packages/plugin-sdk/dist`.
+The dedicated package-boundary compiler also consumes seven plugin API trees in
 `.artifacts/extension-package-boundary/plugins`. Each declaration and compile
 owner validates its consumed source content, inherited config, selected compiler,
 and complete output inventory. Unrelated existing source or test edits retain

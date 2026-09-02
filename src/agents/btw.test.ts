@@ -2329,6 +2329,7 @@ describe("runBtwSideQuestion", () => {
 
     expect(ensureAuthProfileStoreWithoutExternalProfilesMock).not.toHaveBeenCalled();
     expect(ensureAuthProfileStoreMock).toHaveBeenCalledWith(DEFAULT_AGENT_DIR, {
+      profileId: "anthropic:api",
       externalCliProviderIds: ["claude-cli"],
       allowKeychainPrompt: false,
     });

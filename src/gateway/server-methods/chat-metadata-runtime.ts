@@ -24,6 +24,7 @@ import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import { getActivePluginRegistryVersion } from "../../plugins/runtime.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import { getSkillsSnapshotVersion } from "../../skills/runtime/refresh-state.js";
+import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import type {
   ChatMetadataReadParams,
   ChatMetadataResult,
@@ -100,6 +101,7 @@ type ChatMetadataRuntimeDeps = {
   buildProjection: (params: {
     context: GatewayRequestContext;
     facts: PreparedAgentFacts;
+    requesterProfileId?: string;
     preferredProfileId?: string;
     lockedProfileId?: string;
   }) => Promise<PreparedAgentProjection<{ models?: unknown[] }>>;
@@ -234,6 +236,7 @@ async function defaultBuildCommands(params: {
 async function defaultBuildProjection(params: {
   context: GatewayRequestContext;
   facts: PreparedAgentFacts;
+  requesterProfileId?: string;
   preferredProfileId?: string;
   lockedProfileId?: string;
 }): Promise<PreparedAgentProjection<{ models?: unknown[] }>> {
@@ -248,6 +251,7 @@ async function defaultBuildProjection(params: {
     snapshot,
     metadataSnapshot: params.facts.owner.metadataSnapshot,
     preparedAuthStore: params.facts.authStore,
+    requesterProfileId: params.requesterProfileId,
     // The owner records usable auth at discovery; metadata must share that exact generation fact.
     preparedRuntimeAuthModes: params.facts.authModes,
     preparedRuntimeAuthMaterializations: getPreparedModelRuntimeAuthMaterializations(
@@ -327,13 +331,21 @@ export function createGatewayChatMetadataRuntime(params: {
     generation: PreparedMetadataGeneration,
     agent: PreparedAgentMetadata,
     sessionEntry?: ChatMetadataSessionEntry,
+    requesterProfileId?: string,
   ): Promise<PreparedAgentProjection> => {
     const profiles = resolveSessionProfiles(sessionEntry);
     const neutral =
       profiles.preferredProfileId === undefined && profiles.lockedProfileId === undefined;
-    const projections = neutral
-      ? generation.neutralProjectionByAgentId
-      : generation.sessionProjectionByKey;
+    // Personal selections and credentials can change without publishing a shared auth
+    // generation. Keep those projections request-local, including linked session pins.
+    const requestScoped =
+      (neutral && requesterProfileId) ||
+      isUserModelAuthProfileId(profiles.preferredProfileId ?? "");
+    const projections = requestScoped
+      ? new Map<string, AgentProjectionEntry>()
+      : neutral
+        ? generation.neutralProjectionByAgentId
+        : generation.sessionProjectionByKey;
     const key = neutral ? agent.agentId : sessionProjectionKey(agent.agentId, profiles);
     const existing = projections.get(key);
     if (existing) {
@@ -344,12 +356,13 @@ export function createGatewayChatMetadataRuntime(params: {
       if (projections.get(key) === existing) {
         projections.delete(key);
       }
-      return projectAgent(generation, agent, sessionEntry);
+      return projectAgent(generation, agent, sessionEntry, requesterProfileId);
     }
     const projection = deps
       .buildProjection({
         context: deps.getContext(),
         facts: agent,
+        requesterProfileId,
         ...profiles,
       })
       .then((prepared) => {
@@ -601,12 +614,18 @@ export function createGatewayChatMetadataRuntime(params: {
           `prepared chat metadata is unavailable for agent "${agentId}"`,
         );
       }
-      return projectAgent(generation, agent, readParams.sessionEntry);
+      return projectAgent(
+        generation,
+        agent,
+        readParams.sessionEntry,
+        readParams.requesterProfileId,
+      );
     });
 
   const readStartup = async (
     readParams: ChatStartupProjectionReadParams,
   ): Promise<ChatStartupProjectionResult | undefined> => {
+    const profiles = resolveSessionProfiles(readParams.sessionEntry);
     const assemble = (
       neutral: PreparedAgentProjection,
       session: PreparedAgentProjection,
@@ -626,16 +645,31 @@ export function createGatewayChatMetadataRuntime(params: {
           `prepared chat startup projection is unavailable for agent "${agentId}"`,
         );
       }
-      const readNeutral = await projectAgent(generation, agent);
-      const readSession = await projectAgent(generation, agent, readParams.sessionEntry);
+      const readNeutral = await projectAgent(
+        generation,
+        agent,
+        undefined,
+        profiles.preferredProfileId ? undefined : readParams.requesterProfileId,
+      );
+      const readSession = profiles.preferredProfileId
+        ? await projectAgent(generation, agent, readParams.sessionEntry)
+        : readNeutral;
       return {
         isCurrent: () => readNeutral.isCurrent() && readSession.isCurrent(),
         read: () => assemble(readNeutral, readSession),
       };
     };
-    const profiles = resolveSessionProfiles(readParams.sessionEntry);
-    if (readParams.readPolicy !== "ready" && profiles.preferredProfileId) {
+    if (
+      readParams.readPolicy !== "ready" &&
+      (profiles.preferredProfileId || readParams.requesterProfileId)
+    ) {
       return readCurrent(projectStartup);
+    }
+    if (
+      (readParams.requesterProfileId && !profiles.preferredProfileId) ||
+      isUserModelAuthProfileId(profiles.preferredProfileId ?? "")
+    ) {
+      return undefined;
     }
     const generation = current;
     // Optional reads consume only settled exact-profile facts. Never start preparation

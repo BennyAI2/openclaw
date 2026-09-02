@@ -14,20 +14,10 @@ export function resolveSessionAuthProfileOverrideSource(
   return entry.authProfileOverrideSource || (isAutomatic ? "auto" : "user");
 }
 
-/**
- * "user-link" exists only as persisted session provenance. Runtime consumers
- * (queued followups, compaction, CLI forwarding) see person-linked pins at
- * user-pin strength so pinned-profile fail-closed rules keep applying.
- */
-function collapseSessionAuthProfilePinSource(
-  source: "auto" | "user" | "user-link" | undefined,
-): "auto" | "user" | undefined {
-  return source === "user-link" ? "user" : source;
-}
-
-/** Runtime view of a session's pin provenance: person-linked pins read as user pins. */
+/** Keep person-linked session provenance at user-pin strength in runtime consumers. */
 export function resolveCollapsedSessionAuthPinSource(
   entry: AuthProfileOverrideProvenance | undefined,
 ): "auto" | "user" | undefined {
-  return collapseSessionAuthProfilePinSource(resolveSessionAuthProfileOverrideSource(entry));
+  const source = resolveSessionAuthProfileOverrideSource(entry);
+  return source === "user-link" ? "user" : source;
 }

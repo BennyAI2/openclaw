@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import { resolveProviderIdForAuth } from "../provider-auth-aliases.js";
 import { normalizeAuthProfileCredential } from "./credential-normalize.js";
 import { dedupeProfileIds, listProfilesForProvider } from "./profile-list.js";
@@ -125,7 +126,7 @@ export async function setAuthProfileOrder(params: {
   });
 }
 
-/** Promotes one auth profile to the front of a provider order. */
+/** Promotes across shared-credential/local-order owners; otherwise relogin leaves stale order. */
 export async function promoteAuthProfileInOrder(params: {
   agentDir?: string;
   provider: string;
@@ -134,13 +135,12 @@ export async function promoteAuthProfileInOrder(params: {
   createFromOrder?: string[];
 }): Promise<AuthProfileStore | null> {
   const providerKey = resolveProviderIdForAuth(params.provider);
+  const effectiveStore = ensureAuthProfileStoreForLocalUpdate(params.agentDir);
   return await updateAuthProfileStoreWithLock({
     agentDir: params.agentDir,
-    ...(params.createFromOrder
-      ? { saveOptions: { preserveOrderProfileIds: params.createFromOrder } }
-      : {}),
+    saveOptions: { preserveOrderProfileIds: [params.profileId, ...(params.createFromOrder ?? [])] },
     updater: (store) => {
-      const profile = store.profiles[params.profileId];
+      const profile = store.profiles[params.profileId] ?? effectiveStore.profiles[params.profileId];
       if (!profile || resolveProviderIdForAuth(profile.provider) !== providerKey) {
         return false;
       }
@@ -246,6 +246,11 @@ export async function removeAuthProfilesWithLock(params: {
   agentDir?: string;
 }): Promise<AuthProfileStore | null> {
   const profileIds = new Set(dedupeProfileIds([...params.profileIds]));
+  if ([...profileIds].some(isUserModelAuthProfileId)) {
+    throw new Error(
+      "Personal model accounts are managed in Settings → Profile → Model accounts. Disconnect the account there instead of removing a shared auth profile.",
+    );
+  }
   return await updateAuthProfileStoreWithLock({
     agentDir: params.agentDir,
     updater: (store) => {
@@ -311,6 +316,7 @@ export async function clearLastGoodProfileWithLock(params: {
   const providerKey = resolveProviderIdForAuth(params.provider);
   return await updateAuthProfileStoreWithLock({
     agentDir: params.agentDir,
+    profileId: params.profileId,
     updater: (store) => {
       const matches = listProviderAuthStateEntries(store.lastGood, providerKey);
       if (!matches.some(([, profileId]) => profileId === params.profileId)) {
@@ -336,11 +342,15 @@ export async function markAuthProfileSuccess(params: {
     return;
   }
   const ownerAgentDir = resolvePersistedAuthProfileOwnerAgentDir({ agentDir, profileId });
-  const inherited = ownerAgentDir === undefined && !isSharedMainAuthProfileAgentDir(agentDir);
+  const personal = isUserModelAuthProfileId(profileId);
+  const inherited =
+    !personal && ownerAgentDir === undefined && !isSharedMainAuthProfileAgentDir(agentDir);
+  const updatesSelection = !inherited && !personal;
   const lastUsed = Date.now();
   let applied = false;
   const updated = await updateAuthProfileStoreWithLock({
     agentDir: ownerAgentDir,
+    profileId,
     updater: (freshStore) => {
       const freshProfile = freshStore.profiles[profileId];
       if (!freshProfile || resolveProviderIdForAuth(freshProfile.provider) !== providerKey) {
@@ -348,7 +358,7 @@ export async function markAuthProfileSuccess(params: {
       }
       // Inherited selection ownership is not defined. Clear shared health in
       // the credential owner without changing its last-good or rotation state.
-      if (!inherited) {
+      if (updatesSelection) {
         freshStore.lastGood = replaceProviderAuthState(freshStore.lastGood, providerKey, profileId);
       }
       updateSuccessfulUsageStatsEntry(freshStore, profileId, inherited ? undefined : lastUsed);
@@ -361,7 +371,7 @@ export async function markAuthProfileSuccess(params: {
     if (usage) {
       store.usageStats = { ...store.usageStats, [profileId]: usage };
     }
-    if (!inherited) {
+    if (updatesSelection) {
       store.lastGood = replaceProviderAuthState(store.lastGood, providerKey, profileId);
     }
     return;

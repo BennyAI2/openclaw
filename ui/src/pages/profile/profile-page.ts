@@ -3,17 +3,11 @@ import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import type {
   UserProfile,
-  UserProfileAuthLink,
-  UsersAuthConnectResult,
-  UsersAuthConnectStartResult,
-  UsersLinkAuthProfileResult,
-  UsersListAuthLinksResult,
   UsersPrefsGetResult,
   UsersPrefsSetResult,
   UsersSelfResult,
   UsersSetAvatarResult,
   UsersSetDisplayNameResult,
-  UsersUnlinkAuthProfileResult,
 } from "../../../../packages/gateway-protocol/src/index.ts";
 import {
   GIT_COAUTHOR_PREFERENCE_KEY,
@@ -27,7 +21,7 @@ import {
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
 import { resolveControlUiAuthCandidates } from "../../app/control-ui-auth.ts";
-import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
+import { hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import type { AuthenticatedUser } from "../../app/user-profile.ts";
 import { resolveCurrentSelfUser } from "../../app/user-profile.ts";
 import {
@@ -47,8 +41,9 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { PROFILE_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import { processProfileAvatar, ProfileAvatarError } from "./avatar-processing.ts";
 import "../../styles/profile.css";
+import "../../features/github-connections/github-connections.ts";
 import { renderIdentitySection } from "./identity-section.ts";
-import { renderModelAccountsSection } from "./model-accounts-section.ts";
+import "./model-accounts.ts";
 import { userProfileAvatarUrl } from "./profile-avatar-url.ts";
 import { renderProfileHero } from "./profile-hero.ts";
 
@@ -69,27 +64,16 @@ export class ProfilePage extends OpenClawLightDomElement {
   @state() private identityLoading = false;
   @state() private identityBusy: "display-name" | "avatar" | "git-coauthor" | null = null;
   @state() private identityError: string | null = null;
-  @state() private authLinks: UserProfileAuthLink[] | null = null;
-  @state() private authLinkBusy = false;
-  @state() private authLinkError: string | null = null;
-  @state() private authLinkDraft = "";
-  @state() private connectFlow: { connectId: string; url: string; autoCallback: boolean } | null =
-    null;
-  @state() private connectRedirectDraft = "";
-  @state() private claudeTokenDraft = "";
   @state() private failedHeroAvatarUrl: string | null = null;
 
   private client: GatewayBrowserClient | null = null;
   private connected = false;
   private canWrite = false;
-  private canAdmin = false;
   private heroAvatarAuthCandidates: string[] = [];
   private heroAvatarAuthReady = false;
   private readonly heroAvatarLoader = new AuthenticatedAvatarRouteLoader(this);
   private identityRequestId = 0;
   private subscriptions: Array<() => void> = [];
-  private connectPollTimer: ReturnType<typeof setInterval> | null = null;
-  private connectPrevLinkUpdatedAt: number | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -106,7 +90,6 @@ export class ProfilePage extends OpenClawLightDomElement {
       unsubscribe();
     }
     this.subscriptions = [];
-    this.stopConnectPoll();
     this.identityRequestId += 1;
     this.heroAvatarAuthCandidates = [];
     this.heroAvatarAuthReady = false;
@@ -137,7 +120,6 @@ export class ProfilePage extends OpenClawLightDomElement {
     const clientChanged = snapshot.client !== this.client;
     const nextConnected = snapshot.phase === "connected";
     const nextCanWrite = nextConnected && hasOperatorWriteAccess(snapshot.hello?.auth ?? null);
-    this.canAdmin = nextConnected && hasOperatorAdminAccess(snapshot.hello?.auth ?? null);
     const writeAccessChanged = nextCanWrite !== this.canWrite;
     const connectionChanged = nextConnected !== this.connected;
     const nextSelfUser = nextConnected
@@ -162,14 +144,6 @@ export class ProfilePage extends OpenClawLightDomElement {
       this.identityLoading = false;
       this.identityBusy = null;
       this.identityError = null;
-      this.authLinks = null;
-      this.authLinkBusy = false;
-      this.authLinkError = null;
-      this.authLinkDraft = "";
-      this.stopConnectPoll();
-      this.connectFlow = null;
-      this.connectRedirectDraft = "";
-      this.claudeTokenDraft = "";
     }
     if (!nextConnected || !snapshot.client) {
       return;
@@ -210,7 +184,6 @@ export class ProfilePage extends OpenClawLightDomElement {
       this.ownProfile = profile;
       this.displayName = hasUnsavedDisplayName ? displayNameDraft : (profile.displayName ?? "");
       this.gitCoauthorEnabled = true;
-      void this.loadAuthLinks(client, requestId, profile.id);
       if (profile.githubIdentity) {
         const preferences = await client.request<UsersPrefsGetResult>("users.prefs.get", {
           keys: [GIT_COAUTHOR_PREFERENCE_KEY],
@@ -236,83 +209,6 @@ export class ProfilePage extends OpenClawLightDomElement {
   private applyOwnProfile(profile: UserProfile) {
     this.ownProfile = profile;
     this.displayName = profile.displayName ?? "";
-  }
-
-  private async loadAuthLinks(client: GatewayBrowserClient, requestId: number, profileId: string) {
-    try {
-      const result = await client.request<UsersListAuthLinksResult>("users.listAuthLinks", {
-        profileId,
-      });
-      if (client !== this.client || requestId !== this.identityRequestId) {
-        return;
-      }
-      this.authLinks = result.links;
-      this.authLinkError = null;
-    } catch (error) {
-      if (client === this.client && requestId === this.identityRequestId) {
-        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
-      }
-    }
-  }
-
-  private async linkAuthProfile() {
-    const client = this.client;
-    const profile = this.ownProfile;
-    const authProfileId = this.authLinkDraft.trim();
-    if (!client || !profile || !this.canWrite || this.authLinkBusy || !authProfileId) {
-      return;
-    }
-    this.authLinkBusy = true;
-    this.authLinkError = null;
-    const identityRequestId = this.identityRequestId;
-    try {
-      const result = await client.request<UsersLinkAuthProfileResult>("users.linkAuthProfile", {
-        profileId: profile.id,
-        authProfileId,
-      });
-      if (client !== this.client || identityRequestId !== this.identityRequestId) {
-        return;
-      }
-      this.authLinks = result.links;
-      this.authLinkDraft = "";
-    } catch (error) {
-      if (client === this.client && identityRequestId === this.identityRequestId) {
-        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
-      }
-    } finally {
-      if (identityRequestId === this.identityRequestId) {
-        this.authLinkBusy = false;
-      }
-    }
-  }
-
-  private async unlinkAuthProfile(provider: string) {
-    const client = this.client;
-    const profile = this.ownProfile;
-    if (!client || !profile || !this.canWrite || this.authLinkBusy) {
-      return;
-    }
-    this.authLinkBusy = true;
-    this.authLinkError = null;
-    const identityRequestId = this.identityRequestId;
-    try {
-      const result = await client.request<UsersUnlinkAuthProfileResult>("users.unlinkAuthProfile", {
-        profileId: profile.id,
-        provider,
-      });
-      if (client !== this.client || identityRequestId !== this.identityRequestId) {
-        return;
-      }
-      this.authLinks = result.links;
-    } catch (error) {
-      if (client === this.client && identityRequestId === this.identityRequestId) {
-        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
-      }
-    } finally {
-      if (identityRequestId === this.identityRequestId) {
-        this.authLinkBusy = false;
-      }
-    }
   }
 
   private async saveDisplayName() {
@@ -513,155 +409,14 @@ export class ProfilePage extends OpenClawLightDomElement {
     });
   }
 
-  private async runModelAccountAction(action: (profileId: string) => Promise<void>) {
-    const client = this.client;
-    const profile = this.ownProfile;
-    if (!client || !profile || !this.canWrite || this.authLinkBusy) {
-      return;
-    }
-    this.authLinkBusy = true;
-    this.authLinkError = null;
-    const identityRequestId = this.identityRequestId;
-    try {
-      await action(profile.id);
-    } catch (error) {
-      if (client === this.client && identityRequestId === this.identityRequestId) {
-        this.authLinkError = formatUiError(error, t("profilePage.modelAccounts.loadFailed"));
-      }
-    } finally {
-      if (identityRequestId === this.identityRequestId) {
-        this.authLinkBusy = false;
-      }
-    }
-  }
-
-  private startOpenAIConnect() {
-    return this.runModelAccountAction(async (profileId) => {
-      const result = await this.client!.request<UsersAuthConnectStartResult>(
-        "users.authConnect.start",
-        { profileId, provider: "openai" },
-      );
-      this.connectFlow = {
-        connectId: result.connectId,
-        url: result.url,
-        autoCallback: result.autoCallback === true,
-      };
-      this.connectRedirectDraft = "";
-      this.connectPrevLinkUpdatedAt =
-        (this.authLinks ?? []).find((link) => link.provider === "openai")?.updatedAt ?? null;
-      if (this.connectFlow.autoCallback) {
-        this.startConnectPoll();
-      }
-    });
-  }
-
-  // The gateway completes local sign-ins through its loopback callback; the
-  // page discovers that by watching the person's links until they change.
-  private startConnectPoll() {
-    this.stopConnectPoll();
-    this.connectPollTimer = setInterval(() => void this.pollConnectCompletion(), 2000);
-  }
-
-  private stopConnectPoll() {
-    if (this.connectPollTimer !== null) {
-      clearInterval(this.connectPollTimer);
-      this.connectPollTimer = null;
-    }
-  }
-
-  private async pollConnectCompletion() {
-    const client = this.client;
-    const profile = this.ownProfile;
-    if (!client || !profile || !this.connectFlow) {
-      this.stopConnectPoll();
-      return;
-    }
-    try {
-      const result = await client.request<UsersListAuthLinksResult>("users.listAuthLinks", {
-        profileId: profile.id,
-      });
-      if (client !== this.client || !this.connectFlow) {
-        return;
-      }
-      const openai = result.links.find((link) => link.provider === "openai");
-      if (openai && openai.updatedAt !== this.connectPrevLinkUpdatedAt) {
-        this.authLinks = result.links;
-        this.stopConnectPoll();
-        this.connectFlow = null;
-        this.connectRedirectDraft = "";
-      }
-    } catch {
-      // Transient poll failures resolve on the next tick or via manual paste.
-    }
-  }
-
-  private completeOpenAIConnect() {
-    const flow = this.connectFlow;
-    const redirectInput = this.connectRedirectDraft.trim();
-    if (!flow || !redirectInput) {
-      return;
-    }
-    void this.runModelAccountAction(async (profileId) => {
-      const result = await this.client!.request<UsersAuthConnectResult>(
-        "users.authConnect.complete",
-        { profileId, connectId: flow.connectId, redirectInput },
-      );
-      this.authLinks = result.links;
-      this.stopConnectPoll();
-      this.connectFlow = null;
-      this.connectRedirectDraft = "";
-    });
-  }
-
-  private connectClaudeToken() {
-    const token = this.claudeTokenDraft.trim();
-    if (!token) {
-      return;
-    }
-    void this.runModelAccountAction(async (profileId) => {
-      const result = await this.client!.request<UsersAuthConnectResult>("users.authConnect.token", {
-        profileId,
-        provider: "anthropic",
-        token,
-      });
-      this.authLinks = result.links;
-      this.claudeTokenDraft = "";
-    });
-  }
-
   private renderModelAccounts() {
     if (!this.selfUser || !this.canWrite || !this.ownProfile) {
       return nothing;
     }
-    return renderModelAccountsSection({
-      links: this.authLinks ?? [],
-      showManualLink: this.canAdmin,
-      busy: this.authLinkBusy,
-      error: this.authLinkError,
-      linkDraft: this.authLinkDraft,
-      connectFlow: this.connectFlow,
-      connectRedirectDraft: this.connectRedirectDraft,
-      claudeTokenDraft: this.claudeTokenDraft,
-      onLinkDraftInput: (value) => {
-        this.authLinkDraft = value;
-      },
-      onLink: () => void this.linkAuthProfile(),
-      onUnlink: (provider) => void this.unlinkAuthProfile(provider),
-      onConnectStart: () => void this.startOpenAIConnect(),
-      onConnectRedirectInput: (value) => {
-        this.connectRedirectDraft = value;
-      },
-      onConnectComplete: () => this.completeOpenAIConnect(),
-      onConnectCancel: () => {
-        this.stopConnectPoll();
-        this.connectFlow = null;
-        this.connectRedirectDraft = "";
-      },
-      onClaudeTokenInput: (value) => {
-        this.claudeTokenDraft = value;
-      },
-      onClaudeConnect: () => this.connectClaudeToken(),
-    });
+    return html`<openclaw-model-accounts
+      .identityId=${this.selfUser.id}
+      .profileId=${this.ownProfile.id}
+    ></openclaw-model-accounts>`;
   }
 
   private refreshManually() {
@@ -695,6 +450,7 @@ export class ProfilePage extends OpenClawLightDomElement {
     }
     return renderSettingsPage(html`
       ${this.renderHero()} ${this.renderIdentity()} ${this.renderModelAccounts()}
+      <openclaw-github-connections></openclaw-github-connections>
       ${renderSettingsGroup(
         renderSettingsNavRow({
           title: t("profilePage.usageStatistics"),

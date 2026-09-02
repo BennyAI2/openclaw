@@ -1,6 +1,8 @@
-// Model accounts section: per-person OAuth connect and auth-profile linking.
 import { html } from "lit";
-import type { UserProfileAuthLink } from "../../../../packages/gateway-protocol/src/index.ts";
+import type {
+  UserProfileAuthLink,
+  UsersAuthConnectStartResult,
+} from "../../../../packages/gateway-protocol/src/index.ts";
 import {
   renderSettingsEmpty,
   renderSettingsRow,
@@ -15,9 +17,12 @@ export type ModelAccountsSectionProps = {
   /** Linking an arbitrary stored credential is operator.admin-only server-side. */
   showManualLink: boolean;
   busy: boolean;
+  cancelBusy: boolean;
   error: string | null;
+  notice: string | null;
+  statusUnavailable: boolean;
   linkDraft: string;
-  connectFlow: { connectId: string; url: string; autoCallback: boolean } | null;
+  connectFlow: (UsersAuthConnectStartResult & { status: "pending" | "exchanging" }) | null;
   connectRedirectDraft: string;
   claudeTokenDraft: string;
   onLinkDraftInput: (value: string) => void;
@@ -27,6 +32,7 @@ export type ModelAccountsSectionProps = {
   onConnectRedirectInput: (value: string) => void;
   onConnectComplete: () => void;
   onConnectCancel: () => void;
+  onConnectCheck: () => void;
   onClaudeTokenInput: (value: string) => void;
   onClaudeConnect: () => void;
 };
@@ -126,17 +132,31 @@ function renderChatgptFlow(props: ModelAccountsSectionProps) {
           </button>
           <button
             type="button"
-            class="btn btn--sm"
-            ?disabled=${props.busy}
+            class="btn btn--sm profile-auth-connect-cancel"
+            ?disabled=${props.cancelBusy}
             @click=${() => props.onConnectCancel()}
           >
             ${t("profilePage.modelAccounts.cancelAction")}
           </button>
         </form>
-        ${flow.autoCallback
+        ${flow.autoCallback || flow.status === "exchanging"
           ? html`<span class="model-accounts-hint" aria-live="polite">
-              ${t("profilePage.modelAccounts.waitingHint")}
+              ${t(
+                flow.status === "exchanging"
+                  ? "profilePage.modelAccounts.exchangingHint"
+                  : "profilePage.modelAccounts.waitingHint",
+              )}
             </span>`
+          : ""}
+        ${props.statusUnavailable
+          ? html`<button
+              type="button"
+              class="btn btn--sm profile-auth-connect-check"
+              ?disabled=${props.cancelBusy}
+              @click=${() => props.onConnectCheck()}
+            >
+              ${t("profilePage.modelAccounts.checkStatusAction")}
+            </button>`
           : ""}
       </div>
     `,
@@ -197,7 +217,9 @@ export function renderModelAccountsSection(props: ModelAccountsSectionProps) {
         >
           <input
             class="settings-input profile-auth-connect-claude"
-            type="text"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
             aria-label=${t("profilePage.modelAccounts.connectClaude")}
             .value=${props.claudeTokenDraft}
             placeholder=${t("profilePage.modelAccounts.claudeTokenPlaceholder")}
@@ -215,6 +237,11 @@ export function renderModelAccountsSection(props: ModelAccountsSectionProps) {
       `,
     })}
     ${props.showManualLink ? renderManualLinkRow(props) : ""}
+    ${props.notice
+      ? html`<div class="settings-row model-accounts-notice" role="status">
+          <span class="settings-row__desc">${props.notice}</span>
+        </div>`
+      : ""}
     ${props.error
       ? html`<div class="settings-row model-accounts-error" role="alert">
           <span class="settings-row__desc">${props.error}</span>

@@ -8,6 +8,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { readNonBlankString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { coerceSecretRef } from "../../config/types.secrets.js";
+import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import { asBoolean } from "../../utils/boolean.js";
 import { AUTH_STORE_VERSION, authProfilesLog } from "./constants.js";
 import { hasUsableOAuthCredential } from "./credential-state.js";
@@ -21,6 +22,7 @@ import {
 } from "./oauth-shared.js";
 import {
   getRuntimeExternalCliProfileIds,
+  removePersonalAuthProfileReferences,
   setRuntimeExternalCliProfileIds,
 } from "./runtime-external-profile-references.js";
 import {
@@ -756,6 +758,9 @@ export function buildPersistedAuthProfileSecretsStore(
 ): AuthProfileSecretsStore {
   const profiles = Object.fromEntries(
     Object.entries(store.profiles).flatMap(([profileId, credential]) => {
+      if (isUserModelAuthProfileId(profileId)) {
+        return [];
+      }
       if (shouldPersistProfile && !shouldPersistProfile({ profileId, credential })) {
         return [];
       }
@@ -797,10 +802,10 @@ function mergePersistedAuthProfileState(
   if (!store) {
     return null;
   }
-  return {
+  return removePersonalAuthProfileReferences({
     ...store,
     ...mergeAuthProfileState(coerceAuthProfileState(raw), coerceAuthProfileState(readState())),
-  };
+  });
 }
 
 /** Loads the persisted auth profile store and merges runtime state. */

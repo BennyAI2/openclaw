@@ -48,34 +48,38 @@ async function dispatchPendingProfileMethod(params: {
 }
 
 describe("Gateway pending-profile authorization", () => {
-  it("waits for immutable profile attachment before profile-dependent dispatch", async () => {
-    const deferred = createDeferredCore<{ profileId: string; updatedAt: number }>();
-    const client = createPendingProfileClient();
-    client.authenticatedGitHubIdentitySync = vi.fn(async () => await deferred.promise);
-    const handler = vi.fn<GatewayRequestHandler>(({ respond }) => respond(true, { ok: true }));
+  it.each(["chat.send", "models.list"])(
+    "waits for immutable profile attachment before %s dispatch",
+    async (method) => {
+      const deferred = createDeferredCore<{ profileId: string; updatedAt: number }>();
+      const client = createPendingProfileClient();
+      client.authenticatedGitHubIdentitySync = vi.fn(async () => await deferred.promise);
+      const handler = vi.fn<GatewayRequestHandler>(({ respond }) => respond(true, { ok: true }));
 
-    const request = dispatchPendingProfileMethod({
-      client,
-      handler,
-      method: "chat.send",
-      // chat.send requires a session target at the protocol level; the mutation
-      // pipeline rejects targetless frames before profile-dependent dispatch.
-      requestParams: { sessionKey: "agent:main:main" },
-    });
-    await Promise.resolve();
-    expect(handler).not.toHaveBeenCalled();
+      const request = dispatchPendingProfileMethod({
+        client,
+        handler,
+        method,
+        // chat.send requires a session target at the protocol level; the mutation
+        // pipeline rejects targetless frames before profile-dependent dispatch.
+        requestParams:
+          method === "chat.send" ? { sessionKey: "agent:main:main" } : { agentId: "main" },
+      });
+      await Promise.resolve();
+      expect(handler).not.toHaveBeenCalled();
 
-    client.authenticatedUserProfile = {
-      profileId: "profile-canonical",
-      displayName: "Canonical",
-      hasAvatar: false,
-      updatedAt: 1,
-    };
-    deferred.resolve({ profileId: "profile-canonical", updatedAt: 1 });
+      client.authenticatedUserProfile = {
+        profileId: "profile-canonical",
+        displayName: "Canonical",
+        hasAvatar: false,
+        updatedAt: 1,
+      };
+      deferred.resolve({ profileId: "profile-canonical", updatedAt: 1 });
 
-    await expect(request).resolves.toHaveBeenCalledWith(true, { ok: true });
-    expect(handler).toHaveBeenCalledOnce();
-  });
+      await expect(request).resolves.toHaveBeenCalledWith(true, { ok: true });
+      expect(handler).toHaveBeenCalledOnce();
+    },
+  );
 
   it("returns retryable unavailability without dispatch and retries on the next request", async () => {
     const client = createPendingProfileClient();
@@ -124,6 +128,7 @@ describe("Gateway pending-profile authorization", () => {
       "exec.approval.resolve",
       "mcp.app.view",
       "message.action",
+      "models.list",
       "openclaw.chat",
       "plugin.approval.resolve",
       "projects.list",
@@ -132,6 +137,11 @@ describe("Gateway pending-profile authorization", () => {
       "sessions.list",
       "taskSuggestions.list",
       "tasks.list",
+      "users.github.status",
+      "users.github.authorize.start",
+      "users.github.authorize.poll",
+      "users.github.authorize.cancel",
+      "users.github.disconnect",
     ];
     for (const method of methods) {
       const client = createPendingProfileClient();

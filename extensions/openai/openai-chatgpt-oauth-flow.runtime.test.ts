@@ -24,6 +24,7 @@ import {
   type LookupFn,
   type SsrFPolicy,
 } from "openclaw/plugin-sdk/ssrf-runtime";
+import { createModelAccountAuthorization } from "./model-account-authorization.js";
 import {
   createOpenAIAuthorizationFlow,
   resolveOpenAICallbackHost,
@@ -336,6 +337,13 @@ describe("OpenAI Codex OAuth flow", () => {
       type: "failed",
       message: "Login cancelled",
     });
+
+    const authorization = await createModelAccountAuthorization();
+    await expect(authorization.exchange("code", controller.signal)).resolves.toEqual({
+      status: "failed",
+      reason: "exchange",
+    });
+    expect(ssrfMocks.fetchWithSsrFGuard).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe token exchange lifetimes", async () => {
@@ -434,6 +442,77 @@ describe("OpenAI Codex OAuth flow", () => {
     expect(ssrfMocks.fetchWithSsrFGuard).toHaveBeenCalledWith(
       expect.objectContaining({ timeoutMs: 30_000 }),
     );
+  });
+});
+
+describe("OpenAI model-account credential ownership", () => {
+  it.each([
+    { name: "same user and workspace", accountId: "workspace-1", userId: "user-1", matches: true },
+    {
+      name: "another workspace member",
+      accountId: "workspace-1",
+      userId: "user-2",
+      matches: false,
+    },
+    {
+      name: "the same user in another workspace",
+      accountId: "workspace-2",
+      userId: "user-1",
+      matches: false,
+    },
+    { name: "missing user claims", accountId: "workspace-1", userId: undefined, matches: false },
+  ])(
+    "matches $name from token claims, never email or stored workspace metadata",
+    async ({ accountId, userId, matches }) => {
+      const access = fakeJwt({
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "workspace-1",
+          chatgpt_user_id: "user-1",
+        },
+        "https://api.openai.com/profile": { email: "same@example.test" },
+      });
+      mockTokenResponse({
+        access_token: access,
+        refresh_token: "synthetic-refresh",
+        expires_in: 3600,
+      });
+      const authorization = await createModelAccountAuthorization();
+      const result = await authorization.exchange("synthetic-code", new AbortController().signal);
+      if (result.status !== "authorized") {
+        throw new Error("Expected an authorized model-account credential.");
+      }
+      expect(
+        result.matchesCredential({
+          ...result.credential,
+          // Deliberately identical metadata must not substitute for the actual token identity.
+          accountId: "workspace-1",
+          access: fakeJwt({
+            "https://api.openai.com/auth": {
+              chatgpt_account_id: accountId,
+              chatgpt_user_id: userId,
+            },
+            "https://api.openai.com/profile": { email: "same@example.test" },
+          }),
+        }),
+      ).toBe(matches);
+    },
+  );
+
+  it("accepts a first connection without a user claim but refuses to replace any prior credential", async () => {
+    mockTokenResponse({
+      access_token: fakeJwt({
+        "https://api.openai.com/auth": { chatgpt_account_id: "workspace-1" },
+      }),
+      refresh_token: "synthetic-refresh",
+      expires_in: 3600,
+    });
+    const authorization = await createModelAccountAuthorization();
+    const result = await authorization.exchange("synthetic-code", new AbortController().signal);
+    if (result.status !== "authorized") {
+      throw new Error("Expected an authorized first connection.");
+    }
+    expect(result.credential.accountId).toBe("workspace-1");
+    expect(result.matchesCredential(result.credential)).toBe(false);
   });
 });
 

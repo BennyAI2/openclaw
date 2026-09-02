@@ -62,11 +62,9 @@ To reduce that, OpenClaw treats the auth profile store as a **token sink**:
 
 ## Storage (where tokens live)
 
-Secrets and auth-routing state live in each agent's canonical SQLite database:
+Shared model credentials live in `~/.openclaw/state/openclaw.sqlite`, in the `authProfiles.store` and `authProfiles.state` entries of `config_machine_state`. Agent-local overrides live in `~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite`, in `auth_profile_store` and `auth_profile_state`.
 
-- `~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite`
-- Credential rows: `auth_profile_store`
-- Order, last-good, cooldown, and usage rows: `auth_profile_state`
+Personal accounts connected from Profile use private identity-scoped records in the shared state database: `model-accounts` owns the selected links, and each credential has its own `model-account:<profile-id>` record containing its secret and usage state. Only an explicitly selected personal profile is loaded for a run; ordinary shared-account reads and defaults never enumerate these records. Personal OAuth refresh uses the same refresh manager, writing back to the identity owner rather than a shared or agent-local store.
 
 Older installations may still contain `auth-profiles.json`, `auth-state.json`,
 per-agent `auth.json`, or shared `credentials/oauth.json`. Run
@@ -92,8 +90,8 @@ The database and migration sources respect `$OPENCLAW_STATE_DIR`. Full reference
 For static secret refs and runtime snapshot activation behavior, see [Secrets Management](/gateway/secrets).
 
 When a secondary agent has no local auth profile, OpenClaw uses read-through
-inheritance from the default/main agent store; it does not clone the main
-agent's store on read. OAuth refresh tokens are especially sensitive: normal
+inheritance from the shared auth store; it does not clone that store on read.
+OAuth refresh tokens are especially sensitive: normal
 copy flows skip them by default because some providers rotate or invalidate
 refresh tokens after use. Configure a separate OAuth login for an agent when
 it needs an independent account.
@@ -127,7 +125,7 @@ and [Z.AI / GLM Coding Plan](/providers/zai).
 
 ## OAuth exchange (how login works)
 
-OpenClaw's interactive login flows are implemented in `openclaw/plugin-sdk/llm.ts` and wired into the wizards/commands.
+OpenClaw's OAuth registry and adapters live in `src/llm/utils/oauth/`. Shared provider helpers live in `src/plugin-sdk/provider-oauth-runtime.ts` and `src/plugin-sdk/provider-auth-runtime.ts`. The auth commands in `src/commands/models/auth.ts` run the selected provider method and persist the returned profiles.
 
 ### Anthropic setup-token
 
@@ -177,8 +175,8 @@ Profiles store an `expires` timestamp. At runtime:
 
 - if `expires` is in the future, use the stored access token
 - if expired, refresh (under a file lock) and overwrite the stored credentials
-- if a secondary agent reads an inherited main-agent OAuth profile, the
-  refresh writes back to the main agent store instead of copying the refresh
+- if a secondary agent reads an inherited shared OAuth profile, the
+  refresh writes back to the shared store instead of copying the refresh
   token into the secondary agent store
 - externally managed CLI credentials (Claude CLI, narrow Codex CLI bootstrap;
   see [The token sink](#the-token-sink-why-it-exists)) are re-read instead of
@@ -190,7 +188,7 @@ The refresh flow is automatic; you generally do not need to manage tokens manual
 
 ## Multiple accounts (profiles) + routing
 
-Two patterns:
+Three patterns:
 
 ### 1) Preferred: separate agents
 
@@ -219,7 +217,9 @@ Example (session override):
 
 On a shared gateway, each teammate can link one profile per provider to their
 Gateway profile (**Settings → Profile → Model accounts**). Sessions a linked
-person starts are pinned to their account automatically. See
+person starts prefer their account automatically, while ordered shared accounts
+remain same-provider failover candidates. Personal credentials stay outside the
+shared profile list below. See
 [Per-person model accounts](/concepts/multi-user#per-person-model-accounts).
 
 List existing profile IDs with:
