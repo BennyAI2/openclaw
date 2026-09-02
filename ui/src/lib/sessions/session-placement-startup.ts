@@ -109,13 +109,9 @@ async function readPlacement(
 
 async function reclaimSessionPlacement(
   client: Pick<GatewayBrowserClient, "request">,
-  params: { key: string; agentId: string; abortRun: boolean },
+  params: { key: string; agentId: string },
 ): Promise<string | undefined> {
-  if (params.abortRun) {
-    await client
-      .request("sessions.abort", { key: params.key, agentId: params.agentId })
-      .catch(() => undefined);
-  }
+  // Reclaim owns cancellation, terminal persistence, and draining before workspace teardown.
   try {
     await client.request("sessions.reclaim", { key: params.key, agentId: params.agentId });
     return undefined;
@@ -153,11 +149,7 @@ async function resolveActivePlacement(
         if (!params.cleanupOnCancellation() && submissionCancelled) {
           return { status: "interrupted" };
         }
-        const cleanupError = await reclaimSessionPlacement(client, {
-          key: params.key,
-          agentId: params.agentId,
-          abortRun: false,
-        });
+        const cleanupError = await reclaimSessionPlacement(client, params);
         if (submissionCancelled) {
           return cleanupError
             ? { status: "cleanup-rejected", error: cleanupError }
@@ -194,11 +186,7 @@ async function resolveActivePlacement(
         if (!params.cleanupOnCancellation()) {
           return { status: "interrupted" };
         }
-        const cleanupError = await reclaimSessionPlacement(client, {
-          key: params.key,
-          agentId: params.agentId,
-          abortRun: false,
-        });
+        const cleanupError = await reclaimSessionPlacement(client, params);
         return cleanupError
           ? { status: "cleanup-rejected", error: cleanupError }
           : { status: "cancelled" };
@@ -206,11 +194,7 @@ async function resolveActivePlacement(
         return { status: "active", placement };
       } else if (placement && !PENDING_PLACEMENT_STATES.has(placement.state)) {
         if (placement.state === "failed") {
-          const cleanupError = await reclaimSessionPlacement(client, {
-            key: params.key,
-            agentId: params.agentId,
-            abortRun: false,
-          });
+          const cleanupError = await reclaimSessionPlacement(client, params);
           if (cleanupError) {
             return { status: "cleanup-rejected", error: cleanupError };
           }
@@ -226,11 +210,7 @@ async function resolveActivePlacement(
     return { status: "interrupted" };
   }
   if (!isCurrent()) {
-    const cleanupError = await reclaimSessionPlacement(client, {
-      key: params.key,
-      agentId: params.agentId,
-      abortRun: false,
-    });
+    const cleanupError = await reclaimSessionPlacement(client, params);
     return cleanupError
       ? { status: "cleanup-rejected", error: cleanupError }
       : { status: "cancelled" };
@@ -332,7 +312,7 @@ export async function deleteRecoveredSessionPlacementDraft(
     return "session placement could not be verified";
   }
   if (existing.placement) {
-    const cleanupError = await reclaimSessionPlacement(client, { key, agentId, abortRun: false });
+    const cleanupError = await reclaimSessionPlacement(client, { key, agentId });
     if (cleanupError) {
       return cleanupError;
     }
@@ -446,11 +426,7 @@ export async function startSessionPlacementInitialTurn(
     if (!cleanupOnCancellation()) {
       return { status: "interrupted" };
     }
-    const cleanupError = await reclaimSessionPlacement(client, {
-      key: params.key,
-      agentId: params.agentId,
-      abortRun: false,
-    });
+    const cleanupError = await reclaimSessionPlacement(client, params);
     if (cleanupError) {
       return { status: "cleanup-rejected", error: cleanupError };
     }
@@ -461,11 +437,7 @@ export async function startSessionPlacementInitialTurn(
     error: string,
     status: "send-not-started" | "send-definitive-rejected",
   ): Promise<SessionPlacementStartOutcome> => {
-    const cleanupError = await reclaimSessionPlacement(client, {
-      key: params.key,
-      agentId: params.agentId,
-      abortRun: false,
-    });
+    const cleanupError = await reclaimSessionPlacement(client, params);
     return {
       status,
       messageId,
@@ -488,11 +460,7 @@ export async function startSessionPlacementInitialTurn(
       if (!cleanupOnCancellation()) {
         return { status: "interrupted" };
       }
-      const cleanupError = await reclaimSessionPlacement(client, {
-        key: params.key,
-        agentId: params.agentId,
-        abortRun: true,
-      });
+      const cleanupError = await reclaimSessionPlacement(client, params);
       return cleanupError
         ? { status: "cleanup-rejected", error: cleanupError, messageId }
         : { status: "cancelled" };
@@ -513,11 +481,7 @@ export async function startSessionPlacementInitialTurn(
       if (!cleanupOnCancellation()) {
         return { status: "interrupted" };
       }
-      const cleanupError = await reclaimSessionPlacement(client, {
-        key: params.key,
-        agentId: params.agentId,
-        abortRun: true,
-      });
+      const cleanupError = await reclaimSessionPlacement(client, params);
       return cleanupError
         ? { status: "cleanup-rejected", error: cleanupError, messageId }
         : { status: "cancelled" };

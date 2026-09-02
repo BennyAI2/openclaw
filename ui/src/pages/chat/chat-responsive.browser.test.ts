@@ -1937,13 +1937,15 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
   });
 
   it.each([
-    [1200, 800, "desktop"],
-    [320, 568, "mobile-320"],
-    [375, 812, "mobile-375"],
-    [430, 932, "mobile-430"],
+    [1200, 800, "desktop", "overlay"],
+    [900, 500, "mobile-landscape-900", "inline"],
+    [640, 900, "mobile-responsive-640", "overlay"],
+    [320, 568, "mobile-320", "overlay"],
+    [375, 812, "mobile-375", "overlay"],
+    [430, 932, "mobile-430", "overlay"],
   ] as const)(
     "keeps floating notices below menus and clear of mobile chrome without shifting the %s transcript layout",
-    async (width, height, label) => {
+    async (width, height, label, menuPlacement) => {
       const page = await openBrowserPage(width, height);
       try {
         await page.setContent(`<!doctype html><html><head><style>${readUiCss()}</style></head><body style="margin:0;height:100vh;overflow:hidden">
@@ -1987,15 +1989,32 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
                 width: bounds.width,
               };
             };
+            const composer = document
+              .querySelector<HTMLElement>(".agent-chat__composer-shell")!
+              .getBoundingClientRect();
+            const thread = document
+              .querySelector<HTMLElement>(".chat-thread")!
+              .getBoundingClientRect();
+            const fade = getComputedStyle(
+              document.querySelector<HTMLElement>(".agent-chat__composer-shell")!,
+              "::before",
+            );
             return {
               composer: rect(".agent-chat__composer-shell"),
               conversation: rect(".chat-main__conversation"),
+              fadeInsetLeft: composer.left + Number.parseFloat(fade.left) - thread.left,
+              fadeInsetRight: thread.right - (composer.right - Number.parseFloat(fade.right)),
+              scrollbarSize: Number.parseFloat(
+                getComputedStyle(document.documentElement).getPropertyValue("--scrollbar-size"),
+              ),
               thread: rect(".chat-thread"),
             };
           });
         expect(await page.locator(".chat-topbar-notices").isVisible()).toBe(false);
         expect(await page.locator(".agent-chat__composer-overlay").isVisible()).toBe(false);
         const before = await geometry();
+        expect(before.fadeInsetLeft).toBeGreaterThanOrEqual(before.scrollbarSize);
+        expect(before.fadeInsetRight).toBeGreaterThanOrEqual(before.scrollbarSize);
         await page.locator(".chat-topbar-notices").evaluate((node) => {
           node.innerHTML =
             '<div class="chat-composer-neighbor-card chat-cloud-disk-space-notice">Disk space low</div>';
@@ -2073,35 +2092,64 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         const option = page.getByRole("option");
         const optionBounds = await getBoundingBox(page, ".slash-menu-item");
         const noticeBounds = await getBoundingBox(page, ".chat-error");
-        expect(rectsOverlap(optionBounds, noticeBounds)).toBe(true);
-        const overlapPoint = {
-          x:
-            (Math.max(optionBounds.x, noticeBounds.x) +
-              Math.min(optionBounds.x + optionBounds.width, noticeBounds.x + noticeBounds.width)) /
-            2,
-          y:
-            (Math.max(optionBounds.y, noticeBounds.y) +
-              Math.min(
-                optionBounds.y + optionBounds.height,
-                noticeBounds.y + noticeBounds.height,
-              )) /
-            2,
-        };
+        expect(
+          await page.locator(".slash-menu").evaluate((node) => getComputedStyle(node).position),
+        ).toBe(menuPlacement === "inline" ? "sticky" : "absolute");
+        let optionPoint: { x: number; y: number };
+        if (menuPlacement === "inline") {
+          // Short landscape keeps the menu inside the input; notices remain above it.
+          const inputBounds = await getBoundingBox(page, ".agent-chat__input");
+          expect(rectsOverlap(optionBounds, noticeBounds)).toBe(false);
+          expect(noticeBounds.y + noticeBounds.height).toBeLessThanOrEqual(optionBounds.y);
+          expect(optionBounds.y).toBeGreaterThanOrEqual(inputBounds.y);
+          expect(optionBounds.y + optionBounds.height).toBeLessThanOrEqual(
+            inputBounds.y + inputBounds.height,
+          );
+          optionPoint = {
+            x: optionBounds.x + optionBounds.width / 2,
+            y: optionBounds.y + optionBounds.height / 2,
+          };
+        } else {
+          expect(rectsOverlap(optionBounds, noticeBounds)).toBe(true);
+          optionPoint = {
+            x:
+              (Math.max(optionBounds.x, noticeBounds.x) +
+                Math.min(
+                  optionBounds.x + optionBounds.width,
+                  noticeBounds.x + noticeBounds.width,
+                )) /
+              2,
+            y:
+              (Math.max(optionBounds.y, noticeBounds.y) +
+                Math.min(
+                  optionBounds.y + optionBounds.height,
+                  noticeBounds.y + noticeBounds.height,
+                )) /
+              2,
+          };
+        }
         expect(
           await option.evaluate((node, point) => {
             const hit = document.elementFromPoint(point.x, point.y);
             return node.contains(hit) ? "option" : hit?.className;
-          }, overlapPoint),
+          }, optionPoint),
         ).toBe("option");
-        await page.mouse.click(overlapPoint.x, overlapPoint.y);
+        await page.mouse.click(optionPoint.x, optionPoint.y);
         expect(await option.getAttribute("data-selected")).toBe("true");
         await page.locator(".slash-menu").evaluate((node) => node.remove());
+        const noticePoint =
+          menuPlacement === "inline"
+            ? {
+                x: noticeBounds.x + noticeBounds.width / 2,
+                y: noticeBounds.y + noticeBounds.height / 2,
+              }
+            : optionPoint;
         expect(
           await page
             .locator(".chat-error")
             .evaluate(
               (node, point) => node.contains(document.elementFromPoint(point.x, point.y)),
-              overlapPoint,
+              noticePoint,
             ),
         ).toBe(true);
         const artifactDir = process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR?.trim();
