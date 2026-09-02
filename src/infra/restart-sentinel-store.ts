@@ -7,6 +7,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "./kysely-sync.js";
+import { updateRecoverySchema, type UpdateRecovery } from "./update-recovery.js";
 
 type RestartSentinelLog = {
   stdoutTail?: string | null;
@@ -23,6 +24,7 @@ type RestartSentinelStep = {
 };
 
 type RestartSentinelStats = {
+  recovery?: UpdateRecovery;
   mode?: string;
   root?: string;
   target?: string;
@@ -33,7 +35,6 @@ type RestartSentinelStats = {
   steps?: RestartSentinelStep[];
   reason?: string | null;
   durationMs?: number | null;
-  recovery?: { serviceRestartSafe: true } | { serviceRestartSafe: false; reason: string };
 };
 
 export type RestartSentinelContinuation =
@@ -186,13 +187,10 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
   const after = value.after;
   const steps = value.steps;
   const durationMs = value.durationMs;
-  const recovery = value.recovery;
-  const validRecovery =
-    recovery === undefined ||
-    (isPlainRecord(recovery) &&
-      (recovery.serviceRestartSafe === true ||
-        (recovery.serviceRestartSafe === false && typeof recovery.reason === "string")));
+  const recovery =
+    value.recovery === undefined ? undefined : updateRecoverySchema.safeParse(value.recovery);
   if (
+    (recovery !== undefined && !recovery.success) ||
     mode === false ||
     mode === null ||
     root === false ||
@@ -207,12 +205,14 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
     (after !== undefined && after !== null && !isPlainRecord(after)) ||
     (steps !== undefined &&
       (!Array.isArray(steps) || steps.some((step) => !parseRestartSentinelStep(step)))) ||
-    (durationMs !== undefined && durationMs !== null && !isFiniteNumber(durationMs)) ||
-    !validRecovery
+    (durationMs !== undefined && durationMs !== null && !isFiniteNumber(durationMs))
   ) {
     return null;
   }
   const result: RestartSentinelStats = {};
+  if (recovery?.success) {
+    result.recovery = recovery.data;
+  }
   if (mode !== undefined) {
     result.mode = mode;
   }
@@ -242,15 +242,6 @@ function parseRestartSentinelStats(value: unknown): RestartSentinelStats | null 
   }
   if (durationMs !== undefined) {
     result.durationMs = durationMs as number | null;
-  }
-  if (recovery !== undefined) {
-    result.recovery =
-      recovery.serviceRestartSafe === true
-        ? { serviceRestartSafe: true }
-        : {
-            serviceRestartSafe: false,
-            reason: typeof recovery.reason === "string" ? recovery.reason : "unknown",
-          };
   }
   return result;
 }

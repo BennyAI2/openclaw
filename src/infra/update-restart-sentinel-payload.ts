@@ -67,6 +67,7 @@ export function buildUpdateRestartSentinelPayload(params: {
       ...(meta.root || result.root ? { root: meta.root ?? result.root } : {}),
       ...(meta.target ? { target: meta.target } : {}),
       ...(meta.handoffId ? { handoffId: meta.handoffId } : {}),
+      ...(result.recovery ? { recovery: result.recovery } : {}),
       before: result.before ?? null,
       after: result.after ?? null,
       steps: result.steps.map((step) => ({
