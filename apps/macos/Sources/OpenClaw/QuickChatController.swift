@@ -681,7 +681,7 @@ final class QuickChatController: NSObject, NSWindowDelegate {
         var current = window
         while let window = current {
             if window === panel { return true }
-            current = window.sheetParent ?? window.parentWindow
+            current = window.sheetParent ?? window.parent
         }
         return false
     }
