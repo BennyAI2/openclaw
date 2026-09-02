@@ -248,6 +248,7 @@ export function bootstrapApplication(
               sessionKey: settings.sessionKey,
               gateway,
               agentsList: () => agents.state.agentsList,
+              ensureAgentsList: () => agents.ensureList(),
               selectedAgentId: settings.selectedAgentId,
               signal: startupLifecycle.signal,
             }),
