@@ -1,6 +1,6 @@
 # PR #131511 visual proof
 
-Generated from OpenClaw PR #131511 child head `3dca2d0767cca0f872444c708e9162a2e3c0b756` and parent head `1cec3006fb34da798014085572a78ecb624766ca`.
+Generated from OpenClaw PR #131511 child head `b3530537d7d806f991c3cf9c6c8f5adfbd9a853f` and parent head `1cec3006fb34da798014085572a78ecb624766ca`.
 
 - `comparison-channels-gallery.png`: matched 1440×1350 Playwright before/after capture.
 - `comparison-slack-setup-modal.png`: matched 1440×1350 Playwright before/after capture.
