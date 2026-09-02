@@ -198,7 +198,9 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -1: retire the deprecated messaging-targets subpath.
       // +2: bounded provider streams and read-only SecretRef resolution.
       // +1: diagnostic flag checks without event, trace, or redaction initialization.
-      147,
+      // +1: restore the shipped read-only conversation-binding inspection facade.
+      // +1: canonical node CLI owners for plugin-provided node commands.
+      149,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -330,8 +332,13 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: manifest-owned plugin capability secret availability guard.
       // +1: canonical diagnostic flag checker through its focused subpath.
       // +5: public provider-entry scaffold contract and its focused types.
+      // +3: typed system-agent approval request, payload, and resolution contracts for channel plugins.
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
-      4360,
+      // +2: bounded display-only error diagnostic attachment and rendering.
+      // +1: shared presentation delivery policy for core and channel plugins.
+      // +2: shipped conversation-binding inspection function and result type.
+      // +4: canonical node CLI option, envelope, presentation, and error owners.
+      4373,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -438,8 +445,13 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: manifest-owned plugin capability secret availability guard.
       // +1: canonical diagnostic flag checker through its focused subpath.
       // +2: public provider-entry scaffold builder and validator.
+      // +1: shared approval expiry formatter for native channel prompts.
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
-      2595,
+      // +2: bounded display-only error diagnostic attachment and rendering.
+      // +1: shared presentation delivery policy for core and channel plugins.
+      // +1: shipped read-only conversation-binding inspection function.
+      // +4: canonical node CLI option, envelope, presentation, and error owners.
+      2604,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
