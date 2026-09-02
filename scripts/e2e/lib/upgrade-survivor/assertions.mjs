@@ -1259,6 +1259,36 @@ function assertPluginArtifactConsent(
     `${pluginId} plugin integrity missing`,
   );
   if (capabilityConsentSupported === "1") {
+    const inspection = JSON.parse(
+      execFileSync("openclaw", ["plugins", "inspect", pluginId, "--json"], {
+        encoding: "utf8",
+        timeout: 120_000,
+      }),
+    );
+    assert(inspection.plugin?.id === pluginId, `${pluginId} inspected plugin id changed`);
+    assert(
+      inspection.plugin.packageName === packageJson.name,
+      `${pluginId} inspected package name changed`,
+    );
+    assert(
+      typeof inspection.plugin.rootDir === "string" &&
+        fs.realpathSync(inspection.plugin.rootDir) ===
+          fs.realpathSync(resolveHomePath(record.installPath)),
+      `${pluginId} inspected install path changed`,
+    );
+    assertStrict.deepEqual(
+      inspection.install,
+      record,
+      `${pluginId} inspected install record changed`,
+    );
+    // Official provenance is not operator acceptance. Use the metadata owner's
+    // decision for this exact record; unverified sources still require consent.
+    if (inspection.plugin.trustedOfficialInstall === true) {
+      process.stdout.write(
+        `Plugin "${pluginId}" has verified official capability-consent exemption.\n`,
+      );
+      return;
+    }
     assertCompanionPluginConsent(record, pluginId, integrity);
   }
 }

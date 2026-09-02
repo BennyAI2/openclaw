@@ -47,6 +47,7 @@ describe("Doctor legacy config composition", () => {
     "included list",
     "included entries",
     "list with env agent id",
+    "list with normalized agent id",
     "list with config env",
     "list with included identity",
   ])("preserves memory search settings from %s", async (shape) => {
@@ -61,6 +62,7 @@ describe("Doctor legacy config composition", () => {
         },
         async () => {
           const includedIdentity = shape === "list with included identity";
+          const normalizedId = shape === "list with normalized agent id";
           const identityRaw =
             '{\n   "name": "${DOCTOR_AGENT_ID}",\n   "theme": "$${DOCTOR_MEMORY_KEY}"\n}\n';
           const toolsRaw = '{\n   "deny": ["browser"]\n}\n';
@@ -95,7 +97,9 @@ describe("Doctor legacy config composition", () => {
                         id:
                           shape === "list with env agent id" && id === "research"
                             ? "${DOCTOR_AGENT_ID}"
-                            : id,
+                            : normalizedId && id === "research"
+                              ? "Research"
+                              : id,
                       },
                       entry,
                     ),
@@ -105,12 +109,17 @@ describe("Doctor legacy config composition", () => {
           const included = shape.startsWith("included");
           const configPath = await writeOpenClawConfig(home, {
             agents: included ? { $include: "agents.json" } : agents,
-            gateway: { mode: "local" },
+            gateway: normalizedId ? { $include: "gateway.json" } : { mode: "local" },
             plugins: { enabled: false },
             ...(shape === "list with config env"
               ? { env: { vars: { DOCTOR_MEMORY_KEY: "memory-secret-canary" } } }
               : {}),
           });
+          const gatewayPath = path.join(path.dirname(configPath), "gateway.json");
+          const gatewayRaw = '{\n   "mode": "local"\n}\n';
+          if (normalizedId) {
+            await fs.writeFile(gatewayPath, gatewayRaw);
+          }
           const includePath = path.join(path.dirname(configPath), "agents.json");
           if (included) {
             await fs.writeFile(includePath, JSON.stringify(agents));
@@ -123,7 +132,11 @@ describe("Doctor legacy config composition", () => {
           }
           const before = await readConfigFileSnapshot();
           expect(before.valid).toBe(false);
-          expect(before.sourceConfig.agents).not.toHaveProperty("list");
+          if (normalizedId) {
+            expect(before.sourceConfig.agents).toHaveProperty("list");
+          } else {
+            expect(before.sourceConfig.agents).not.toHaveProperty("list");
+          }
           if (includedIdentity) {
             expect(before.sourceConfig.agents?.entries?.research?.tools).toEqual({
               deny: ["browser"],
@@ -136,6 +149,10 @@ describe("Doctor legacy config composition", () => {
           );
           const savedRootRaw = await fs.readFile(configPath, "utf8");
           const savedRoot = JSON.parse(savedRootRaw);
+          if (normalizedId) {
+            expect(savedRoot.gateway).toEqual({ $include: "gateway.json" });
+            expect(await fs.readFile(gatewayPath, "utf8")).toBe(gatewayRaw);
+          }
           if (included) {
             expect(savedRoot.agents).toEqual({ $include: "agents.json" });
           }
@@ -182,6 +199,10 @@ describe("Doctor legacy config composition", () => {
             });
           }
           expect((await repairConfig(configPath)).shouldWriteConfig).toBe(false);
+          if (normalizedId) {
+            expect(await fs.readFile(configPath, "utf8")).toBe(savedRootRaw);
+            expect(await fs.readFile(gatewayPath, "utf8")).toBe(gatewayRaw);
+          }
           if (includedIdentity) {
             expect(await fs.readFile(configPath, "utf8")).toBe(savedRootRaw);
             expect(await fs.readFile(identityPath, "utf8")).toBe(identityRaw);
@@ -192,41 +213,89 @@ describe("Doctor legacy config composition", () => {
     });
   });
 
-  it("repairs an unnamed local agent beside an unrelated include", async () => {
-    await withTempHome(async (home) => {
-      await withEnvOverride(
-        { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1", DOCTOR_TRUSTED_PROXY: "127.0.0.2" },
-        async () => {
-          const configPath = await writeOpenClawConfig(home, {
-            agents: { list: [{ name: "Nameless" }] },
-            gateway: { $include: "gateway.json", trustedProxies: ["${DOCTOR_TRUSTED_PROXY}"] },
-            plugins: { enabled: false },
-          });
-          const includePath = path.join(path.dirname(configPath), "gateway.json");
-          const includeRaw = '{\n   "mode": "local",\n   "trustedProxies": ["127.0.0.1"]\n}\n';
-          await fs.writeFile(includePath, includeRaw);
-          expect((await readConfigFileSnapshot()).valid).toBe(false);
-          await repairConfig(configPath);
-          const savedRaw = await fs.readFile(configPath, "utf8");
-          const saved = JSON.parse(savedRaw);
-          expect(saved.agents).not.toHaveProperty("list");
-          expect(saved.agents.entries.agent.name).toBe("Nameless");
-          expect(Object.keys(saved.agents.entries)).toEqual(["agent"]);
-          expect(saved.gateway).toEqual({
-            $include: "gateway.json",
-            trustedProxies: ["${DOCTOR_TRUSTED_PROXY}"],
-          });
-          expect(await fs.readFile(includePath, "utf8")).toBe(includeRaw);
-          const reread = await readConfigFileSnapshot();
-          expect(reread.valid).toBe(true);
-          expect(reread.sourceConfig.gateway?.trustedProxies).toEqual(["127.0.0.1", "127.0.0.2"]);
-          expect((await repairConfig(configPath)).shouldWriteConfig).toBe(false);
-          expect(await fs.readFile(configPath, "utf8")).toBe(savedRaw);
-          expect(await fs.readFile(includePath, "utf8")).toBe(includeRaw);
-        },
-      );
-    });
-  });
+  it.each(["unnamed", "duplicate", "malformed"])(
+    "repairs %s local agents beside an unrelated include",
+    async (shape) => {
+      await withTempHome(async (home) => {
+        const workspace = path.join(home, "shared-agent-workspace");
+        await withEnvOverride(
+          {
+            OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+            DOCTOR_TRUSTED_PROXY: "127.0.0.2",
+            FIRST_WORKSPACE: workspace,
+            SECOND_WORKSPACE: workspace,
+          },
+          async () => {
+            const first = {
+              name: "First agent",
+              workspace: "${FIRST_WORKSPACE}",
+              memorySearch: { enabled: false, query: { maxResults: 7 } },
+            };
+            const second = {
+              name: "Second agent",
+              workspace: "${SECOND_WORKSPACE}",
+              memorySearch: { enabled: true, query: { maxResults: 9 } },
+            };
+            const expectedEntries: Record<string, typeof first> =
+              shape === "unnamed"
+                ? { agent: first }
+                : shape === "duplicate"
+                  ? { research: first, "research-2": second }
+                  : { research: first };
+            const configPath = await writeOpenClawConfig(home, {
+              agents: {
+                list:
+                  shape === "unnamed"
+                    ? [first]
+                    : shape === "duplicate"
+                      ? [
+                          { id: "Research", ...first },
+                          { id: "Research", ...second },
+                        ]
+                      : [null, { id: "Research", ...first }],
+              },
+              gateway: { $include: "gateway.json", trustedProxies: ["${DOCTOR_TRUSTED_PROXY}"] },
+              plugins: { enabled: false },
+            });
+            const includePath = path.join(path.dirname(configPath), "gateway.json");
+            const includeRaw = '{\n   "mode": "local",\n   "trustedProxies": ["127.0.0.1"]\n}\n';
+            await fs.writeFile(includePath, includeRaw);
+            expect((await readConfigFileSnapshot()).valid).toBe(false);
+            await repairConfig(configPath);
+            const savedRaw = await fs.readFile(configPath, "utf8");
+            const saved = JSON.parse(savedRaw);
+            expect(saved.agents).not.toHaveProperty("list");
+            expect(Object.keys(saved.agents.entries)).toEqual(Object.keys(expectedEntries));
+            for (const [id, entry] of Object.entries(expectedEntries)) {
+              expect(saved.agents.entries[id]).toMatchObject({
+                name: entry.name,
+                workspace: entry.workspace,
+                memory: { search: entry.memorySearch },
+              });
+              expect(saved.agents.entries[id]).not.toHaveProperty("memorySearch");
+            }
+            expect(saved.gateway).toEqual({
+              $include: "gateway.json",
+              trustedProxies: ["${DOCTOR_TRUSTED_PROXY}"],
+            });
+            expect(await fs.readFile(includePath, "utf8")).toBe(includeRaw);
+            const reread = await readConfigFileSnapshot();
+            expect(reread.valid).toBe(true);
+            expect(reread.sourceConfig.gateway?.trustedProxies).toEqual(["127.0.0.1", "127.0.0.2"]);
+            for (const [id, entry] of Object.entries(expectedEntries)) {
+              expect(reread.sourceConfig.agents?.entries?.[id]?.workspace).toBe(workspace);
+              expect(reread.sourceConfig.agents?.entries?.[id]?.memory?.search).toEqual(
+                entry.memorySearch,
+              );
+            }
+            expect((await repairConfig(configPath)).shouldWriteConfig).toBe(false);
+            expect(await fs.readFile(configPath, "utf8")).toBe(savedRaw);
+            expect(await fs.readFile(includePath, "utf8")).toBe(includeRaw);
+          },
+        );
+      });
+    },
+  );
 
   it.each(["duplicate ids", "whole-entry include"])(
     "refuses ambiguous legacy roster persistence for %s",

@@ -6,8 +6,10 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PluginInstallRecord } from "../../src/config/types.plugins.js";
 import { checkClawHubPackageTrust } from "../../src/infra/clawhub-install-trust.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { writePluginInspectFixture } from "./plugin-inspect.test-support.js";
 
 const SCRIPT_PATH = path.resolve("scripts/e2e/lib/clawhub-fixture-server.cjs");
 const PACKAGE_NAME = "@openclaw/kitchen-sink";
@@ -201,7 +203,7 @@ describe("ClawHub fixture server", () => {
     mkdirSync(packageDir);
     writeFileSync(
       path.join(packageDir, "package.json"),
-      `${JSON.stringify({ name: "@openclaw/whatsapp", version })}\n`,
+      `${JSON.stringify({ name: "@openclaw/whatsapp", version, openclaw: { extensions: ["./index.js"] } })}\n`,
     );
     writeFileSync(
       path.join(packageDir, "openclaw.plugin.json"),
@@ -212,11 +214,25 @@ describe("ClawHub fixture server", () => {
     const sha256 = createHash("sha256").update(archive).digest("hex");
     const npmIntegrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
     const npmShasum = createHash("sha1").update(archive).digest("hex");
+    const coreRoot = path.join(root, "core");
+    mkdirSync(path.join(coreRoot, "package"), { recursive: true });
+    writeFileSync(
+      path.join(coreRoot, "package", "package.json"),
+      JSON.stringify({ name: "@openclaw/ai", version }),
+    );
+    const coreTarball = "openclaw-ai.tgz";
+    execFileSync("tar", ["-czf", path.join(root, coreTarball), "-C", coreRoot, "package"]);
+    const coreSha256 = createHash("sha256")
+      .update(readFileSync(path.join(root, coreTarball)))
+      .digest("hex");
     const manifestPath = path.join(root, "prepublish-plugin-registry.json");
     writeFileSync(
       manifestPath,
       `${JSON.stringify({
-        packages: [{ name: "@openclaw/whatsapp", version, tarball, sha256 }],
+        packages: [
+          { name: "@openclaw/ai", version, tarball: coreTarball, sha256: coreSha256 },
+          { name: "@openclaw/whatsapp", version, tarball, sha256 },
+        ],
       })}\n`,
     );
 
@@ -243,39 +259,15 @@ describe("ClawHub fixture server", () => {
       packages: [{ name: "@openclaw/whatsapp", version, tarball, sha256 }],
     });
     writeFileSync(path.join(registryDir, "prepublish-plugin-registry.json"), registryManifest);
-    const acceptedSurface = {
-      channels: [],
-      providers: [],
-      tools: [],
-      contracts: [],
-      hooks: [],
-      mcpServers: [],
-      cliCommands: [],
-      cliBackends: [],
-      skills: [],
-      dangerousConfigFlags: [],
-    };
-    const npmRecord = {
+    const npmRecord: PluginInstallRecord = {
       source: "npm",
       spec: `@openclaw/whatsapp@${version}`,
       resolvedName: "@openclaw/whatsapp",
       resolvedVersion: version,
       integrity: npmIntegrity,
       installPath,
-      acceptedSurface,
-      acceptedSurfaceHash: createHash("sha256")
-        .update(JSON.stringify(acceptedSurface))
-        .digest("hex"),
-      acceptedSurfaceIntegrity: npmIntegrity,
-      acceptedSurfaceAt: "2026-08-27T00:00:00.000Z",
     };
     const bin = path.join(isolatedCwd, "bin");
-    mkdirSync(bin);
-    writeFileSync(
-      path.join(bin, "openclaw"),
-      '#!/usr/bin/env bash\n[ "$*" = "plugins install --help" ] || exit 97\nprintf "  --accept-capabilities  Accept capabilities\\n"\n',
-      { mode: 0o755 },
-    );
     const runner = readFileSync("scripts/e2e/lib/upgrade-survivor/run.sh", "utf8");
     const boundary = runner.indexOf("phase storage-preflight");
     expect(boundary).toBeGreaterThan(0);
@@ -302,7 +294,7 @@ phase() {
 ${runner.slice(boundary)}
 `;
     const runAutomaticChecks = (
-      record: Record<string, unknown> | null = npmRecord,
+      record: PluginInstallRecord | null = npmRecord,
       deniedPluginId?: string,
     ) => {
       mkdirSync(path.join(stateDir, "plugins"), { recursive: true });
@@ -310,6 +302,7 @@ ${runner.slice(boundary)}
         path.join(stateDir, "plugins", "installs.json"),
         JSON.stringify({ installRecords: record ? { whatsapp: record } : {} }),
       );
+      writePluginInspectFixture(bin, record ? { whatsapp: record } : {});
       const artifacts = path.join(isolatedCwd, "artifacts");
       mkdirSync(artifacts, { recursive: true });
       writeFileSync(
@@ -377,17 +370,21 @@ ${runner.slice(boundary)}
     expect(automatic.status, automatic.stdout + automatic.stderr).toBe(0);
     expect(automatic.stdout).toContain("assert-prepublish-requests passed");
     expect(automatic.stdout).toContain("assert-prepublish-recovery-requests passed");
+    expect(automatic.stdout).toContain(
+      'Plugin "whatsapp" has verified official capability-consent exemption.',
+    );
     for (const [record, failure] of [
       [null, "plugin install record missing"],
       [{ ...npmRecord, source: "path" }, "must be installed from npm"],
       [{ ...npmRecord, installPath: `${installPath}-missing` }, "installPath missing on disk"],
       [{ ...npmRecord, resolvedVersion: "2026.8.0" }, "plugin version changed"],
       [{ ...npmRecord, integrity: undefined }, "plugin integrity missing"],
+      [{ ...npmRecord, integrity: "sha512-wrong" }, "registry artifact integrity"],
       [
-        { ...npmRecord, integrity: "sha512-wrong", acceptedSurfaceIntegrity: "sha512-wrong" },
-        "registry artifact integrity",
+        { ...npmRecord, sourcePath: tarballPath, artifactKind: "npm-pack" },
+        "plugin accepted surface missing",
       ],
-      [{ ...npmRecord, acceptedSurfaceHash: "wrong" }, "plugin consent hash changed"],
+      [{ ...npmRecord, resolvedName: "@vendor/whatsapp" }, "plugin accepted surface missing"],
     ] as const) {
       const rejected = runAutomaticChecks(record);
       expect(rejected.status).not.toBe(0);
@@ -601,6 +598,7 @@ ${runner.slice(boundary)}
     expect(aboveMaximum.stderr).toContain(
       "expected 2-16 complete ClawHub artifact audit sequences",
     );
+    expect((await fetch(`${baseUrl}/api/v1/packages/%40openclaw%2Fai`)).status).toBe(404);
   });
 
   it("serves separate plugin-family and skill search fixtures", async () => {
