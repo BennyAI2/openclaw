@@ -1,3 +1,4 @@
+import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
 import type { NavigationRouteId } from "../app-navigation.ts";
 import type { ScopeUpgradeState } from "../app/device-scope-upgrade-availability.ts";
 import type { ExecApprovalRequest } from "../app/exec-approval.ts";
@@ -17,11 +18,14 @@ export type SidebarAttentionKind = (typeof SIDEBAR_ATTENTION_DISMISSAL_KINDS)[nu
 
 export type SidebarAttentionDismissal = { kind: SidebarAttentionKind; signature: string };
 
-type SidebarInboxEntryBase<Category extends Exclude<IssueTab, "all">> = {
+type SidebarInboxEntryBase<
+  Category extends Exclude<IssueTab, "all">,
+  Severity extends "error" | "warning" | "neutral" = "error" | "warning",
+> = {
   category: Category;
   dismissal: SidebarAttentionDismissal | null;
   requiresAction: boolean;
-  severity: "error" | "warning";
+  severity: Severity;
 };
 
 export type SidebarAttentionItem = SidebarInboxEntryBase<"automations" | "system"> & {
@@ -48,6 +52,7 @@ export type SidebarInboxEntry =
       type: "scopeUpgrade";
       state: Exclude<ScopeUpgradeState, { phase: "hidden" }>;
     })
+  | (SidebarInboxEntryBase<"mentions", "neutral"> & { type: "mention"; mention: MentionInboxItem })
   | (SidebarInboxEntryBase<"system"> & { type: "update" });
 
 export function buildScopeUpgradeInboxEntry(params: {
@@ -99,6 +104,7 @@ export function buildUpdateInboxEntry(params: {
 export function buildSidebarInboxEntries(params: {
   approvals: readonly ExecApprovalRequest[];
   attention: readonly SidebarAttentionItem[];
+  mentions: readonly MentionInboxItem[];
   scopeUpgrade: Extract<SidebarInboxEntry, { type: "scopeUpgrade" }> | null;
   update: Extract<SidebarInboxEntry, { type: "update" }> | null;
 }): SidebarInboxEntry[] {
@@ -112,6 +118,16 @@ export function buildSidebarInboxEntries(params: {
   }));
   const errors = params.attention.filter((entry) => entry.severity === "error");
   const warnings = params.attention.filter((entry) => entry.severity === "warning");
+  const mentions: SidebarInboxEntry[] = params.mentions
+    .toSorted((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id))
+    .map((mention) => ({
+      type: "mention",
+      mention,
+      category: "mentions",
+      dismissal: null,
+      requiresAction: true,
+      severity: "neutral",
+    }));
   // Preserve the Inbox's action-first order while every tab reads one list.
   return [
     ...approvals,
@@ -120,6 +136,7 @@ export function buildSidebarInboxEntries(params: {
     ...errors,
     ...(params.update?.severity === "warning" ? [params.update] : []),
     ...warnings,
+    ...mentions,
   ];
 }
 
@@ -134,6 +151,7 @@ export function sidebarInboxTabCounts(
   return {
     all: actionEntries.length,
     approvals: actionEntries.filter((entry) => entry.category === "approvals").length,
+    mentions: actionEntries.filter((entry) => entry.category === "mentions").length,
     automations: actionEntries.filter((entry) => entry.category === "automations").length,
     system: actionEntries.filter((entry) => entry.category === "system").length,
   };

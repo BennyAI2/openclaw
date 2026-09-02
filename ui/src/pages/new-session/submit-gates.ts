@@ -2,13 +2,20 @@
 // can be blocked. canSubmit, the Start tooltip, and blocked-Enter notices all
 // derive from this walk, so a gate cannot block silently.
 import { t } from "../../i18n/index.ts";
+import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import { chatModelUnavailableMessage } from "../../lib/chat/model-select-state.ts";
-import type { SessionMethodAccess } from "../../lib/session-method-access.ts";
+import {
+  readSessionMethodAccess,
+  type SessionMethodAccess,
+} from "../../lib/session-method-access.ts";
 import type { SessionPlacementTarget } from "../../lib/sessions/session-placement-recovery.ts";
+import { sessionPlacementDispatchParams } from "../../lib/sessions/session-placement-startup.ts";
+import { requiresChatModelSetup } from "../chat/chat-model-setup.ts";
 import * as catalog from "./catalog-target.ts";
-import { isWorktreeNameValid } from "./create-params.ts";
+import { isWorktreeNameValid, type NewSessionVisibility } from "./create-params.ts";
 import type { DraftGatewayState } from "./draft-gateway-state.ts";
 import type { DraftPlaceState } from "./draft-place-state.ts";
+import { resolveDraftSessionPlacement } from "./draft-session-placement.ts";
 import type { DraftSubmissionSnapshot } from "./draft-submission-contract.ts";
 import type {
   PendingSessionPlacementRecoveryState,
@@ -39,6 +46,7 @@ type ReasonedSubmitGate =
   | "worktree-unavailable"
   | "worktree-name"
   | "terminal-capabilities"
+  | "mentions-unsupported"
   | "terminal-folder";
 export type NewSessionSubmitBlock =
   | { gate: SilentSubmitGate; reason?: undefined }
@@ -65,6 +73,66 @@ export function resolveCloudPlacementDisabledReason(place: DraftPlaceState): str
   return place.worktreeAvailable() ? undefined : t("newSession.cloudRequiresWorktree");
 }
 
+export function readNewSessionSubmissionAccess(options: {
+  gateway: Parameters<typeof readSessionMethodAccess>[0];
+  place: DraftPlaceState;
+  pendingPlacement: PendingSessionPlacementRecoveryState;
+  hasInitialTurn: boolean;
+  createParams: Record<string, unknown>;
+}): SessionMethodAccess {
+  const { gateway, place, pendingPlacement, hasInitialTurn, createParams } = options;
+  const pendingPlacementActive = Boolean(pendingPlacement.sessionKey);
+  const target = resolveDraftSessionPlacement(pendingPlacement, place).target;
+  const remoteProject = target || !hasInitialTurn ? place.browser.remoteProject : null;
+  if (!pendingPlacementActive && remoteProject && !remoteProject.projectId) {
+    const projectAccess = readSessionMethodAccess(gateway, {
+      method: "projects.add",
+      requiredScope: "operator.write",
+    });
+    if (!projectAccess.allowed) {
+      return projectAccess;
+    }
+  }
+  if (!target || !pendingPlacementActive || pendingPlacement.phase === "creating") {
+    const createAccess = readSessionMethodAccess(gateway, {
+      method: "sessions.create",
+      params: createParams,
+    });
+    if (!createAccess.allowed || !target) {
+      return createAccess;
+    }
+  }
+  return readSessionMethodAccess(gateway, {
+    method: "sessions.dispatch",
+    requiredScope: target.kind === "profile" ? "operator.admin" : "operator.write",
+    params: sessionPlacementDispatchParams({
+      key: pendingPlacement.sessionKey,
+      agentId: pendingPlacement.agentId || place.agentId,
+      target,
+    }),
+  });
+}
+
+export function requiresNewSessionModelSetup(options: {
+  snapshot: DraftSubmissionSnapshot;
+  gateway: DraftGatewayState;
+  place: DraftPlaceState;
+  pendingPlacement: PendingSessionPlacementRecoveryState;
+}): boolean {
+  const { snapshot, gateway, place, pendingPlacement } = options;
+  const selectedAgent = place.selectedAgent();
+  return requiresChatModelSetup({
+    catalog:
+      catalog.isTarget(snapshot.data) ||
+      place.remotePlacement ||
+      Boolean(pendingPlacement.sessionKey),
+    connected: gateway.connected,
+    agentsLoaded: snapshot.context?.agents.state.agentsList !== null,
+    selectedAgentFound: selectedAgent !== undefined,
+    agentModel: selectedAgent?.model?.primary,
+  });
+}
+
 /** Facts the gate walk reads from DraftSubmissionFlow, kept read-only. */
 type SubmitGateHost = {
   readonly gatewayState: DraftGatewayState;
@@ -76,6 +144,8 @@ type SubmitGateHost = {
   readonly pendingAttachmentReads: number;
   readonly hasDraftAttachments: boolean;
   readonly hasCapabilityOverrides: boolean;
+  readonly mentions: readonly HumanMention[];
+  readonly visibility: NewSessionVisibility;
   submissionSnapshot(): DraftSubmissionSnapshot;
   requiresModelSetup(): boolean;
   submissionAccess(): SessionMethodAccess;
@@ -95,6 +165,15 @@ export function resolveNewSessionSubmitBlock(
   const pendingPlacementActive = Boolean(host.pendingPlacement.sessionKey);
   if (host.submitting) {
     return { gate: "submitting" };
+  }
+  if (
+    host.mentions.length > 0 &&
+    (kind === "terminal" ||
+      catalog.isTarget(snapshot.data) ||
+      host.visibility === "incognito" ||
+      host.message.trimStart().startsWith("/"))
+  ) {
+    return { gate: "mentions-unsupported", reason: t("chat.mentions.unsupported") };
   }
   if (
     gateway.preferenceLoading ||

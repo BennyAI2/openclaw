@@ -96,4 +96,5 @@ export const GATEWAY_EVENTS = [
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   "portal.changed",
   "progressCard.changed",
+  "mentions.changed",
 ];

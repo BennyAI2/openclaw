@@ -1942,7 +1942,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
     [375, 812, "mobile-375"],
     [430, 932, "mobile-430"],
   ] as const)(
-    "keeps floating notices clear of mobile chrome without shifting the %s transcript layout",
+    "keeps floating notices below menus and clear of mobile chrome without shifting the %s transcript layout",
     async (width, height, label) => {
       const page = await openBrowserPage(width, height);
       try {
@@ -2044,6 +2044,66 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
             0,
           );
         }
+
+        await page.locator(".agent-chat__input").evaluate((node) => {
+          node.insertAdjacentHTML(
+            "afterbegin",
+            `<div class="slash-menu mention-menu" role="listbox" aria-label="Mention a person">
+              <div class="slash-menu__scroll">
+                <div class="slash-menu-group">
+                  <div class="slash-menu-group__label">Mention a person</div>
+                  <div class="slash-menu-item slash-menu-item--active" role="option" aria-selected="true">
+                    <span class="slash-menu-icon" aria-hidden="true">B</span>
+                    <span class="slash-menu-copy">
+                      <span class="slash-menu-name">Bob</span>
+                      <span class="slash-menu-desc">Online</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>`,
+          );
+          const option = node.querySelector<HTMLElement>('[role="option"]')!;
+          option.addEventListener("click", () => {
+            option.dataset.selected = "true";
+          });
+        });
+        await waitForLayoutSettled(page, ".slash-menu, .chat-error");
+        expect(await geometry()).toEqual(after);
+        const option = page.getByRole("option");
+        const optionBounds = await getBoundingBox(page, ".slash-menu-item");
+        const noticeBounds = await getBoundingBox(page, ".chat-error");
+        expect(rectsOverlap(optionBounds, noticeBounds)).toBe(true);
+        const overlapPoint = {
+          x:
+            (Math.max(optionBounds.x, noticeBounds.x) +
+              Math.min(optionBounds.x + optionBounds.width, noticeBounds.x + noticeBounds.width)) /
+            2,
+          y:
+            (Math.max(optionBounds.y, noticeBounds.y) +
+              Math.min(
+                optionBounds.y + optionBounds.height,
+                noticeBounds.y + noticeBounds.height,
+              )) /
+            2,
+        };
+        expect(
+          await option.evaluate((node, point) => {
+            const hit = document.elementFromPoint(point.x, point.y);
+            return node.contains(hit) ? "option" : hit?.className;
+          }, overlapPoint),
+        ).toBe("option");
+        await page.mouse.click(overlapPoint.x, overlapPoint.y);
+        expect(await option.getAttribute("data-selected")).toBe("true");
+        await page.locator(".slash-menu").evaluate((node) => node.remove());
+        expect(
+          await page
+            .locator(".chat-error")
+            .evaluate(
+              (node, point) => node.contains(document.elementFromPoint(point.x, point.y)),
+              overlapPoint,
+            ),
+        ).toBe(true);
         const artifactDir = process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR?.trim();
         if (artifactDir) {
           await mkdir(artifactDir, { recursive: true });

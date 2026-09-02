@@ -12,6 +12,14 @@ export const hiddenScopeUpgradeCapability = {
   dispose: () => undefined,
 } satisfies ApplicationContext["scopeUpgrade"];
 
+export const unavailableMentionsCapability = {
+  snapshot: { phase: "unavailable", items: [], dismissing: [], error: null },
+  refresh: async () => undefined,
+  dismiss: async () => undefined,
+  subscribe: () => () => undefined,
+  dispose: () => undefined,
+} satisfies ApplicationContext["mentions"];
+
 export function createApplicationContextProvider(context: ApplicationContext<RouteId>) {
   const host = document.createElement("div");
   const provider = new ContextProvider(host, {

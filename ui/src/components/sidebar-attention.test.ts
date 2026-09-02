@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { CronJob, CronJobsListResult, ModelAuthStatusResult } from "../api/types.ts";
 import type { ApplicationContext, ApplicationGateway } from "../app/context.ts";
@@ -10,6 +11,7 @@ import { createApplicationOverlays } from "../app/overlays.ts";
 import {
   createApplicationContextProvider,
   hiddenScopeUpgradeCapability,
+  unavailableMentionsCapability,
 } from "../test-helpers/application-context.ts";
 import { createStorageMock as createTestStorageMock } from "../test-helpers/storage.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
@@ -70,6 +72,20 @@ function cronListResponse(jobs: CronJob[]): CronJobsListResult {
   };
 }
 
+function mentionItem(id: string, createdAt = 1_000): MentionInboxItem {
+  return {
+    id,
+    senderProfileId: "alice",
+    senderLabel: "Alice",
+    sessionKey: "agent:writer:review",
+    agentId: "writer",
+    sessionTitle: "Review",
+    messageId: `message-${id}`,
+    createdAt,
+    expiresAt: 10_000,
+  };
+}
+
 type SidebarAttentionElement = HTMLElement & {
   context: ApplicationContext;
   updateComplete: Promise<boolean>;
@@ -100,17 +116,7 @@ function authItems(agentId: string) {
   return buildSidebarAttentionEntries({
     cronJobs: [],
     cronSchedulerEnabled: true,
-    modelAuthStatus: {
-      ts: 1,
-      providers: [
-        {
-          provider: "openai",
-          displayName: "OpenAI",
-          status: "missing",
-          profiles: [],
-        },
-      ],
-    },
+    modelAuthStatus: authStatus(1),
     modelAuthAgentId: agentId,
     now: 0,
   }).filter((item) => item.kind === "modelAuthExpired");
@@ -178,7 +184,9 @@ describe("sidebar attention refresh ownership", () => {
   });
 
   async function mountAttention(
-    overrides: Partial<Pick<ApplicationContext, "agentSelection" | "gateway" | "overlays">> = {},
+    overrides: Partial<
+      Pick<ApplicationContext, "agentSelection" | "gateway" | "overlays" | "mentions">
+    > = {},
   ) {
     const provider = createApplicationContextProvider({
       gateway: {
@@ -196,6 +204,7 @@ describe("sidebar attention refresh ownership", () => {
         subscribe: () => () => undefined,
       },
       scopeUpgrade: hiddenScopeUpgradeCapability,
+      mentions: unavailableMentionsCapability,
       ...overrides,
     } as unknown as ApplicationContext);
     const element = document.createElement("openclaw-sidebar-attention") as SidebarAttentionElement;
@@ -222,6 +231,40 @@ describe("sidebar attention refresh ownership", () => {
     await element.updateComplete;
     expect(element.querySelector(".sidebar-issues-panel")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("updates the closed Inbox badge for mentions outside the selected agent", async () => {
+    let mentionSnapshot = {
+      phase: "ready" as const,
+      items: [mentionItem("first")],
+      dismissing: [],
+      error: null,
+    };
+    const listeners = new Set<() => void>();
+    const { element } = await mountAttention({
+      mentions: {
+        ...unavailableMentionsCapability,
+        get snapshot() {
+          return mentionSnapshot;
+        },
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+      agentSelection: {
+        state: { selectedId: "main", scopeId: "main" },
+        subscribe: () => () => undefined,
+      } as unknown as ApplicationContext["agentSelection"],
+    });
+
+    expect(element.querySelector(".sidebar-issues-button__count")?.textContent?.trim()).toBe("1");
+    mentionSnapshot = { ...mentionSnapshot, items: [mentionItem("first"), mentionItem("second")] };
+    listeners.forEach((listener) => listener());
+    await element.updateComplete;
+
+    expect(element.querySelector(".sidebar-issues-button__count")?.textContent?.trim()).toBe("2");
+    expect(element.querySelector(".sidebar-issues-panel")).toBeNull();
   });
 
   it("keeps a reconnected attention panel closed until a new open", async () => {
@@ -605,6 +648,7 @@ describe("sidebar attention refresh ownership", () => {
       overlays,
       agentSelection,
       scopeUpgrade: hiddenScopeUpgradeCapability,
+      mentions: unavailableMentionsCapability,
     } as unknown as ApplicationContext);
     const element = document.createElement("openclaw-sidebar-attention") as SidebarAttentionElement;
     provider.append(element);
@@ -887,19 +931,25 @@ describe("sidebar Inbox projection", () => {
         },
       ],
       attention,
+      mentions: [mentionItem("older", 1_000), mentionItem("newer", 2_000)],
       scopeUpgrade,
       update,
     });
 
     expect(sidebarInboxTabCounts(entries)).toEqual({
-      all: 4,
+      all: 6,
       approvals: 1,
+      mentions: 2,
       automations: 1,
       system: 2,
     });
     expect(entries.filter((entry) => entry.dismissal).map((entry) => entry.type)).toEqual([
       "scopeUpgrade",
       "attention",
+    ]);
+    expect(entries.slice(-2).map((entry) => entry.type === "mention" && entry.mention.id)).toEqual([
+      "newer",
+      "older",
     ]);
   });
 
@@ -915,6 +965,7 @@ describe("sidebar Inbox projection", () => {
     const entries = buildSidebarInboxEntries({
       approvals: [],
       attention: [],
+      mentions: [],
       scopeUpgrade: null,
       update,
     });
@@ -923,6 +974,7 @@ describe("sidebar Inbox projection", () => {
     expect(sidebarInboxTabCounts(entries)).toEqual({
       all: 0,
       approvals: 0,
+      mentions: 0,
       automations: 0,
       system: 0,
     });

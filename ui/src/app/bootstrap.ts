@@ -49,6 +49,7 @@ import type {
 import { createScopeUpgradeCapability } from "./device-scope-upgrade.ts";
 import { startGatewayPageActivation } from "./gateway-page-activation.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
+import { createMentionsCapability } from "./mentions.ts";
 import { createNativeChatDrafts } from "./native-bridge.ts";
 import { startNativeLinkRouting } from "./native-link-routing.ts";
 import { createNativeNotificationsCapability } from "./native-notifications.ts";
@@ -316,6 +317,7 @@ export function bootstrapApplication(
       document.querySelector("openclaw-app-shell")?.isConnected === true,
   });
   const nativeNotifications = createNativeNotificationsCapability();
+  const mentions = createMentionsCapability(gateway, { connectionBootstrap });
   const webPush = createWebPushCapability(gateway, { connectionBootstrap });
   const chatSubmissions = createChatSubmissions();
   const placementStartup = createApplicationPlacementStartup({
@@ -461,6 +463,7 @@ export function bootstrapApplication(
     theme,
     nativeChatDrafts,
     nativeNotifications,
+    mentions,
     webPush,
     chatSubmissions,
     chatAttachmentHandoff,
@@ -583,6 +586,7 @@ export function bootstrapApplication(
       nativeChatDrafts.dispose();
       nativeLinkRouting.dispose();
       nativeNotifications?.dispose();
+      mentions.dispose();
       webPush.dispose();
       chatSubmissions.clear();
       chatAttachmentHandoff.dispose();

@@ -33,6 +33,7 @@ import { reconcileSessionHistory } from "../lib/sessions/reconcile.ts";
 import {
   createApplicationContextProvider,
   hiddenScopeUpgradeCapability,
+  unavailableMentionsCapability,
 } from "./application-context.ts";
 import { gatewayHelloForMethods, SESSION_MUTATION_TEST_METHODS } from "./gateway-methods.ts";
 import { createStorageMock } from "./storage.ts";
@@ -558,6 +559,7 @@ export function createContext(
       subscribe: () => () => undefined,
     },
     scopeUpgrade: hiddenScopeUpgradeCapability,
+    mentions: unavailableMentionsCapability,
     overlays: {
       snapshot: { approvalQueue },
       subscribe: () => () => undefined,

@@ -1,4 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import type { SessionCreateParams } from "../../lib/sessions/create.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 
@@ -11,11 +12,12 @@ const WORKTREE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export type NewSessionVisibility = "normal" | "draft" | "incognito";
 export type DraftSessionCreateOverrides = Partial<
   Pick<SessionCreateParams, "message" | "attachments">
-> & { visibility?: NewSessionVisibility };
+> & { mentions?: readonly HumanMention[]; visibility?: NewSessionVisibility };
 export type DraftSessionCreateSelection = Partial<
   Pick<SessionCreateParams, "attachments" | "permissionMode" | "catalogId" | "category">
 > & {
   message: string;
+  mentions?: readonly HumanMention[];
   visibility: NewSessionVisibility;
   toolOverrides?: SessionCreateParams["toolOverrides"] | null;
 };
@@ -39,6 +41,7 @@ export function buildDraftSessionCreateParams(draft: {
   key?: string;
   agentId: string;
   message: string;
+  mentions?: readonly HumanMention[];
   model?: string;
   contextWindow?: string;
   thinkingLevel?: string;
@@ -74,6 +77,9 @@ export function buildDraftSessionCreateParams(draft: {
     ...(normalizeOptionalString(draft.key) ? { key: normalizeOptionalString(draft.key) } : {}),
     agentId: normalizeAgentId(draft.agentId),
     message: draft.message,
+    ...(draft.mentions?.length
+      ? { mentions: draft.mentions.map((mention) => ({ ...mention })) }
+      : {}),
     ...(draft.visibility === "incognito" ? { incognito: true } : {}),
     ...(draft.visibility === "draft" ? { visibility: "draft" } : {}),
     ...(draft.attachments?.length ? { attachments: draft.attachments } : {}),

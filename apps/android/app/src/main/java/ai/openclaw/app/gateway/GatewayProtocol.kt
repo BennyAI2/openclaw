@@ -894,6 +894,9 @@ enum class GatewayMethod(
   SessionsGithubOptions("sessions.github.options"),
   SessionsGithubStatus("sessions.github.status"),
   SessionsGithubConfirm("sessions.github.confirm"),
+  UsersMentionable("users.mentionable"),
+  MentionsList("mentions.list"),
+  MentionsDismiss("mentions.dismiss"),
 }
 
 enum class GatewayEvent(
@@ -954,4 +957,5 @@ enum class GatewayEvent(
   UpdateAvailable("update.available"),
   PortalChanged("portal.changed"),
   ProgressCardChanged("progressCard.changed"),
+  MentionsChanged("mentions.changed"),
 }

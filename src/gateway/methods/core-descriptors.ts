@@ -649,6 +649,10 @@ const CORE_GATEWAY_METHOD_SPECS = [
     "2026.8",
     { startup: true, controlPlaneWrite: true },
   ],
+  ["users.mentionable", "users-mentionable", "operator.read", "2026.8", { startup: true }],
+  ["mentions.list", "mentions", "operator.read", "2026.8", { startup: true }],
+  // Dismissal only changes the caller's temporary Inbox, not session or shared state.
+  ["mentions.dismiss", "mentions", "operator.read", "2026.8", { startup: true }],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];
 
 export type CoreGatewayHandlerFamily = Exclude<(typeof CORE_GATEWAY_METHOD_SPECS)[number][1], null>;
@@ -668,9 +672,6 @@ const CORE_GATEWAY_METHOD_SPEC_LIST: readonly CoreGatewayMethodSpec[] =
     }
     if (normalizedPolicy?.controlPlaneWrite === true) {
       spec.controlPlaneWrite = true;
-    }
-    if (normalizedPolicy?.compatibilityRestored === true) {
-      spec.compatibilityRestored = true;
     }
     if (normalizedPolicy?.description) {
       spec.description = normalizedPolicy.description;

@@ -180,6 +180,7 @@ async function handleChatSendWithOptions(
       transcript: options?.transcript,
       startedAt: admissionStartedAt,
       warn: (message) => context.logGateway.warn(message),
+      mentionInbox: context.mentionInbox,
       assertGoalCurrent: () => {
         sessionMutationCommitGuard?.();
         sessionMutationAuthorization?.assertCurrent();

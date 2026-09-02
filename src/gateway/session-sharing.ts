@@ -542,7 +542,12 @@ export function prepareSessionSharing(params: Pick<SessionSharingRoleParams, "cf
 export function createSessionListEntryFilter(
   params: Pick<SessionSharingRoleParams, "cfg" | "client">,
   isCreator?: ReturnType<typeof prepareSessionCreatorProfile>,
-): ((sessionKey: string, entry: SessionEntry) => boolean) | undefined {
+):
+  | ((
+      sessionKey: string | undefined,
+      entry: Pick<SessionEntry, "createdActor" | "visibility" | "incognito">,
+    ) => boolean)
+  | undefined {
   const operatorActor = resolveGatewayOperatorRoleActor(params.client);
   const identity = sharingIdentity(params.client, operatorActor);
   if (isGatewayAdmin(params.client) || (!identity && operatorActor?.kind === "system")) {

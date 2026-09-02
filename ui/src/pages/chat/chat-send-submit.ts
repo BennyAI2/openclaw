@@ -2,18 +2,16 @@ import type { ChatSendIntent } from "../../../../packages/gateway-protocol/src/s
 import { shouldForwardModelCommandToServer } from "../../../../src/auto-reply/commands-registry.shared.js";
 import { normalizeChatFollowUpModeOverride } from "../../app/settings.ts";
 import { t } from "../../i18n/index.ts";
-import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
 import { parseSlashCommand } from "../../lib/chat/commands.ts";
 import { extractCompanionCommandQuestion } from "../../lib/chat/companion-question.ts";
 import { resolveCurrentUserIdentity } from "../../lib/chat/current-user-identity.ts";
 import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
+import { trimHumanMentions } from "../../lib/chat/human-mentions.ts";
 import { captureChatOutboxAdmission } from "../../lib/chat/outbox-store.ts";
 import { scopedAgentIdForSession, visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
-import {
-  getChatAttachmentDataUrl,
-  releaseChatAttachmentPayloads,
-} from "./attachment-payload-store.ts";
+import { releaseChatAttachmentPayloads } from "./attachment-payload-store.ts";
 import { composeBrowserAnnotationContext } from "./browser-annotation-context.ts";
 import {
   dispatchChatSlashCommand,
@@ -33,9 +31,12 @@ import { sendChatMessageWithGeneratedRunId } from "./chat-send-actions.ts";
 import {
   captureChatCommandComposerRecovery,
   cancelChatDelivery,
+  chatSubmitKey,
   clearOwnedCommandComposerFallback,
+  clearSubmittedComposerState,
   commandComposerFallbackRetainsAttachments,
   restoreFailedCommandComposer,
+  snapshotChatAttachments,
   submittedCommandConnectionIsCurrent,
   submittedCommandScopeIsVisible,
   type ChatCommandComposerRecovery,
@@ -82,6 +83,7 @@ import {
 export type ChatSendSubmitOptions = {
   intent?: ChatSendIntent;
   attachmentsOverride?: readonly ChatAttachment[];
+  mentionsOverride?: readonly HumanMention[];
   followUpMode?: ControlUiFollowUpMode;
   /** Only the inline queued-row submit may resume and replace an edited row. */
   resumeQueuedMessageEditId?: string;
@@ -96,66 +98,6 @@ function isChatResetCommand(text: string) {
     parsed?.command.key === "new" ||
     (parsed?.command.key === "reset" && !/^soft(?:\s|$)/i.test(parsed.args))
   );
-}
-
-function attachmentSubmitSignature(attachment: ChatAttachment): string {
-  const dataUrl = getChatAttachmentDataUrl(attachment);
-  return JSON.stringify([
-    attachment.id,
-    attachment.mimeType,
-    attachment.fileName ?? "",
-    attachment.sizeBytes ?? 0,
-    dataUrl?.length ?? 0,
-    dataUrl?.slice(0, 64) ?? "",
-  ]);
-}
-
-function chatSubmitKey(
-  host: ChatHost,
-  kind: "detached" | "local" | "message" | "queued-edit" | "goal",
-  message: string,
-  attachments: ChatAttachment[],
-): string {
-  return JSON.stringify([
-    kind,
-    host.sessionKey,
-    message.trim(),
-    attachments.map(attachmentSubmitSignature),
-  ]);
-}
-
-function clearSubmittedComposerState(
-  host: ChatHost,
-  submittedDraft: string,
-  submittedAttachments: ChatAttachment[],
-  preserveBrowserAnnotations = false,
-) {
-  const attachmentsUnchanged =
-    host.chatAttachments.length === submittedAttachments.length &&
-    host.chatAttachments.every(
-      (attachment, index) =>
-        attachmentSubmitSignature(attachment) ===
-        attachmentSubmitSignature(submittedAttachments[index]!),
-    );
-  if (host.chatMessage !== submittedDraft || !attachmentsUnchanged) {
-    return {};
-  }
-  host.chatMessage = "";
-  host.chatAttachments = preserveBrowserAnnotations
-    ? host.chatAttachments.filter((attachment) => attachment.browserAnnotation)
-    : [];
-  resetChatInputHistoryNavigation(host);
-  return {
-    previousAttachments: submittedAttachments,
-    previousDraft: submittedDraft,
-  };
-}
-
-function snapshotChatAttachments(attachments: readonly ChatAttachment[]): ChatAttachment[] {
-  return attachments.map((attachment) => {
-    const dataUrl = getChatAttachmentDataUrl(attachment);
-    return { ...attachment, ...(dataUrl ? { dataUrl } : {}) };
-  });
 }
 
 async function waitForSubmittedRoute(host: ChatHost, sessionKey: string): Promise<boolean> {
@@ -208,9 +150,12 @@ export async function handleSendChat(
   submissionAction?: Event,
 ) {
   const previousDraft = host.chatMessage;
+  const previousMentions = host.chatMentions?.map((mention) => ({ ...mention }));
   const intent = opts?.intent;
   const rawMessage = messageOverride ?? host.chatMessage;
-  const userMessage = intent ? rawMessage : rawMessage.trim();
+  const draftMentions = messageOverride == null ? previousMentions : opts?.mentionsOverride;
+  const submitted = trimHumanMentions(rawMessage, draftMentions);
+  const userMessage = intent ? rawMessage : submitted.text;
   const submittedAtMs = controlUiNowMs();
   const submittedSessionKey = host.sessionKey;
   const submittedClient = host.client;
@@ -222,6 +167,10 @@ export async function handleSendChat(
   );
   const hasAttachments = attachmentsToSend.length > 0;
   if (intent) {
+    if (draftMentions?.length) {
+      setChatError(host, t("chat.mentions.unsupported"));
+      return undefined;
+    }
     if (!host.connected || !host.client) {
       setChatError(host, t("chat.goals.offline"));
       return undefined;
@@ -249,6 +198,13 @@ export async function handleSendChat(
   // prepended. Otherwise annotation text can hide /stop, /compact, or a stop
   // alias from the inline-edit command fence.
   const rawParsedCommand = intent ? null : parseSlashCommand(userMessage);
+  if (
+    submitted.mentions?.length &&
+    (rawParsedCommand || /^\/(?:btw|side)(?::|\s|$)/i.test(userMessage))
+  ) {
+    setChatError(host, t("chat.mentions.unsupported"));
+    return undefined;
+  }
   if (isInlineEditSubmission && (rawParsedCommand || isChatStopCommand(userMessage))) {
     setChatError(
       host,
@@ -302,6 +258,7 @@ export async function handleSendChat(
           recordNonTranscriptInputHistory(host, userMessage);
           if (host.chatMessage === previousDraft) {
             host.chatMessage = "";
+            host.chatMentions = [];
             resetChatInputHistoryNavigation(host);
           }
         }
@@ -338,7 +295,7 @@ export async function handleSendChat(
           return "handled" as const;
         }
         if (messageOverride == null) {
-          clearSubmittedComposerState(host, previousDraft, attachmentsToSend);
+          clearSubmittedComposerState(host, previousDraft, attachmentsToSend, previousMentions);
           recordNonTranscriptInputHistory(host, message);
         }
         return "handled" as const;
@@ -357,7 +314,13 @@ export async function handleSendChat(
         }
         const cleared =
           messageOverride == null
-            ? clearSubmittedComposerState(host, previousDraft, attachmentsToSend, true)
+            ? clearSubmittedComposerState(
+                host,
+                previousDraft,
+                attachmentsToSend,
+                previousMentions,
+                true,
+              )
             : {};
         if (messageOverride == null) {
           recordNonTranscriptInputHistory(host, userMessage);
@@ -372,6 +335,7 @@ export async function handleSendChat(
               ? undefined
               : {
                   draft: cleared.previousDraft,
+                  mentions: cleared.previousMentions,
                   attachments: cleared.previousAttachments ?? [],
                 },
           ),
@@ -395,6 +359,7 @@ export async function handleSendChat(
           if (messageOverride == null) {
             recordNonTranscriptInputHistory(host, userMessage);
             host.chatMessage = "";
+            host.chatMentions = [];
             resetChatInputHistoryNavigation(host);
           }
           const queued = enqueueChatMessage(
@@ -416,6 +381,7 @@ export async function handleSendChat(
             removeQueuedMessageWithoutReleasing(host, queued.id);
             if (messageOverride == null) {
               host.chatMessage = previousDraft;
+              host.chatMentions = previousMentions ?? [];
               host.chatAttachments = attachmentsToSend;
             }
             setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
@@ -431,25 +397,39 @@ export async function handleSendChat(
           return;
         }
         let prevDraft = messageOverride == null ? previousDraft : undefined;
-        let recoveryComposer: { draft: string; attachments: ChatAttachment[] } | undefined;
+        let recoveryComposer:
+          | {
+              draft: string;
+              mentions?: readonly HumanMention[];
+              attachments: ChatAttachment[];
+            }
+          | undefined;
         const recoveryScope = resolveUiConversationIdentity(host, submittedSessionKey);
         if (messageOverride == null) {
           recordNonTranscriptInputHistory(host, userMessage);
           if (waitsForPicker) {
-            const cleared = clearSubmittedComposerState(host, previousDraft, attachmentsToSend);
+            const cleared = clearSubmittedComposerState(
+              host,
+              previousDraft,
+              attachmentsToSend,
+              previousMentions,
+            );
             prevDraft = cleared.previousDraft;
             if (cleared.previousDraft !== undefined) {
               recoveryComposer = {
                 draft: cleared.previousDraft,
+                mentions: cleared.previousMentions,
                 attachments: cleared.previousAttachments ?? [],
               };
             }
           } else {
             recoveryComposer = {
               draft: previousDraft,
+              mentions: previousMentions,
               attachments: parsed.command.key === "export-session" ? [] : attachmentsToSend,
             };
             host.chatMessage = "";
+            host.chatMentions = [];
             // Export stays put; /new must clear attachments before route handoff.
             if (parsed.command.key !== "export-session") {
               host.chatAttachments = [];
@@ -518,12 +498,25 @@ export async function handleSendChat(
   // message, so a leading reference block would title the conversation after
   // the snapshot instead of what was actually asked.
   const effectiveMessage = workContext ? `${quotedMessage}\n\n${workContext}` : quotedMessage;
+  // Annotation and fallback-reply context prepend text; appended work context does not shift tokens.
+  const mentionOffset = quotedMessage.length - userMessage.length;
+  const effectiveMentions = submitted.mentions?.map((mention) => ({
+    profileId: mention.profileId,
+    start: mention.start + mentionOffset,
+    end: mention.end + mentionOffset,
+  }));
 
   const refreshSessions = Boolean(intent) || isChatResetCommand(message);
   // A row edit and a composer send may intentionally carry the same payload.
   // Keep their guards independent so submitting one cannot suppress the other.
   const submitKind = requestedEditId ? "queued-edit" : intent ? "goal" : "message";
-  const submitKey = chatSubmitKey(host, submitKind, effectiveMessage, attachmentsToSend);
+  const submitKey = chatSubmitKey(
+    host,
+    submitKind,
+    effectiveMessage,
+    attachmentsToSend,
+    effectiveMentions,
+  );
   let accepted = false;
   const submitMessage = async () => {
     if (host.chatLoading) {
@@ -587,6 +580,7 @@ export async function handleSendChat(
       activeRunQueueMode,
       intent,
       expectedLeafEntryId,
+      effectiveMentions,
     );
     if (!submission) {
       return;
@@ -632,6 +626,7 @@ export async function handleSendChat(
             host,
             previousDraft,
             attachmentsToSend,
+            previousMentions,
             Boolean(rawParsedCommand),
           )
         : {};
@@ -668,6 +663,7 @@ export async function handleSendChat(
       cancelChatDelivery(host, queued, {
         previousDraft: cleared.previousDraft,
         previousAttachments: cleared.previousAttachments,
+        previousMentions: cleared.previousMentions,
       });
       setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
       return;
@@ -693,6 +689,7 @@ export async function handleSendChat(
     const sendResult = await deliverChatQueueItem(host, queued, {
       previousDraft: cleared.previousDraft,
       previousAttachments: cleared.previousAttachments,
+      previousMentions: cleared.previousMentions,
       ...(intent || (directRunActive && followUpMode !== "queue")
         ? { allowActiveRunSend: true }
         : {}),

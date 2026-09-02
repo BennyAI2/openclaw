@@ -540,15 +540,7 @@ async function deleteSqliteSessionEntryLifecycleLocked(
         }, toDatabaseOptions(resolved)),
       );
       if (result.deleted) {
-        deletePersonalGitHubSessionReceipts({
-          agentId: resolved.agentId,
-          env: resolved.env,
-          sessionKeys: [
-            params.target.canonicalKey,
-            ...params.target.storeKeys,
-            ...prepared.targetSnapshot.map((row) => row.sessionKey),
-          ],
-        });
+        // The deletion is committed; observers must invalidate even if receipt cleanup fails.
         emitSessionIdentityMutation({
           kind: "delete",
           previous: {
@@ -557,6 +549,15 @@ async function deleteSqliteSessionEntryLifecycleLocked(
               : {}),
             sessionKeys: prepared.targetSnapshot.map((row) => row.sessionKey),
           },
+        });
+        deletePersonalGitHubSessionReceipts({
+          agentId: resolved.agentId,
+          env: resolved.env,
+          sessionKeys: [
+            params.target.canonicalKey,
+            ...params.target.storeKeys,
+            ...prepared.targetSnapshot.map((row) => row.sessionKey),
+          ],
         });
       }
       result.archivedTranscripts = await publishSessionStateArchives(

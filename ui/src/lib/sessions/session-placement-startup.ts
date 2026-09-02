@@ -14,6 +14,7 @@ import {
   normalizeChatSendAck,
 } from "../../pages/chat/chat-send-ack.ts";
 import { formatTerminalChatSendAckError } from "../../pages/chat/chat-send-support.ts";
+import type { HumanMention } from "../chat/chat-types.ts";
 import type { SessionPlacementTarget } from "./session-placement-recovery.ts";
 
 type SessionPlacementStartOutcome =
@@ -353,6 +354,7 @@ export async function startSessionPlacementInitialTurn(
     agentId: string;
     target: SessionPlacementTarget;
     message: string;
+    mentions?: readonly HumanMention[];
     attachments?: unknown[];
     messageId?: string;
     recovering?: boolean;
@@ -361,6 +363,8 @@ export async function startSessionPlacementInitialTurn(
   isCurrent: () => boolean,
   beforeSend: () => boolean = () => true,
 ): Promise<SessionPlacementStartOutcome> {
+  const message = params.message;
+  const mentions = params.mentions?.map((mention) => ({ ...mention }));
   const cleanupOnCancellation = params.cleanupOnCancellation ?? (() => true);
   let resolution: PlacementResolution | undefined;
   let dispatchError = "";
@@ -475,7 +479,8 @@ export async function startSessionPlacementInitialTurn(
     const sent = await client.request("sessions.send", {
       key: params.key,
       agentId: params.agentId,
-      message: params.message,
+      message,
+      ...(mentions?.length ? { mentions } : {}),
       attachments: params.attachments,
       idempotencyKey: messageId,
     });

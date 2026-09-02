@@ -44,6 +44,7 @@ const WEB_PUSH_CATEGORIES = [
   ["approvalRequested", () => t("configView.notifications.approvalRequested")],
   ["agentFinished", () => t("configView.notifications.agentFinished")],
   ["agentQuestion", () => t("configView.notifications.agentQuestion")],
+  ["humanMentioned", () => t("configView.notifications.humanMentioned")],
   ["scheduledTaskFailed", () => t("configView.notifications.scheduledTaskFailed")],
   ["backgroundTaskFailed", () => t("configView.notifications.backgroundTaskFailed")],
 ] as const;
@@ -91,7 +92,8 @@ function renderUserNotificationPreferences(
             title: label(),
             control: html`<input
               type="checkbox"
-              .checked=${preferences.categories[key]}
+              aria-label=${label()}
+              .checked=${preferences.categories[key] === true}
               @change=${(event: Event) =>
                 patch({
                   categories: {
@@ -361,6 +363,7 @@ function renderDeviceNotificationPreferences(
           renderSettingsRow({
             title: label(),
             control: html`<select
+              aria-label=${label()}
               .value=${preferences.categories?.[key] === undefined
                 ? "inherit"
                 : preferences.categories[key]

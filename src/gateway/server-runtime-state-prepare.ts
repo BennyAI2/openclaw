@@ -67,6 +67,7 @@ function listGatewayStartupChannelPlugins(): GatewayStartupChannelPlugin[] {
 
 export async function prepareGatewayKernelState(params: {
   bootstrap: GatewayBootstrap;
+  bootId: string;
   port: number;
   opts: GatewayBootstrap["opts"];
   log: GatewayLogger;
@@ -84,6 +85,7 @@ export async function prepareGatewayKernelState(params: {
 }) {
   const {
     bootstrap,
+    bootId,
     port,
     opts,
     log,
@@ -485,6 +487,7 @@ export async function prepareGatewayKernelState(params: {
   log.info("starting HTTP server...");
   const connectionState = await startupTrace.measure("runtime.state", () =>
     createGatewayConnectionState({
+      bootId,
       cfg: cfgAtStart,
       getRuntimeConfig,
     }),
@@ -536,6 +539,7 @@ export async function prepareGatewayKernelState(params: {
   });
   const {
     clients,
+    mentionInbox,
     broadcast,
     broadcastToConnIds,
     broadcastPluginEvent,
@@ -555,6 +559,7 @@ export async function prepareGatewayKernelState(params: {
 
   return {
     ...bootstrap,
+    bootId,
     pluginRuntime,
     workerEnvironmentService,
     workerLiveEvents,
@@ -622,6 +627,7 @@ export async function prepareGatewayKernelState(params: {
     createHttpTransportOptions,
     transportBridge,
     clients,
+    mentionInbox,
     broadcast,
     broadcastToConnIds,
     broadcastPluginEvent,

@@ -1,7 +1,8 @@
 import type { ProjectsAddResult } from "../../../../packages/gateway-protocol/src/index.js";
 import { t } from "../../i18n/index.ts";
-import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
 import { resolveCurrentUserIdentity } from "../../lib/chat/current-user-identity.ts";
+import { trimHumanMentions, updateHumanMentions } from "../../lib/chat/human-mentions.ts";
 import {
   readSessionMethodAccess,
   type SessionMethodAccess,
@@ -10,18 +11,13 @@ import { openTerminalSessionInTerminal } from "../../lib/sessions/catalog-termin
 import type { SessionCreateParams } from "../../lib/sessions/create.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import type { SessionPlacementRecovery } from "../../lib/sessions/session-placement-recovery.ts";
-import {
-  deleteSessionPlacementDraft,
-  sessionPlacementDispatchParams,
-} from "../../lib/sessions/session-placement-startup.ts";
+import { deleteSessionPlacementDraft } from "../../lib/sessions/session-placement-startup.ts";
 import { buildChatApiAttachments } from "../chat/attachment-api.ts";
-import { requiresChatModelSetup } from "../chat/chat-model-setup.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "../chat/composer-persistence.ts";
 import { buildInitialChatSubmission } from "../chat/user-message-content.ts";
 import { NewSessionAttachmentDraft } from "./attachment-draft.ts";
 import { prepareBackgroundSessionCompletion } from "./background-session-notice.ts";
 import { NewSessionCapabilityController } from "./capability-controller.ts";
-import * as catalog from "./catalog-target.ts";
 import { NewSessionComposerTextareaController } from "./composer.ts";
 import type { DraftSessionCreateOverrides, NewSessionVisibility } from "./create-params.ts";
 import type { DraftGatewayState } from "./draft-gateway-state.ts";
@@ -45,6 +41,8 @@ import {
 import { StartedSessionNavigation } from "./started-session-navigation.ts";
 import {
   PAGE_RENDERED_GATES,
+  readNewSessionSubmissionAccess,
+  requiresNewSessionModelSetup,
   resolveCloudPlacementDisabledReason,
   resolveNewSessionSubmitBlock,
   type NewSessionSubmitBlock,
@@ -58,6 +56,7 @@ import {
 export class DraftSubmissionFlow {
   private visibilityValue: NewSessionVisibility = "normal";
   private messageValue = "";
+  private mentionsValue: readonly HumanMention[] = [];
   private submittingValue = false;
   private blockedSubmitGate: string | null = null;
   submissionOutcomeUnknown: SubmissionOutcomeReason | null = null;
@@ -85,12 +84,14 @@ export class DraftSubmissionFlow {
     this.draftPersistence = new NewSessionDraftPersistence(
       () => ({
         message: this.messageValue,
+        mentions: this.mentionsValue,
         attachments: this.attachmentDraft.attachments,
         incognito: this.visibilityValue === "incognito",
       }),
-      (message, attachments, resetVisibility) => {
+      (message, attachments, resetVisibility, mentions) => {
         this.restoreDraftState({
           message,
+          mentions,
           attachments,
           visibility: resetVisibility ? "normal" : this.visibilityValue,
         });
@@ -114,6 +115,10 @@ export class DraftSubmissionFlow {
     return this.messageValue;
   }
 
+  get mentions(): readonly HumanMention[] {
+    return this.mentionsValue;
+  }
+
   get submitting(): boolean {
     return this.submittingValue || this.sessionStartup.active;
   }
@@ -128,21 +133,25 @@ export class DraftSubmissionFlow {
     }
   }
 
-  setMessage(message: string) {
+  setMessage(message: string, mentions?: readonly HumanMention[]) {
     this.startedSession.current = null;
+    this.mentionsValue =
+      mentions ?? updateHumanMentions(this.messageValue, message, this.mentionsValue);
     this.messageValue = message;
     this.draftPersistence.noteUserMutation();
     this.callbacks.requestUpdate();
   }
 
-  restoreMessage(message: string) {
+  restoreMessage(message: string, mentions: readonly HumanMention[] = []) {
     this.draftPersistence.noteDraftReplaced();
     this.messageValue = message;
+    this.mentionsValue = mentions;
     this.callbacks.requestUpdate();
   }
 
   restoreDraftState(state: {
     message: string;
+    mentions?: readonly HumanMention[];
     attachments: ChatAttachment[];
     visibility: NewSessionVisibility;
     toolOverrides?: NewSessionCapabilityController["toolOverrides"];
@@ -150,6 +159,7 @@ export class DraftSubmissionFlow {
   }) {
     this.draftPersistence.noteDraftReplaced();
     this.messageValue = state.message;
+    this.mentionsValue = state.mentions ?? [];
     this.visibilityValue = state.visibility;
     this.capabilities.restoreToolOverrides(state.toolOverrides);
     if ("permissionMode" in state) {
@@ -211,6 +221,7 @@ export class DraftSubmissionFlow {
   private buildDraftSessionCreateParams(options: DraftSessionCreateOverrides = {}) {
     return this.place.buildSessionCreateParams({
       message: options.message ?? "",
+      mentions: options.mentions,
       toolOverrides: this.capabilities.toolOverrides,
       permissionMode: this.permission.value,
       visibility: options.visibility ?? this.visibilityValue,
@@ -224,37 +235,12 @@ export class DraftSubmissionFlow {
     createParams: Record<string, unknown> = this.pendingPlacement.createParams ??
       this.buildDraftSessionCreateParams(),
   ): SessionMethodAccess {
-    const gateway = this.read().context?.gateway.snapshot;
-    const pendingPlacement = Boolean(this.pendingPlacement.sessionKey);
-    const target = this.placement().target;
-    const hasInitialTurn = this.messageValue.trim() || this.attachmentDraft.attachments.length;
-    const remoteProject = target || !hasInitialTurn ? this.place.browser.remoteProject : null;
-    if (!pendingPlacement && remoteProject && !remoteProject.projectId) {
-      const projectAccess = readSessionMethodAccess(gateway, {
-        method: "projects.add",
-        requiredScope: "operator.write",
-      });
-      if (!projectAccess.allowed) {
-        return projectAccess;
-      }
-    }
-    if (!target || !pendingPlacement || this.pendingPlacement.phase === "creating") {
-      const createAccess = readSessionMethodAccess(gateway, {
-        method: "sessions.create",
-        params: createParams,
-      });
-      if (!createAccess.allowed || !target) {
-        return createAccess;
-      }
-    }
-    return readSessionMethodAccess(gateway, {
-      method: "sessions.dispatch",
-      requiredScope: target.kind === "profile" ? "operator.admin" : "operator.write",
-      params: sessionPlacementDispatchParams({
-        key: this.pendingPlacement.sessionKey,
-        agentId: this.pendingPlacement.agentId || this.place.agentId,
-        target,
-      }),
+    return readNewSessionSubmissionAccess({
+      gateway: this.read().context?.gateway.snapshot,
+      place: this.place,
+      pendingPlacement: this.pendingPlacement,
+      hasInitialTurn: Boolean(this.messageValue.trim() || this.attachmentDraft.attachments.length),
+      createParams,
     });
   }
 
@@ -294,6 +280,8 @@ export class DraftSubmissionFlow {
         pendingAttachmentReads: this.attachmentDraft.pendingReads,
         hasDraftAttachments: this.attachmentDraft.attachments.length > 0,
         hasCapabilityOverrides: this.capabilities.toolOverrides !== null,
+        mentions: this.mentionsValue,
+        visibility: this.visibilityValue,
         submissionSnapshot: () => this.read(),
         requiresModelSetup: () => this.requiresModelSetup(),
         submissionAccess: () => this.submissionAccess(),
@@ -314,16 +302,11 @@ export class DraftSubmissionFlow {
   }
 
   requiresModelSetup(): boolean {
-    const selectedAgent = this.place.selectedAgent();
-    return requiresChatModelSetup({
-      catalog:
-        catalog.isTarget(this.read().data) ||
-        this.place.remotePlacement ||
-        Boolean(this.pendingPlacement.sessionKey),
-      connected: this.gateway.connected,
-      agentsLoaded: this.read().context?.agents.state.agentsList !== null,
-      selectedAgentFound: selectedAgent !== undefined,
-      agentModel: selectedAgent?.model?.primary,
+    return requiresNewSessionModelSetup({
+      snapshot: this.read(),
+      gateway: this.gateway,
+      place: this.place,
+      pendingPlacement: this.pendingPlacement,
     });
   }
 
@@ -367,6 +350,7 @@ export class DraftSubmissionFlow {
       this.clearPendingPlacementRecovery();
       this.draftPersistence.noteDraftReplaced();
       this.messageValue = "";
+      this.mentionsValue = [];
     }
     this.error = null;
     this.callbacks.requestUpdate();
@@ -403,9 +387,17 @@ export class DraftSubmissionFlow {
     }
     this.blockedSubmitGate = null;
     const pendingPlacement = !startup && Boolean(this.pendingPlacement.sessionKey);
+    const submitted = trimHumanMentions(this.messageValue, this.mentions);
     const message =
       startup?.params.message ??
-      (pendingPlacement ? this.pendingPlacement.message : this.messageValue.trim());
+      (pendingPlacement ? this.pendingPlacement.message : submitted.text);
+    const mentions = (
+      startup
+        ? startup.params.mentions
+        : pendingPlacement
+          ? this.pendingPlacement.mentions
+          : submitted.mentions
+    )?.map(({ profileId, start, end }) => ({ profileId, start, end }));
     const attachments = this.attachmentDraft.attachments;
     const draftAttachments = startup
       ? startup.params.attachments
@@ -430,6 +422,7 @@ export class DraftSubmissionFlow {
       context,
       clearDraft: () => {
         this.messageValue = "";
+        this.mentionsValue = [];
         this.sessionStartup.clear();
       },
     });
@@ -471,6 +464,7 @@ export class DraftSubmissionFlow {
         startup?.params ??
         this.buildDraftSessionCreateParams({
           message: placementTarget ? "" : message,
+          mentions: placementTarget ? undefined : mentions,
           visibility:
             this.visibilityValue === "draft" &&
             !this.capabilities.canStartAsDraft(this.read().context)
@@ -485,6 +479,7 @@ export class DraftSubmissionFlow {
               agentId: submissionAgentId,
               target: placementTarget,
               message,
+              mentions,
               attachments: apiAttachments,
               gatewayUrl: submissionGatewayUrl,
               recoveryScope: submissionRecoveryScope,
@@ -614,6 +609,7 @@ export class DraftSubmissionFlow {
           context,
           error: result.initialRun.error,
           message,
+          mentions,
           sessionKey: result.key,
         });
       if (result.initialRun.status === "started") {
@@ -623,7 +619,7 @@ export class DraftSubmissionFlow {
         context.chatSubmissions.retain(
           buildInitialChatSubmission(
             result.key,
-            { text: message, attachments, createdAt: submittedAt, sender },
+            { text: message, mentions, attachments, createdAt: submittedAt, sender },
             submissionClient,
             result.initialRun.runId,
           ),
@@ -662,6 +658,10 @@ export class DraftSubmissionFlow {
   }
 
   async startInTerminal() {
+    if (this.mentions.length) {
+      this.setError(t("chat.mentions.unsupported"));
+      return;
+    }
     const { context, data } = this.read();
     const client = context?.gateway.snapshot.client;
     const catalogId = data?.catalogId.trim() ?? "";
@@ -701,6 +701,7 @@ export class DraftSubmissionFlow {
         return;
       }
       this.messageValue = "";
+      this.mentionsValue = [];
       this.attachmentDraft.clearAfterSubmit(true);
       openTerminalSessionInTerminal(result.sessionId);
     } catch (error) {

@@ -2,6 +2,7 @@ import { consume } from "@lit/context";
 import { initialState, Task } from "@lit/task";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { CronJob, ModelAuthStatusResult } from "../api/types.ts";
 import type { NavigationRouteId } from "../app-navigation.ts";
@@ -17,6 +18,7 @@ import { normalizeAgentLabel } from "../lib/agents/display.ts";
 import { createInitialCronState, loadCronJobsPage, loadCronStatus } from "../lib/cron/index.ts";
 import { canCallGatewayMethod } from "../lib/gateway-methods.ts";
 import { loadModelAuthStatus } from "../lib/model-auth.ts";
+import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
@@ -185,6 +187,10 @@ class SidebarAttention extends OpenClawLightDomElement {
     .watch(
       () => this.context?.overlays,
       (overlays, notify) => overlays.subscribe(() => notify()),
+    )
+    .watch(
+      () => this.context?.mentions,
+      (mentions, notify) => mentions.subscribe(notify),
     )
     .watch(
       () => this.context?.scopeUpgrade,
@@ -458,6 +464,7 @@ class SidebarAttention extends OpenClawLightDomElement {
     return buildSidebarInboxEntries({
       approvals: overlaySnapshot.approvalQueue,
       attention: this.buildAttentionEntries().toSorted(compareSidebarAttentionEntries),
+      mentions: context.mentions.snapshot.items,
       scopeUpgrade,
       update,
     });
@@ -577,6 +584,23 @@ class SidebarAttention extends OpenClawLightDomElement {
     }
   }
 
+  private openMention(mention: MentionInboxItem) {
+    const context = this.context;
+    if (!context) {
+      return;
+    }
+    const target = sessionNavigationTarget({
+      face: "chat",
+      fallbackAgentId: mention.agentId,
+      basePath: context.basePath,
+      sessionKey: mention.sessionKey,
+      row: { key: mention.sessionKey, displayName: mention.sessionTitle },
+      exactKey: true,
+    });
+    this.closePanel(false);
+    context.navigate("chat", target.options);
+  }
+
   private readonly handlePanelKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -689,6 +713,7 @@ class SidebarAttention extends OpenClawLightDomElement {
               (this.onNavigate ?? ((nextRoute) => this.context?.navigate(nextRoute)))(routeId);
             },
             onOpen: (item) => void this.open(item),
+            onOpenMention: (mention) => this.openMention(mention),
             onScroll: this.syncOverflowCue,
             onSelectTab: (tab) => this.selectTab(tab),
             overflowAbove: this.overflowAbove,

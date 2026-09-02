@@ -174,7 +174,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       if (!state || !this.active || !this.presented) {
         return;
       }
-      state.handleChatDraftChange(draft);
+      state.handleChatDraftChange(draft, []);
       state.requestUpdate?.();
     });
   }
@@ -379,7 +379,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       this.applySessionHandoff(pageState.sessionKey, sessionHandoff, true);
     }
     if (this.draft !== undefined) {
-      this.state.handleChatDraftChange(this.draft);
+      this.state.handleChatDraftChange(this.draft, []);
     }
     const handleBrowserAnnotation = (event: Event) => this.receiveBrowserAnnotation(event);
     window.addEventListener(BROWSER_ANNOTATION_EVENT, handleBrowserAnnotation);
@@ -556,7 +556,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       this.state &&
       this.draft !== this.state.chatMessage
     ) {
-      this.state.handleChatDraftChange(this.draft);
+      this.state.handleChatDraftChange(this.draft, []);
     }
   }
 

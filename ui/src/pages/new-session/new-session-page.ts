@@ -8,8 +8,9 @@ import { loadSettings } from "../../app/settings.ts";
 import { readPresenceEntries } from "../../app/user-profile.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
 import { t } from "../../i18n/index.ts";
-import "../../components/web-awesome-popover.ts";
 import { normalizeAgentTargetLabel } from "../../lib/agents/display.ts";
+import "../../components/web-awesome-popover.ts";
+import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { buildAgentMainSessionKey } from "../../lib/sessions/session-key.ts";
@@ -23,11 +24,9 @@ import { renderChatPermissionPicker } from "../chat/components/chat-permission-p
 import { renderWelcomeState } from "../chat/components/chat-welcome.ts";
 import * as catalog from "./catalog-target.ts";
 import { NewSessionDictationControl } from "./composer-dictation-control.ts";
-import { renderDraftError } from "./composer.ts";
 import { ConnectMachineSetupState, renderConnectMachineDialog } from "./connect-machine-dialog.ts";
-import { isWorktreeNameValid } from "./create-params.ts";
 import { renderDetailChip, resolveDetailChip } from "./detail-chip.ts";
-import { renderNewSessionDraftComposer } from "./draft-composer.ts";
+import { renderNewSessionDraftComposer, renderNewSessionDraftErrors } from "./draft-composer.ts";
 import { DraftGatewayState } from "./draft-gateway-state.ts";
 import * as drafts from "./draft-navigation-handoff.ts";
 import { DraftPlaceBrowser } from "./draft-place-browser.ts";
@@ -283,12 +282,19 @@ export class NewSessionPage extends OpenClawLightDomElement {
     const groupDefaults = catalog.groupDefaultsKey(this.data);
     if (this.openedFor !== openKey) {
       const ownedMessage = this.messageOwnerKey === openKey ? this.submission.message : "";
+      const ownedMentions = this.messageOwnerKey === openKey ? this.submission.mentions : undefined;
       this.openedFor = openKey;
       this.openedGroupDefaults = groupDefaults;
       this.openedAgentId = resolvedAgentId;
       this.place.setAgentsHydrated(agentsReady);
       this.resetDraft();
-      this.messageOwnerKey = restoreDraft(this.context, this.submission, openKey, ownedMessage);
+      this.messageOwnerKey = restoreDraft(
+        this.context,
+        this.submission,
+        openKey,
+        ownedMessage,
+        ownedMentions,
+      );
       return;
     }
     if (this.openedGroupDefaults !== groupDefaults) {
@@ -344,14 +350,18 @@ export class NewSessionPage extends OpenClawLightDomElement {
       : catalog.routeKeyFromSearch(window.location.search);
   }
 
-  private setMessage(message: string, ownerKey = catalog.routeKey(this.data)) {
-    this.submission.setMessage(message);
+  private setMessage(
+    message: string,
+    ownerKey = catalog.routeKey(this.data),
+    mentions?: readonly HumanMention[],
+  ) {
+    this.submission.setMessage(message, mentions);
     this.messageOwnerKey = ownerKey;
   }
 
-  private setMessageFromUser(message: string) {
+  private setMessageFromUser(message: string, mentions?: readonly HumanMention[]) {
     if (!this.submission.submitting && !this.submission.pendingPlacement.sessionKey) {
-      this.setMessage(message, catalog.routeKeyFromSearch(window.location.search));
+      this.setMessage(message, catalog.routeKeyFromSearch(window.location.search), mentions);
     }
   }
 
@@ -538,31 +548,12 @@ export class NewSessionPage extends OpenClawLightDomElement {
   }
 
   private renderDraftBlock() {
-    const worktreeNameInvalid =
-      this.place.worktree && !isWorktreeNameValid(this.place.worktreeName);
     const capabilities = this.submission.capabilities;
     const voiceControl = this.dictation.render(this.routeOwnerKey());
     const dictationLocked = this.dictation.active;
     return html`
       <div class="new-session-page__draft" aria-busy=${String(this.submission.submitting)}>
-        ${this.renderTargetBar()}
-        ${worktreeNameInvalid ? renderDraftError(t("newSession.worktreeNameInvalid")) : nothing}
-        ${this.submission.error ? renderDraftError(this.submission.error) : nothing}
-        ${this.submission.submissionOutcomeUnknown
-          ? renderDraftError(
-              t(
-                this.submission.submissionOutcomeUnknown === "gateway-changed"
-                  ? "newSession.createOutcomeUnknown"
-                  : "newSession.placementSetupInterrupted",
-              ),
-              this.submission.pendingPlacement.sessionKey
-                ? {
-                    label: t("common.reset"),
-                    onClick: () => this.submission.clearPendingPlacementRecovery(),
-                  }
-                : undefined,
-            )
-          : nothing}
+        ${this.renderTargetBar()} ${renderNewSessionDraftErrors(this.place, this.submission)}
         ${renderNewSessionDraftComposer({
           agent: this.place.selectedAgent(),
           agentId: this.place.agentId,
@@ -577,6 +568,8 @@ export class NewSessionPage extends OpenClawLightDomElement {
           isCatalogTarget: catalog.isTarget(this.data),
           draftOwnerKey: this.routeOwnerKey(),
           message: this.submission.message,
+          mentions: this.submission.mentions,
+          getMentions: () => this.submission.mentions,
           visibility: this.submission.visibility,
           draftAvailable: capabilities.canStartAsDraft(this.context),
           ...capabilities.composerProps(this.context, this.gateway, this.place.agentId),
@@ -610,7 +603,7 @@ export class NewSessionPage extends OpenClawLightDomElement {
                 onStart: () => void this.submission.startInTerminal(),
               }
             : undefined,
-          onInput: (message) => this.setMessageFromUser(message),
+          onInput: (message, mentions) => this.setMessageFromUser(message, mentions),
           onOpenImage: (item) => {
             this.imageLightbox = item;
           },

@@ -189,6 +189,7 @@ it("adopts a competing indexed user without duplicating writes or slowing assist
       }),
     ]);
     expect(result.userMessageReceipts).toHaveLength(1);
+    expect(result.userMessageReceipts[0]?.appended).toBe(false);
     expect(result.userMessageReceipts[0]?.message).toBe(result.userMessagesPresent[0]);
     expect(result.userMessageReceipts[0]?.anchor).toBe(transcriptRace.userAnchor);
     expect(result.userMessageReceipts[0]?.anchor.entryId).toBe(
