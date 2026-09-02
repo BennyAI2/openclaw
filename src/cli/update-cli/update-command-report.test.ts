@@ -12,7 +12,7 @@ const failure: UpdateRunResult = {
   before: { version: "2026.8.1" },
   steps: [],
   durationMs: 1,
-  recovery: { serviceRestartSafe: true },
+  recovery: { serviceRestartSafe: true, version: "2026.8.1" },
 };
 
 function setup(action: "triage" | "report" | "dismiss", confirmed: boolean) {

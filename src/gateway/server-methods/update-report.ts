@@ -10,7 +10,6 @@ import {
   type UpdateFailureReportInput,
   type UpdateFailureReportSubmitResult,
 } from "../../infra/update-failure-report.js";
-import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
 import {
   getLatestUpdateRestartSentinel,
@@ -18,24 +17,6 @@ import {
 } from "../server-restart-sentinel.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
-
-type RecoveryFailureReason = Exclude<
-  NonNullable<UpdateRunResult["recovery"]>,
-  { serviceRestartSafe: true }
->["reason"];
-
-const RECOVERY_FAILURE_REASONS: ReadonlySet<string> = new Set([
-  "source-rollback-failed",
-  "manager-unavailable",
-  "deps-install-failed",
-  "build-failed",
-  "rollback-checkout-dirty",
-  "runtime-verification-failed",
-]);
-
-function isRecoveryFailureReason(value: string): value is RecoveryFailureReason {
-  return RECOVERY_FAILURE_REASONS.has(value);
-}
 
 function readIdentity(value: Record<string, unknown> | null | undefined) {
   return value
@@ -64,13 +45,7 @@ function projectReportInput(payload: RestartSentinelPayload): UpdateFailureRepor
     stats.mode === "git" || stats.mode === "pnpm" || stats.mode === "bun" || stats.mode === "npm"
       ? stats.mode
       : "unknown";
-  const recovery =
-    stats.recovery?.serviceRestartSafe === true
-      ? ({ serviceRestartSafe: true } as const)
-      : stats.recovery?.serviceRestartSafe === false &&
-          isRecoveryFailureReason(stats.recovery.reason)
-        ? ({ serviceRestartSafe: false, reason: stats.recovery.reason } as const)
-        : undefined;
+  const recovery = stats.recovery;
   return {
     attemptId: stats.handoffId?.trim() || `recorded:${payload.ts}`,
     result: {

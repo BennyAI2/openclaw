@@ -26,7 +26,7 @@ function failedUpdate(overrides: Partial<UpdateRunResult> = {}): UpdateRunResult
       },
     ],
     durationMs: 20,
-    recovery: { serviceRestartSafe: true },
+    recovery: { serviceRestartSafe: true, version: "2026.8.1" },
     ...overrides,
   };
 }

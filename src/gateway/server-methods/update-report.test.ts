@@ -58,7 +58,7 @@ const failure: RestartSentinelPayload = {
       },
     ],
     durationMs: 20,
-    recovery: { serviceRestartSafe: true },
+    recovery: { serviceRestartSafe: true, version: "2026.8.1" },
   },
 };
 
@@ -103,7 +103,7 @@ describe("update.report", () => {
       result: {
         status: "error",
         mode: "git",
-        recovery: { serviceRestartSafe: true },
+        recovery: { serviceRestartSafe: true, version: "2026.8.1" },
         steps: [{ name: "build", command: "", cwd: "", exitCode: 1 }],
       },
     });
