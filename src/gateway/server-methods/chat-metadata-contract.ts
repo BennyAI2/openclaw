@@ -11,6 +11,5 @@ export type ChatMetadataReadParams = {
 
 export type ChatMetadataResult = {
   commands?: unknown[];
-  models?: unknown[];
   swarmEnabled: boolean;
 };

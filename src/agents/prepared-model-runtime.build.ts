@@ -1,8 +1,6 @@
 import { performance } from "node:perf_hooks";
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
-import pLimit from "p-limit";
 import { runAbortableTimeout } from "../node-host/with-timeout.js";
 import { prepareModelCatalogThinkingPolicies } from "../plugins/provider-thinking.js";
 import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
@@ -28,7 +26,6 @@ import type {
 import { PreparedModelRuntimePublicationSupersededError } from "./prepared-model-runtime.errors.js";
 import {
   fingerprintPreparedRuntimeFacts,
-  preparedModelInventoryKey,
   prepareAgentCatalogSource,
   prepareConfiguredRuntimeFactsBatch,
   prepareWorkspaceBuildGroup,
@@ -41,12 +38,10 @@ import {
   createPreparedInboundRegistryLoader,
   preparedModelRuntimeWorkspaceFactsKey,
 } from "./prepared-model-runtime.inbound-registry.js";
-import { notifyPreparedModelRuntimePublication } from "./prepared-model-runtime.publication-events.js";
 import type {
   PreparedModelRuntimeBuildStats,
   PreparedModelRuntimeCatalogMode,
   PreparedModelRuntimeInput,
-  PreparedModelRuntimeOwner,
   PreparedModelRuntimePluginGeneration,
   PreparedModelRuntimeSnapshot,
   PreparedModelRuntimeStores,
@@ -54,18 +49,14 @@ import type {
 import { AuthStorage } from "./sessions/auth-storage.js";
 
 const MAX_CONCURRENT_MODEL_RUNTIME_AGENT_SOURCE_BUILDS = 2;
-const MAX_CONCURRENT_FULL_MODEL_CATALOG_BUILDS = 1;
-const limitFullModelCatalogBuild = pLimit(MAX_CONCURRENT_FULL_MODEL_CATALOG_BUILDS);
 
 type PreparedModelRuntimeCatalogAccess = Readonly<{
-  readFullModelCatalog: () => ModelCatalogSnapshot | undefined;
   loadFullModelCatalog: (options?: { refresh?: boolean }) => Promise<ModelCatalogSnapshot>;
   loadAuth: (scope: PreparedModelRuntimeAuthScope) => Promise<PreparedModelRuntimeAuth>;
 }>;
 export type PreparedModelRuntimeBuildCandidate = Readonly<{
   input: PreparedModelRuntimeInput;
   catalogOwner: PreparedModelRuntimeSnapshot["catalogOwner"];
-  inventoryOwner?: Pick<PreparedModelRuntimeOwner, "catalogInventory">;
   pluginGeneration?: PreparedModelRuntimePluginGeneration;
   prepareInboundPluginRegistry?: boolean;
   isGenerationCurrent?: () => boolean;
@@ -78,40 +69,6 @@ export type PreparedModelRuntimeBuildResult = Readonly<{
   snapshot: PreparedModelRuntimeSnapshot;
   pluginGeneration: PreparedModelRuntimePluginGeneration;
 }>;
-
-function runSerializedPreparedModelRuntimeTask<T>(params: {
-  agentDir: string;
-  agentBuildCompletions: Map<string, Promise<void>>;
-  isCurrent: () => boolean;
-  task: () => Promise<T>;
-}): Promise<T> {
-  const previous = params.agentBuildCompletions.get(params.agentDir);
-  const pending = (async () => {
-    if (previous) {
-      await previous;
-    }
-    // Workspace generations serialize to bound heap growth. Yield before the first and between
-    // later builds so queued Gateway accepts and health probes always get an admission turn.
-    await yieldToEventLoop();
-    if (!params.isCurrent()) {
-      throw new PreparedModelRuntimePublicationSupersededError(
-        `prepared model runtime catalog generation was superseded for ${params.agentDir}`,
-      );
-    }
-    return await params.task();
-  })();
-  const completion = pending.then(
-    () => undefined,
-    () => undefined,
-  );
-  params.agentBuildCompletions.set(params.agentDir, completion);
-  void completion.then(() => {
-    if (params.agentBuildCompletions.get(params.agentDir) === completion) {
-      params.agentBuildCompletions.delete(params.agentDir);
-    }
-  });
-  return pending;
-}
 
 function assertPreparedModelRuntimeInputCurrent(
   input: PreparedModelRuntimeInput,
@@ -149,9 +106,7 @@ function groupBuildCandidates<K>(
 function createFullModelCatalogAccess(params: {
   agentFacts: PreparedModelRuntimeAgentFacts;
   pluginGeneration: PreparedModelRuntimePluginGeneration;
-  agentBuildCompletions: Map<string, Promise<void>>;
   isCurrent: () => boolean;
-  inventoryOwner: Pick<PreparedModelRuntimeOwner, "catalogInventory">;
 }): PreparedModelRuntimeCatalogAccess {
   // Retain discovery, not the retired worker or its runtime capability projection.
   const project = (catalog: ModelCatalogSnapshot) => {
@@ -166,39 +121,20 @@ function createFullModelCatalogAccess(params: {
     });
     return projected;
   };
-  const inventoryKey = preparedModelInventoryKey(params.agentFacts.input);
-  const inventory = params.inventoryOwner.catalogInventory;
-  let fullCatalog = inventory?.key === inventoryKey ? project(inventory.catalog) : undefined;
-  let pending: Promise<ModelCatalogSnapshot> | undefined;
-  let pendingAuth:
-    | {
-        key: string;
-        promise: Promise<PreparedModelRuntimeAuth>;
-      }
-    | undefined;
   const assertCurrent = () =>
     assertPreparedModelRuntimeInputCurrent(params.agentFacts.input, params.isCurrent);
-  // Construction is lazy: automatic prepared reads do not start a thread. The first explicit
-  // request initializes one registry and reuses that exact plugin generation until retirement.
-  const worker = createPreparedModelCatalogWorker({
-    input: createPreparedModelCatalogWorkerInput({
-      agentFacts: params.agentFacts,
-      pluginMetadataSnapshot: params.pluginGeneration.pluginMetadataSnapshot,
-      preferBuiltPluginArtifacts: params.pluginGeneration.preferBuiltPluginArtifacts,
-    }),
+  const workerInput = createPreparedModelCatalogWorkerInput({
+    agentFacts: params.agentFacts,
+    pluginMetadataSnapshot: params.pluginGeneration.pluginMetadataSnapshot,
+    preferBuiltPluginArtifacts: params.pluginGeneration.preferBuiltPluginArtifacts,
+  });
+  const authWorker = createPreparedModelCatalogWorker({
+    input: workerInput,
     isCurrent: params.isCurrent,
   });
   return {
-    loadAuth: ({ providerIds, profileIds }) => {
-      const cacheKey = [providerIds, profileIds ?? []]
-        .map((ids) =>
-          [...new Set(ids)].toSorted((left, right) => left.localeCompare(right)).join("\0"),
-        )
-        .join("\0\0");
-      if (pendingAuth?.key === cacheKey) {
-        return pendingAuth.promise;
-      }
-      const promise = worker
+    loadAuth: ({ providerIds, profileIds }) =>
+      authWorker
         .loadAuth({ providerIds, ...(profileIds?.length ? { profileIds } : {}) })
         .then((refreshed) => {
           const authModes = {
@@ -209,52 +145,20 @@ function createFullModelCatalogAccess(params: {
           }
           Object.assign(authModes, refreshed.authModes);
           return { authStore: refreshed.authStore, authModes: Object.freeze(authModes) };
-        })
-        .finally(() => {
-          if (pendingAuth?.promise === promise) {
-            pendingAuth = undefined;
-          }
-        });
-      pendingAuth = { key: cacheKey, promise };
-      return promise;
-    },
-    readFullModelCatalog: () => {
+        }),
+    loadFullModelCatalog: async () => {
       assertCurrent();
-      return fullCatalog;
-    },
-    loadFullModelCatalog: async (options) => {
-      assertCurrent();
-      if (!options?.refresh && fullCatalog) {
-        return fullCatalog;
+      const catalogWorker = createPreparedModelCatalogWorker({
+        input: workerInput,
+        isCurrent: params.isCurrent,
+      });
+      try {
+        const catalog = await catalogWorker.loadCatalog();
+        assertCurrent();
+        return project(catalog);
+      } finally {
+        await catalogWorker.close();
       }
-      if (!pending) {
-        const build = runSerializedPreparedModelRuntimeTask({
-          agentDir: params.agentFacts.input.agentDir,
-          agentBuildCompletions: params.agentBuildCompletions,
-          isCurrent: params.isCurrent,
-          task: async () =>
-            await limitFullModelCatalogBuild(async () => {
-              // Full inventory belongs to explicit control-plane reads. The generation queue
-              // prevents a stale plan from overlapping or following a replacement build.
-              assertCurrent();
-              const catalog = await worker.loadCatalog();
-              assertCurrent();
-              return catalog;
-            }),
-        });
-        pending = build
-          .then((catalog) => {
-            assertCurrent();
-            fullCatalog = project(catalog);
-            params.inventoryOwner.catalogInventory = { catalog, key: inventoryKey };
-            notifyPreparedModelRuntimePublication({ phase: "catalog-published" });
-            return fullCatalog;
-          })
-          .finally(() => {
-            pending = undefined;
-          });
-      }
-      return pending;
     },
   };
 }
@@ -300,7 +204,6 @@ function createSnapshot(
     ...(messageToolCatalog ? { messageToolCatalog } : {}),
     ...(mediaCapabilityProviders ? { mediaCapabilityProviders } : {}),
     modelCatalog,
-    readFullModelCatalog: catalogAccess.readFullModelCatalog,
     loadFullModelCatalog: catalogAccess.loadFullModelCatalog,
     configuredRuntimeModels,
     inlineProviderModels,
@@ -513,7 +416,7 @@ async function buildSnapshotBatch(
     catalogSourceMs,
     registryMs,
     sourceConcurrencyLimit: MAX_CONCURRENT_MODEL_RUNTIME_AGENT_SOURCE_BUILDS,
-    fullCatalogConcurrencyLimit: MAX_CONCURRENT_FULL_MODEL_CATALOG_BUILDS,
+    fullCatalogConcurrencyLimit: 0,
   });
   assertPreparedModelRuntimeCandidatesCurrent(candidates);
   return candidates.map((candidate) => {
@@ -532,9 +435,7 @@ async function buildSnapshotBatch(
         createFullModelCatalogAccess({
           agentFacts,
           pluginGeneration,
-          agentBuildCompletions,
           isCurrent: candidate.isGenerationCurrent ?? (() => false),
-          inventoryOwner: candidate.inventoryOwner ?? {},
         }),
       ),
       pluginGeneration,

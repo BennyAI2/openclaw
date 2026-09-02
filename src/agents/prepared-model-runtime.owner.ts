@@ -81,7 +81,7 @@ export function prepareModelRuntimeOwner(
 ): PreparedModelRuntimeOwner {
   // Preparation precedes async discovery: auth may supersede the first build, or a new
   // preparation whose previous snapshot is still attached. Neither snapshot owns these facts.
-  return Object.assign(existing ?? { generation: 0, needsRefresh: true, catalogStale: false }, {
+  return Object.assign(existing ?? { generation: 0, needsRefresh: true }, {
     input,
     catalogOwner: preparePublishedModelCatalogOwnerIdentity(input),
     environmentFingerprint: effectiveEnvironmentFingerprint(input),
@@ -504,7 +504,6 @@ export async function publishPreparedModelRuntimeOwnerBatch(params: {
       catalogMode: owner.catalogMode,
       input,
       catalogOwner: owner.catalogOwner,
-      inventoryOwner: owner,
       pluginGeneration: owner.pendingPluginGeneration,
       prepareInboundPluginRegistry: owner.provenance === "configured",
       isGenerationCurrent,
@@ -658,7 +657,6 @@ export async function publishModelRuntimeSnapshot(
       {
         input,
         catalogOwner: owner.catalogOwner,
-        inventoryOwner: owner,
         isGenerationCurrent,
         isBuildCurrent: isGenerationCurrent,
         prepareInboundPluginRegistry: provenance === "configured",

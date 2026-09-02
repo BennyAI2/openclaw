@@ -585,7 +585,6 @@ describe("chat pane composer controls", () => {
       expect(request).toHaveBeenCalledWith("models.list", {
         view: "configured",
         agentId: "main",
-        refresh: true,
       });
       expect(state.chatModelsLoading).toBe(cachedModels.length === 0);
       render(renderChatPaneComposerControls(controlParams).composerControls, container);

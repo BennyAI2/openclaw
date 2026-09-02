@@ -71,18 +71,12 @@ export type BuildPreparedModelCatalogParams = {
 };
 
 let hasLoggedModelCatalogError = false;
-type ManifestModelCatalogCacheEntry = {
-  snapshot: PluginMetadataSnapshot;
-  rows: ModelCatalogEntry[];
-};
-let manifestModelCatalogCache = new WeakMap<OpenClawConfig, ManifestModelCatalogCacheEntry>();
 const loadModelSuppression = createLazyPromise(() => import("./model-suppression.js"));
 const loadProviderApiKeyResolver = createLazyPromise(
   () => import("./models-config.providers.secrets.js"),
 );
 
-export function resetModelCatalogBuilderCacheForTest() {
-  manifestModelCatalogCache = new WeakMap();
+export function resetModelCatalogBuilderStateForTest() {
   hasLoggedModelCatalogError = false;
 }
 
@@ -353,6 +347,35 @@ function createModelCatalogSnapshot(
   };
 }
 
+/** Builds the current network-free catalog directly from manifests and authored config. */
+export function buildCurrentModelCatalogSnapshot(params: {
+  config: OpenClawConfig;
+  metadataSnapshot: PluginMetadataSnapshot;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): ModelCatalogSnapshot {
+  const routeVariants = createModelCatalogRouteVariantCollector();
+  const models = loadManifestModelCatalog({
+    config: params.config,
+    metadataSnapshot: params.metadataSnapshot,
+    workspaceDir: params.workspaceDir,
+    env: params.env,
+  });
+  mergeCatalogRouteVariants(routeVariants, models);
+  const configured = buildConfiguredModelCatalog({
+    cfg: params.config,
+    workspaceDir: params.workspaceDir,
+    manifestPlugins: params.metadataSnapshot,
+  });
+  mergeCatalogRouteVariants(routeVariants, configured, { preserveBaseCompat: true });
+  mergeCatalogEntries(models, configured, {
+    catalogRoutes: routeVariants,
+    preserveBaseCompat: true,
+    preserveBaseName: true,
+  });
+  return createModelCatalogSnapshot(models, routeVariants);
+}
+
 function resolveEligibleManifestCatalogPlugins(
   snapshot: PluginMetadataSnapshot,
   config: OpenClawConfig,
@@ -393,10 +416,6 @@ export function loadManifestModelCatalog(params: {
   if (!resolvedSnapshot) {
     return [];
   }
-  const cached = manifestModelCatalogCache.get(params.config);
-  if (cached?.snapshot === resolvedSnapshot) {
-    return cached.rows;
-  }
   const plugins = resolveEligibleManifestCatalogPlugins(resolvedSnapshot, params.config);
   const plan = planEffectiveModelCatalogRows({
     registry: { plugins },
@@ -423,7 +442,6 @@ export function loadManifestModelCatalog(params: {
     }
     return entry;
   });
-  manifestModelCatalogCache.set(params.config, { snapshot: resolvedSnapshot, rows });
   return rows;
 }
 

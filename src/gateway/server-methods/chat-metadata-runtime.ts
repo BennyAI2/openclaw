@@ -10,10 +10,7 @@ import {
   getPublishedPreparedModelCatalogOwnerSnapshot,
   type GetPublishedPreparedModelCatalogOwnerParams,
 } from "../../agents/prepared-model-catalog.js";
-import {
-  getPreparedModelFullCatalogAuth,
-  getPreparedModelRuntimeAuthMaterializations,
-} from "../../agents/prepared-model-runtime-auth.js";
+import { getPreparedModelRuntimeAuthMaterializations } from "../../agents/prepared-model-runtime-auth.js";
 import type { PreparedModelRuntimeSnapshot } from "../../agents/prepared-model-runtime.js";
 import { resolveSwarmConfig } from "../../agents/subagents/swarm/swarm-config.js";
 import { resolveRuntimeConfigCacheKey } from "../../config/runtime-snapshot.js";
@@ -102,7 +99,7 @@ type ChatMetadataRuntimeDeps = {
     facts: PreparedAgentFacts;
     preferredProfileId?: string;
     lockedProfileId?: string;
-  }) => Promise<PreparedAgentProjection<{ models?: unknown[] }>>;
+  }) => Promise<PreparedAgentProjection<Partial<ChatMetadataResult>>>;
 };
 
 const CHAT_METADATA_CACHE_MAX_ENTRIES = 64;
@@ -140,24 +137,16 @@ function captureGenerationFacts(deps: ChatMetadataRuntimeDeps): PreparedGenerati
       );
     }
     const workspaceDir = owner.workspaceDir ?? resolveAgentWorkspaceDir(config, agentId);
-    const fullModelCatalog = owner.readFullModelCatalog?.();
-    const fullCatalogAuth = fullModelCatalog
-      ? getPreparedModelFullCatalogAuth(fullModelCatalog)
-      : undefined;
-    if (fullModelCatalog && !fullCatalogAuth) {
-      throw new Error("prepared full model catalog omitted its auth generation");
-    }
     return {
       agentId,
       owner,
-      authStore: fullCatalogAuth?.authStore ??
-        deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
-          version: 1,
-          profiles: {},
-        },
-      authModes: fullCatalogAuth?.authModes ?? owner.authModes,
+      authStore: deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
+        version: 1,
+        profiles: {},
+      },
+      authModes: owner.authModes,
       authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
-      modelCatalog: fullModelCatalog ?? owner.modelCatalog,
+      modelCatalog: owner.modelCatalog,
       skillsVersion: deps.getSkillsVersion(workspaceDir),
     };
   });
@@ -236,9 +225,8 @@ async function defaultBuildProjection(params: {
   facts: PreparedAgentFacts;
   preferredProfileId?: string;
   lockedProfileId?: string;
-}): Promise<PreparedAgentProjection<{ models?: unknown[] }>> {
-  const { prepareModelsListResult, createGatewayAgentModelCatalogProjector } =
-    await import("./models-list-result.js");
+}): Promise<PreparedAgentProjection<Partial<ChatMetadataResult>>> {
+  const { createGatewayAgentModelCatalogProjector } = await import("./models-list-result.js");
   // Chat metadata must stay on process-published facts. Live discovery belongs to explicit
   // models.list control-plane reads so a slow provider cannot delay chat startup.
   const snapshot = params.facts.modelCatalog;
@@ -256,25 +244,11 @@ async function defaultBuildProjection(params: {
     ...(params.preferredProfileId ? { preferredProfileId: params.preferredProfileId } : {}),
     ...(params.lockedProfileId ? { lockedProfileId: params.lockedProfileId } : {}),
   });
-  const [modelCatalog, readModels] = await Promise.all([
-    projector.projectCatalog(),
-    prepareModelsListResult({
-      context: params.context,
-      agentId: params.facts.agentId,
-      params: { view: "configured" },
-      preloadedCatalog: {
-        agentId: params.facts.agentId,
-        config: params.facts.owner.config,
-        snapshot,
-      },
-      preloadedOnly: true,
-      catalogProjector: projector,
-    }),
-  ]);
+  const modelCatalog = await projector.projectCatalog();
   return {
     modelCatalog,
-    read: () => ({ models: readModels.read().models }),
-    isCurrent: readModels.isCurrent,
+    read: () => ({}),
+    isCurrent: () => params.context.getRuntimeConfig() === params.facts.owner.config,
   };
 }
 

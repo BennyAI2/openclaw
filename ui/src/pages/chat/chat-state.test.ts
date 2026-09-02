@@ -5,14 +5,12 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import * as assistantIdentity from "../../app/assistant-identity.ts";
 import { createChatSubmissions } from "../../app/chat-submissions.ts";
 import type { ApplicationContext } from "../../app/context.ts";
-import { invalidateChatMetadataStore } from "../../lib/chat/chat-metadata-store.ts";
 import {
   buildFallbackSlashCommands,
   replaceSlashCommands,
   SLASH_COMMANDS,
 } from "../../lib/chat/commands.ts";
 import { extractText } from "../../lib/chat/message-extract.ts";
-import { invalidateModelCatalogCache } from "../../lib/model-catalog-store.ts";
 import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
 import { loadChatHistory } from "./chat-history.ts";
 import { makeChatHost } from "./chat-host.test-support.ts";
@@ -3699,36 +3697,24 @@ describe("refreshChatMetadata", () => {
     } as unknown as ChatPageHost;
   }
 
-  it.each(["metadata", "picker"] as const)(
-    "fences a late %s result across same-client reconnect",
-    async (kind) => {
-      const old = createDeferred<{ commands: never[]; models: typeof state.chatModelCatalog }>();
-      const ready = { id: "model", name: "Model", provider: "test", available: true };
-      const request = vi
-        .fn()
-        .mockReturnValueOnce(old.promise)
-        .mockResolvedValue({ commands: [], models: [ready] });
-      const state = createMetadataState(request);
-      const pending =
-        kind === "picker" ? refreshChatModelCatalogOnDemand(state) : refreshChatMetadata(state);
-      state.connected = false;
-      retireChatMetadataRequests(state);
-      invalidateModelCatalogCache(state.client!);
-      invalidateChatMetadataStore(state.client!);
-      expect(state.chatModelCatalog).toEqual([]);
-      state.connectionEpoch += 1;
-      state.connected = true;
-      await refreshChatMetadata(state);
-      old.resolve({
-        commands: [],
-        models: [{ ...ready, available: false, unavailableReason: "missing-auth" }],
-      });
-      await pending;
-      expect(state.chatModelCatalog).toEqual([ready]);
-      expect(state.chatModelCatalogError).toBeNull();
-      retireChatMetadataRequests(state);
-    },
-  );
+  it("fences a late model list across same-client reconnect", async () => {
+    const stale = createDeferred<{ models: typeof state.chatModelCatalog }>();
+    const current = { id: "model", name: "Model", provider: "test", available: true };
+    const request = vi.fn().mockReturnValue(stale.promise);
+    const state = createMetadataState(request, { chatModelCatalog: [current] });
+
+    const pending = refreshChatModelCatalogOnDemand(state);
+    state.connected = false;
+    state.connectionEpoch += 1;
+    state.connected = true;
+    stale.resolve({
+      models: [{ ...current, available: false, unavailableReason: "missing-auth" }],
+    });
+    await pending;
+
+    expect(state.chatModelCatalog).toEqual([current]);
+    expect(state.chatModelCatalogError).toBeNull();
+  });
 
   it.each(["command-metadata", "patch"])(
     "refreshes only the matching session for %s, not streaming updates",
@@ -3766,18 +3752,16 @@ describe("refreshChatMetadata", () => {
     },
     { label: "cold", existingModels: [] },
   ])(
-    "refreshes $label session metadata after full model discovery completes",
+    "replaces the $label picker catalog with the current model list",
     async ({ existingModels }) => {
-      const refreshSessions = vi.fn().mockResolvedValue(undefined);
+      const sessionRefresh = createDeferred<void>();
+      const refreshSessions = vi.fn(() => sessionRefresh.promise);
       const discovery = createDeferred<{
         models: Array<{ id: string; name: string; provider: string; reasoning: boolean }>;
       }>();
       const request = vi.fn((method: string, params?: unknown) => {
-        expect(params).toEqual(
-          method === "models.list"
-            ? { view: "configured", agentId: "work", refresh: true }
-            : { agentId: "work", sessionKey: "agent:work:main" },
-        );
+        expect(method).toBe("models.list");
+        expect(params).toEqual({ view: "configured", agentId: "work" });
         return discovery.promise;
       });
       const state = createMetadataState(request, {
@@ -3791,6 +3775,9 @@ describe("refreshChatMetadata", () => {
       discovery.resolve({
         models: [{ id: "reasoner", name: "Reasoner", provider: "dynamic-router", reasoning: true }],
       });
+      await vi.waitFor(() => expect(state.chatModelCatalog[0]?.id).toBe("reasoner"));
+      expect(state.chatModelsLoading).toBe(false);
+      sessionRefresh.resolve();
       await refresh;
 
       expect(state.chatModelCatalog).toEqual([
@@ -3804,46 +3791,10 @@ describe("refreshChatMetadata", () => {
       expect(refreshSessions).toHaveBeenCalledWith(
         expect.objectContaining({ agentId: "work", force: true }),
       );
+      expect(request).toHaveBeenCalledOnce();
       expect(state.chatModelCatalogError).toBeNull();
     },
   );
-
-  it("does not apply session metadata after a same-agent session switch", async () => {
-    let resolveMetadata:
-      | ((value: {
-          commands: never[];
-          models: Array<{
-            id: string;
-            name: string;
-            provider: string;
-            available: boolean;
-          }>;
-        }) => void)
-      | undefined;
-    const metadata = new Promise<{
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string; available: boolean }>;
-    }>((resolve) => {
-      resolveMetadata = resolve;
-    });
-    const request = vi.fn(async (method: string, params?: unknown) => {
-      expect(method).toBe("chat.metadata");
-      expect(params).toEqual({ agentId: "work", sessionKey: "agent:work:main" });
-      return await metadata;
-    });
-    const state = createMetadataState(request);
-
-    const refresh = refreshChatMetadata(state);
-    state.sessionKey = "agent:work:another";
-    resolveMetadata?.({
-      commands: [],
-      models: [{ id: "work-model", name: "Work Model", provider: "openai", available: true }],
-    });
-    await refresh;
-
-    expect(state.chatModelCatalog).toEqual([]);
-    expect(request).toHaveBeenCalledTimes(1);
-  });
 
   it("isolates metadata across sessions and agents", async () => {
     const request = vi.fn(async (_method: string, params?: { agentId?: string }) => ({
@@ -3872,113 +3823,7 @@ describe("refreshChatMetadata", () => {
     });
   });
 
-  it("ignores metadata after switching to a different agent", async () => {
-    let resolveMetadata:
-      | ((value: {
-          commands: never[];
-          models: Array<{ id: string; name: string; provider: string }>;
-        }) => void)
-      | undefined;
-    const metadata = new Promise<{
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }>((resolve) => {
-      resolveMetadata = resolve;
-    });
-    const request = vi.fn(async () => await metadata);
-    const existingCatalog = [
-      { id: "work-model", name: "Work Model", provider: "openai", available: true },
-    ];
-    const state = createMetadataState(request, { chatModelCatalog: existingCatalog });
-
-    const refresh = refreshChatMetadata(state);
-    state.sessionKey = "agent:other:main";
-    resolveMetadata?.({
-      commands: [],
-      models: [{ id: "other-model", name: "Other Model", provider: "openai" }],
-    });
-    await refresh;
-
-    expect(state.chatModelCatalog).toBe(existingCatalog);
-    expect(request).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps loading owned by the newest agent metadata request", async () => {
-    let resolveWork: (value: {
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }) => void = () => {};
-    let resolveOther: (value: {
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }) => void = () => {};
-    const workMetadata = new Promise<{
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }>((resolve) => {
-      resolveWork = resolve;
-    });
-    const otherMetadata = new Promise<{
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }>((resolve) => {
-      resolveOther = resolve;
-    });
-    const request = vi.fn(
-      async (_method: string, params?: { agentId?: string }) =>
-        await (params?.agentId === "work" ? workMetadata : otherMetadata),
-    );
-    const state = createMetadataState(request);
-
-    const workRefresh = refreshChatMetadata(state);
-    state.sessionKey = "agent:other:main";
-    const otherRefresh = refreshChatMetadata(state);
-    resolveWork({
-      commands: [],
-      models: [{ id: "work-model", name: "Work Model", provider: "openai" }],
-    });
-    await workRefresh;
-
-    expect(state.chatModelsLoading).toBe(true);
-    resolveOther({
-      commands: [],
-      models: [{ id: "other-model", name: "Other Model", provider: "openai" }],
-    });
-    await otherRefresh;
-
-    expect(state.chatModelsLoading).toBe(false);
-    expect(state.chatModelCatalog).toEqual([
-      { id: "other-model", name: "Other Model", provider: "openai" },
-    ]);
-  });
-
-  it("does not publish metadata after the pane retires its request owner", async () => {
-    let resolveMetadata: (value: {
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }) => void = () => {};
-    const pending = new Promise<{
-      commands: never[];
-      models: Array<{ id: string; name: string; provider: string }>;
-    }>((resolve) => {
-      resolveMetadata = resolve;
-    });
-    const request = vi.fn().mockReturnValue(pending);
-    const existingCatalog = [{ id: "existing-model", name: "Existing Model", provider: "openai" }];
-    const state = createMetadataState(request, { chatModelCatalog: existingCatalog });
-
-    const refresh = refreshChatMetadata(state);
-    retireChatMetadataRequests(state);
-    resolveMetadata({
-      commands: [],
-      models: [{ id: "late-model", name: "Late Model", provider: "openai" }],
-    });
-    await refresh;
-
-    expect(state.chatModelCatalog).toEqual([]);
-  });
-
-  it("keeps the seeded catalog and reports chat metadata failures without model fallback", async () => {
+  it("keeps the model catalog independent from chat metadata failures", async () => {
     const seededCatalog = [
       { id: "seeded-model", name: "Seeded Model", provider: "openai", available: true },
     ];
@@ -3996,7 +3841,7 @@ describe("refreshChatMetadata", () => {
     await refreshChatMetadata(state);
 
     expect(state.chatModelCatalog).toBe(seededCatalog);
-    expect(state.chatModelCatalogError).toBe("metadata unavailable");
+    expect(state.chatModelCatalogError).toBeNull();
     expect(request.mock.calls.map(([method]) => method)).toEqual(["chat.metadata"]);
   });
 

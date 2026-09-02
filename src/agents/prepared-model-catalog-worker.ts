@@ -62,9 +62,7 @@ export type PreparedModelWorkerResult =
     }>
   | Readonly<{ status: "failed"; error: string }>;
 
-// Cold source/plugin loading can take well over a minute. Three minutes preserves exact full-view
-// discovery while bounding a wedged provider; expiry rejects and never returns partial results.
-const PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS = 180_000;
+const PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS = 8_000;
 const PREPARED_MODEL_CATALOG_WORKER_GENERATION_POLL_MS = 25;
 
 function fingerprintPreparedModelCatalogPlugins(snapshot: PluginMetadataSnapshot): string {
@@ -156,6 +154,7 @@ export function createPreparedModelCatalogWorkerInput(params: {
 }
 
 type PreparedModelCatalogWorker = Readonly<{
+  close: () => Promise<void>;
   loadAuth: (scope: PreparedModelRuntimeAuthScope) => Promise<PreparedModelRuntimeAuth>;
   loadCatalog: () => Promise<ModelCatalogSnapshot>;
 }>;
@@ -236,6 +235,7 @@ export function createPreparedModelCatalogWorker(params: {
   };
 
   return {
+    close: () => stop(new Error("prepared model catalog request completed")),
     loadCatalog: async () => {
       const message = await request({ kind: "catalog" });
       if (message.kind !== "catalog") {
