@@ -94,6 +94,37 @@ describe("official Codex plugin version drift doctor evidence", () => {
     }
   });
 
+  it("reports when compatible plugins still need the older running Gateway restarted", () => {
+    const restartVersion = "2026.6.1";
+    const runningGatewayVersion = "2026.5.30";
+    const readiness = {
+      status: "resolved" as const,
+      runningGatewayVersion,
+      report: detectCodexDrift(restartVersion, restartVersion),
+    };
+
+    expect(
+      collectWorkspaceStatusHealthFindings(config, { pluginVersionReadiness: readiness }),
+    ).toEqual([
+      expect.objectContaining({
+        requirement: "plugin-version-gateway-restart",
+        message: expect.stringContaining(`running Gateway is ${runningGatewayVersion}`),
+        fixHint: "openclaw gateway restart",
+      }),
+    ]);
+
+    const noteSpy = vi.spyOn(noteModule, "note").mockImplementation(() => {});
+    try {
+      noteWorkspaceStatus(config, { pluginVersionReadiness: readiness });
+      expect(noteSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Running Gateway: OpenClaw ${runningGatewayVersion}`),
+        "Plugin restart readiness",
+      );
+    } finally {
+      noteSpy.mockRestore();
+    }
+  });
+
   it("reports older and newer pins as advisory drift while accepting correction suffixes", () => {
     const gatewayVersion = "2026.6.1";
 
@@ -165,7 +196,11 @@ describe("official Codex plugin version drift doctor evidence", () => {
       expect(report.drifts).toEqual([]);
       expect(
         collectWorkspaceStatusHealthFindings(config, {
-          pluginVersionReadiness: { status: "resolved", report },
+          pluginVersionReadiness: {
+            status: "resolved",
+            report,
+            runningGatewayVersion: installedVersion,
+          },
         }),
       ).toEqual([]);
     }

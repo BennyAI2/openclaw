@@ -8,6 +8,7 @@ import {
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { HealthFinding } from "../flows/health-checks.js";
+import { resolveOpenClawReleaseCohortVersion } from "../infra/npm-registry-spec.js";
 import type { PluginMetadataSnapshotScopeRunner } from "../plugins/current-plugin-metadata-snapshot.js";
 import {
   resolvePluginVersionDriftUpdateCommand,
@@ -101,8 +102,23 @@ function pluginVersionDriftToHealthFindings(
   drift: PluginVersionDriftReport | undefined,
   runningGatewayVersion?: string,
 ): HealthFinding[] {
-  if (!drift || drift.drifts.length === 0) {
+  if (!drift) {
     return [];
+  }
+  if (drift.drifts.length === 0) {
+    if (!isGatewayRestartPending(drift, runningGatewayVersion)) {
+      return [];
+    }
+    return [
+      {
+        checkId: WORKSPACE_STATUS_CHECK_ID,
+        severity: "warning",
+        message: `Active official plugins match post-restart OpenClaw ${drift.gatewayVersion}, but the running Gateway is ${runningGatewayVersion}.`,
+        path: "plugins",
+        requirement: "plugin-version-gateway-restart",
+        fixHint: formatCliCommand("openclaw gateway restart"),
+      },
+    ];
   }
   return drift.drifts.map((entry) => {
     const updateCommand = resolvePluginVersionDriftUpdateCommand(entry);
@@ -123,6 +139,17 @@ function pluginVersionDriftToHealthFindings(
         : `No install command generated; retry openclaw doctor after checking registry availability (${targetError}).`,
     };
   });
+}
+
+function isGatewayRestartPending(
+  drift: PluginVersionDriftReport,
+  runningGatewayVersion: string | undefined,
+): runningGatewayVersion is string {
+  return Boolean(
+    runningGatewayVersion &&
+    resolveOpenClawReleaseCohortVersion(runningGatewayVersion) !==
+      resolveOpenClawReleaseCohortVersion(drift.gatewayVersion),
+  );
 }
 
 function pluginVersionReadinessToHealthFindings(
@@ -248,6 +275,17 @@ function notePluginVersionReadiness(readiness: PluginVersionRestartReadiness | u
   }
   const drift = readiness.report;
   if (drift.drifts.length === 0) {
+    if (!isGatewayRestartPending(drift, readiness.runningGatewayVersion)) {
+      return;
+    }
+    note(
+      [
+        `Running Gateway: OpenClaw ${readiness.runningGatewayVersion}`,
+        `Active official plugins match post-restart OpenClaw ${drift.gatewayVersion}.`,
+        `Fix: ${formatCliCommand("openclaw gateway restart")}.`,
+      ].join("\n"),
+      "Plugin restart readiness",
+    );
     return;
   }
   const singleDrift = drift.drifts.length === 1 ? drift.drifts[0] : undefined;
