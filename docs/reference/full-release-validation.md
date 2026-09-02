@@ -323,6 +323,9 @@ targets keep their required channel.
 
 `docker-release-prepare.yml` builds both native architectures, retains OCI
 indexes and their SBOM/provenance, and runs image smoke checks before approval.
+OCI export uses gzip level 1 for new layers and reuses cached layers without
+forced recompression, preserving the image format used by smoke and promotion.
+
 Its GitHub Actions cache exports final image layers with `mode=min`; intermediate
 build stages stay in the shared local builder for the browser variant. This
 avoids compressing and uploading build-only layers on the release critical path.

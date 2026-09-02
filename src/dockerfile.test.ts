@@ -469,7 +469,7 @@ describe("Dockerfile", () => {
       const buildCopy = runtime.match(/^COPY --from=(\S+) \/app\/ \.\/$/m);
       const buildOutput = stages.get(buildCopy?.[1]);
       expect(buildOutput?.parent).toBe("build");
-      const cleanCommand = buildOutput?.body.match(/^RUN (rm -rf node_modules[^\n]+)/m)?.[1];
+      const cleanCommand = buildOutput?.body?.match(/^RUN (rm -rf node_modules[^\n]+)/m)?.[1];
       if (!cleanCommand) {
         throw new Error(
           "Runtime assembly must remove development dependencies before copying build output",
