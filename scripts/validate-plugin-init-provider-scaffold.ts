@@ -101,7 +101,7 @@ const projectPackage = JSON.parse(fs.readFileSync(projectPackagePath, "utf8")) a
 projectPackage.devDependencies.openclaw = `file:${candidateTarball}`;
 projectPackage.devDependencies["@openclaw/ai"] = `file:${aiCandidateTarball}`;
 fs.writeFileSync(projectPackagePath, `${JSON.stringify(projectPackage, null, 2)}\n`);
-run("npm", ["install", "--no-audit", "--fund=false"], projectDir);
+run("npm", ["install", "--ignore-scripts", "--no-audit", "--fund=false"], projectDir);
 console.log(`Installed exact candidate package: ${candidateTarball}`);
 
 run("npm", ["run", "build"], projectDir);
