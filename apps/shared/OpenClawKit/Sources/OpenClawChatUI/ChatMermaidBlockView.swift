@@ -271,7 +271,7 @@ private struct ChatMermaidPreviewView: View {
         }
         .background(OpenClawChatTheme.assistantBubble)
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 350)
+        .frame(minWidth: 500, idealWidth: 900, minHeight: 350, idealHeight: 600)
         #endif
     }
 }

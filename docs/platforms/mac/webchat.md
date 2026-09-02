@@ -28,7 +28,9 @@ streaming fences remain code.
 Use the small options button at the top right to view or copy the source and
 expand the diagram. The copy button also appears on hover or keyboard focus.
 Click the diagram to open its vector preview, where you can zoom and pan. Close
-the preview with its close button or Escape.
+the preview with its close button or Escape. In Quick Chat, closing the preview
+returns to the reply; clicking outside both the bar and its preview dismisses
+Quick Chat.
 
 Invalid or oversized diagrams keep their source readable. Temporary rendering
 failures offer **Retry diagram** in the options menu.

@@ -101,10 +101,6 @@ private struct ChatMathPlatformView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MTMathUILabel, context: Context) {
-        self.configure(view)
-    }
-
-    private func configure(_ view: MTMathUILabel) {
         view.displayErrorInline = false
         view.labelMode = .display
         view.textAlignment = .center
@@ -113,6 +109,11 @@ private struct ChatMathPlatformView: NSViewRepresentable {
         if view.latex != self.latex {
             view.latex = self.latex
         }
+    }
+
+    /// SwiftMath reports fittingSize on macOS; SwiftUI's default bridge can collapse it in split views.
+    func sizeThatFits(_ _: ProposedViewSize, nsView: MTMathUILabel, context _: Context) -> CGSize? {
+        nsView.fittingSize
     }
 }
 #else
