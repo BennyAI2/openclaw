@@ -778,6 +778,7 @@ describe("anthropic provider replay hooks", () => {
     { modelId: "claude-fable-5", pricingSource: "configured" },
     { modelId: "claude-fable-5-1", pricingSource: "configured" },
     { modelId: "claude-fable-5-custom", pricingSource: "discovered" },
+    { modelId: "claude-opus-4-8", pricingSource: "discovered" },
   ])(
     "uses $pricingSource $modelId pricing for assistant usage",
     async ({ modelId, pricingSource }) => {
