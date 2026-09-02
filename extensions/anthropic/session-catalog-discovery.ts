@@ -9,10 +9,10 @@ import {
   normalizeBoundedOptionalString as readBoundedString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { readClaudeDesktopCustomGroups } from "./claude-desktop-groups.js";
+import { resolveClaudeCatalogHomeDir } from "./session-catalog-home.js";
 import {
   CLAUDE_CATALOG_IO_CONCURRENCY,
   childDirectories,
-  currentHomeDir,
   desktopSessionStoreAvailable,
   desktopSessionsDir,
   type ClaudeProjectsTreeSnapshot,
@@ -678,7 +678,7 @@ async function scanClaudeSessions(
 }
 
 export async function listClaudeSessions(
-  homeDir = currentHomeDir(),
+  homeDir = resolveClaudeCatalogHomeDir(),
   options: { forceRefresh?: boolean; configDir?: string; includeDesktop?: boolean } = {},
 ): Promise<CatalogRecord[]> {
   const root = projectsDir(homeDir, options.configDir);
