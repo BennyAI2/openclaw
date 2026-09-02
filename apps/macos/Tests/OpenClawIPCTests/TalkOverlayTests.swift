@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 import Testing
 @testable import OpenClaw
@@ -16,10 +17,18 @@ struct TalkOverlayTests {
         })
         defer { window.orderOut(nil) }
 
-        controller.dismiss()
-        controller.present()
-        if dismissAgain { controller.dismiss() }
-        try await Task.sleep(for: .milliseconds(400))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            NSAnimationContext.runAnimationGroup { _ in
+                controller.dismiss()
+                controller.present()
+                if dismissAgain { controller.dismiss() }
+            } completionHandler: {
+                // The factory queues its dismissal completion on MainActor after AppKit finishes.
+                Task { @MainActor in continuation.resume() }
+            }
+            // Commit animations without relying on the test runner's next run-loop iteration.
+            CATransaction.flush()
+        }
 
         #expect(controller.model.isVisible == !dismissAgain)
         #expect(window.isVisible == !dismissAgain)
