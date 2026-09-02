@@ -805,6 +805,10 @@
     "./plugin-sdk/cli-runtime": {
       "default": "./dist/plugin-sdk/cli-runtime.js"
     },
+    "./plugin-sdk/node-cli-runtime": {
+      "types": "./dist/plugin-sdk/node-cli-runtime.d.ts",
+      "default": "./dist/plugin-sdk/node-cli-runtime.js"
+    },
     "./plugin-sdk/cli-backend": {
       "default": "./dist/plugin-sdk/cli-backend.js"
     },
@@ -1825,6 +1829,7 @@
     "test:all": "pnpm lint && pnpm build && pnpm test && pnpm test:e2e && pnpm test:live && pnpm test:docker:all",
     "test:auth:compat": "node scripts/run-vitest.mjs run --config test/vitest/vitest.gateway.config.ts src/gateway/server.auth.compat-baseline.test.ts src/gateway/client.test.ts src/gateway/reconnect-gating.test.ts && node scripts/run-vitest.mjs run packages/gateway-protocol/src/connect-error-details.test.ts",
     "test:build:singleton": "node --import ./scripts/tsx.mjs scripts/test-built-plugin-singleton.mts",
+    "test:skills:downgrade": "node --import ./scripts/tsx.mjs src/skills/library/persistence-downgrade.test-support.ts",
     "test:build:status-message-runtime": "node --import ./scripts/tsx.mjs scripts/test-built-status-message-runtime.mts",
     "test:bundled": "node scripts/run-vitest.mjs run --config test/vitest/vitest.bundled.config.ts",
     "test:changed": "node --import ./scripts/tsx.mjs scripts/test-projects.mts --changed origin/main",
@@ -1928,7 +1933,7 @@
     "test:type-suppression-inventory:report": "node --import ./scripts/tsx.mjs scripts/type-suppression-inventory.ts",
     "test:e2e": "pnpm test:e2e:gateway && pnpm test:e2e:agent-plugin-gateway && pnpm test:ui:e2e",
     "test:e2e:agent-plugin-gateway": "node --import ./scripts/tsx.mjs scripts/agent-plugin-gateway-e2e.ts",
-    "test:e2e:browser-extension": "pnpm build:ci-artifacts && node --import ./scripts/tsx.mjs scripts/run-with-env.mts PLAYWRIGHT_BROWSERS_PATH=.artifacts/playwright-browsers -- node --import ./scripts/tsx.mjs scripts/ensure-playwright-chromium.mts --require-playwright-chromium && node --import ./scripts/tsx.mjs scripts/run-with-env.mts PLAYWRIGHT_BROWSERS_PATH=.artifacts/playwright-browsers OPENCLAW_BROWSER_EXTENSION_E2E=1 OPENCLAW_E2E_WORKERS=1 -- node scripts/run-vitest.mjs extensions/browser/chrome-extension/bootstrap.chromium.test.ts",
+    "test:e2e:browser-extension": "node --import ./scripts/tsx.mjs scripts/build-all.mts qaRuntime && node --import ./scripts/tsx.mjs scripts/run-with-env.mts PLAYWRIGHT_BROWSERS_PATH=.artifacts/playwright-browsers -- node --import ./scripts/tsx.mjs scripts/ensure-playwright-chromium.mts --require-playwright-chromium && node --import ./scripts/tsx.mjs scripts/run-with-env.mts PLAYWRIGHT_BROWSERS_PATH=.artifacts/playwright-browsers OPENCLAW_BROWSER_EXTENSION_E2E=1 OPENCLAW_E2E_WORKERS=1 -- node scripts/run-vitest.mjs extensions/browser/chrome-extension/bootstrap.chromium.test.ts",
     "test:e2e:gateway": "node scripts/run-vitest.mjs run --config test/vitest/vitest.e2e.config.ts",
     "test:e2e:openshell": "node --import ./scripts/tsx.mjs scripts/run-with-env.mts OPENCLAW_E2E_OPENSHELL=1 -- node scripts/run-vitest.mjs run --config test/vitest/vitest.e2e.config.ts extensions/openshell/src/backend.e2e.test.ts",
     "test:e2e:status-corrupt-plugin-deps": "bash scripts/e2e/status-corrupt-plugin-deps.sh",
@@ -2078,10 +2083,10 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@mozilla/readability": "0.6.0",
     "@openclaw/ai": "workspace:*",
-    "@openclaw/fs-safe": "0.5.6",
+    "@openclaw/fs-safe": "0.7.0",
     "@openclaw/proxyline": "0.3.7",
     "@silvia-odwyer/photon-node": "0.3.4",
-    "@trycua/cua-driver": "0.21.0",
+    "@trycua/cua-driver": "0.22.0",
     "acorn": "8.18.0",
     "chalk": "6.0.0",
     "chokidar": "5.0.0",
