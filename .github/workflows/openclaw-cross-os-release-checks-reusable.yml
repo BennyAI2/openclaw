@@ -121,7 +121,7 @@ on:
         default: ""
         type: string
       previous_version:
-        description: Optional baseline version for the upgrade lane (defaults to npm latest)
+        description: Optional baseline version for the upgrade lane (defaults to the newest older stable)
         required: false
         default: ""
         type: string
@@ -450,6 +450,7 @@ jobs:
         if: ${{ inputs.mode != 'fresh' }}
         id: baseline
         env:
+          CANDIDATE_JSON: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/candidate.json
           INPUT_PREVIOUS_VERSION: ${{ inputs.previous_version }}
         run: |
           set -euo pipefail
@@ -457,8 +458,9 @@ jobs:
             echo "value=openclaw@${INPUT_PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BASELINE_VERSION="$(npm view openclaw@latest version)"
-          echo "value=openclaw@${BASELINE_VERSION}" >> "$GITHUB_OUTPUT"
+          CANDIDATE_VERSION="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).candidateVersion' "$CANDIDATE_JSON")"
+          BASELINE_SPEC="$(node workflow/scripts/lib/release-upgrade-baseline.mjs --candidate-version "$CANDIDATE_VERSION")"
+          echo "value=${BASELINE_SPEC}" >> "$GITHUB_OUTPUT"
 
       - name: Pack baseline artifact
         if: ${{ inputs.mode != 'fresh' }}
