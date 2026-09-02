@@ -2127,7 +2127,6 @@ describe("scripts/test-projects changed-target routing", () => {
     expectChangedTargets(targets, [
       "test/scripts/docker-build-helper.test.ts",
       "test/scripts/docker-e2e-plan.test.ts",
-      "test/scripts/docker-e2e-system-agent.test.ts",
       "src/cli/program/register.onboard.test.ts",
       "src/cli/run-main.test.ts",
       "src/cli/run-main.exit.test.ts",
@@ -2162,6 +2161,7 @@ describe("scripts/test-projects changed-target routing", () => {
           "test/scripts/android-version.test.ts",
           "test/scripts/ci-git-prerequisites.test.ts",
           "test/scripts/ios-release-plan.test.ts",
+          "test/scripts/mac-native-fixtures.test.ts",
         ],
         watchMode: false,
       },
