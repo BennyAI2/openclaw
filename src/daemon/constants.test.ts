@@ -9,6 +9,7 @@ import {
   resolveGatewayServiceDescription,
   resolveGatewaySystemdServiceName,
   resolveGatewayWindowsTaskName,
+  resolveGatewayWindowsTaskNameFromEnv,
 } from "./constants.js";
 
 describe("resolveGatewayLaunchAgentLabel", () => {
@@ -45,6 +46,20 @@ describe("resolveGatewayWindowsTaskName", () => {
   it("returns profile-specific task name when profile is set", () => {
     const result = resolveGatewayWindowsTaskName("dev");
     expect(result).toBe("OpenClaw Gateway (dev)");
+  });
+});
+
+describe("resolveGatewayWindowsTaskNameFromEnv", () => {
+  it.each([
+    { override: "  OpenClaw Custom  ", expected: "OpenClaw Custom" },
+    { override: "   ", expected: "OpenClaw Gateway (work)" },
+  ])("resolves task name from $override", ({ override, expected }) => {
+    expect(
+      resolveGatewayWindowsTaskNameFromEnv({
+        OPENCLAW_WINDOWS_TASK_NAME: override,
+        OPENCLAW_PROFILE: "work",
+      }),
+    ).toBe(expected);
   });
 });
 

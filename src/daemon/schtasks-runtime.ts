@@ -9,6 +9,7 @@ import {
 } from "../infra/windows-install-roots.js";
 import { spawnWithFallback } from "../process/spawn-utils.js";
 import { sleep } from "../utils.js";
+import { resolveGatewayWindowsTaskNameFromEnv } from "./constants.js";
 import { resolveGatewayServiceProbeHosts } from "./gateway-service-probe-hosts.js";
 import { formatLine } from "./output.js";
 import { parseKeyValueOutput } from "./runtime-parse.js";
@@ -16,7 +17,6 @@ import { execSchtasks } from "./schtasks-exec.js";
 import {
   readScheduledTaskCommand,
   resolveStartupEntryPaths,
-  resolveTaskName,
   resolveTaskScriptPath,
 } from "./schtasks-layout.js";
 import {
@@ -182,7 +182,11 @@ export async function waitForScheduledTaskRunningEvidence(
 }
 
 export async function isRegisteredScheduledTask(env: GatewayServiceEnv): Promise<boolean> {
-  const res = await execSchtasks(["/Query", "/TN", resolveTaskName(env)]).catch(() => ({
+  const res = await execSchtasks([
+    "/Query",
+    "/TN",
+    resolveGatewayWindowsTaskNameFromEnv(env),
+  ]).catch(() => ({
     code: 1,
     stdout: "",
     stderr: "",
@@ -433,7 +437,7 @@ export async function readWindowsStartupFallbackRuntimeForUpdate(
   if (!(await isStartupEntryInstalled(env))) {
     return null;
   }
-  const taskExists = probeScheduledTaskExists(resolveTaskName(env));
+  const taskExists = probeScheduledTaskExists(resolveGatewayWindowsTaskNameFromEnv(env));
   if (taskExists === null) {
     throw new Error("Could not verify whether the Windows Scheduled Task exists.");
   }
@@ -492,7 +496,9 @@ export async function stopStartupEntry(
     await terminateGatewayProcessTree(runtime.pid, 300);
   }
   onMutation?.();
-  stdout.write(`${formatLine("Stopped Windows login item", resolveTaskName(env))}\n`);
+  stdout.write(
+    `${formatLine("Stopped Windows login item", resolveGatewayWindowsTaskNameFromEnv(env))}\n`,
+  );
 }
 
 export async function terminateInstalledStartupRuntime(env: GatewayServiceEnv): Promise<void> {
@@ -517,7 +523,9 @@ export async function restartStartupEntry(
   }
   await launchFallbackTaskScript(env);
   onMutation?.("restart");
-  stdout.write(`${formatLine("Restarted Windows login item", resolveTaskName(env))}\n`);
+  stdout.write(
+    `${formatLine("Restarted Windows login item", resolveGatewayWindowsTaskNameFromEnv(env))}\n`,
+  );
   return { outcome: "completed" };
 }
 
@@ -528,7 +536,9 @@ export async function startStartupEntry(
 ): Promise<void> {
   await launchFallbackTaskScript(env);
   onMutation?.();
-  stdout.write(`${formatLine("Started Windows login item", resolveTaskName(env))}\n`);
+  stdout.write(
+    `${formatLine("Started Windows login item", resolveGatewayWindowsTaskNameFromEnv(env))}\n`,
+  );
 }
 
 export async function isScheduledTaskInstalled(args: GatewayServiceEnvArgs): Promise<boolean> {
@@ -549,7 +559,7 @@ export async function readScheduledTaskRuntime(
     }
     return createServiceRuntimeInspectionFailure(err);
   }
-  const taskName = resolveTaskName(env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(env);
   const res = await execSchtasks(["/Query", "/TN", taskName, "/V", "/FO", "LIST"]);
   if (res.code !== 0) {
     if (await isStartupEntryInstalled(env)) {

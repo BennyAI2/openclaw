@@ -5,9 +5,12 @@ import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { createConfigIO } from "../../config/io.js";
 import { resolveGatewayPort } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { isGatewayServiceEnv, resolveGatewayProfileSuffix } from "../../daemon/constants.js";
+import {
+  isGatewayServiceEnv,
+  resolveGatewayProfileSuffix,
+  resolveGatewayWindowsTaskNameFromEnv,
+} from "../../daemon/constants.js";
 import { resolveLaunchAgentLabel } from "../../daemon/launchd-label.js";
-import { resolveTaskName } from "../../daemon/schtasks-layout.js";
 import {
   isScheduledTaskDefinitelyNotRunning,
   readWindowsStartupFallbackRuntimeForUpdate,
@@ -153,7 +156,7 @@ function matchesStoppedService(
     process.platform === "darwin"
       ? resolveLaunchAgentLabel
       : process.platform === "win32"
-        ? resolveTaskName
+        ? resolveGatewayWindowsTaskNameFromEnv
         : resolveSystemdServiceName;
   // Explicit default metadata selects the same manager; protected command hashes
   // still pin the effective launcher and its environment through normalization.
@@ -448,7 +451,9 @@ export async function maybeStopManagedServiceBeforeMutableUpdate(params: {
               .isEnabled?.({ env: serviceState.env, timeoutMs: params.timeoutMs })
               .catch(() => undefined)) === false)
         : process.platform === "win32"
-          ? isScheduledTaskDefinitelyNotRunning(resolveTaskName(serviceState.env)) ||
+          ? isScheduledTaskDefinitelyNotRunning(
+              resolveGatewayWindowsTaskNameFromEnv(serviceState.env),
+            ) ||
             (await readWindowsStartupFallbackRuntimeForUpdate(serviceState.env).catch(() => null))
               ?.status === "stopped"
           : process.platform === "linux"),

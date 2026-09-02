@@ -10,7 +10,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { formatCliCommand } from "../cli/command-format.js";
 import { formatInstallationTargetCommand } from "../cli/installation-target-format.js";
-import { resolveGatewayWindowsTaskName } from "../daemon/constants.js";
+import { resolveGatewayWindowsTaskNameFromEnv } from "../daemon/constants.js";
 import { resolveLaunchAgentLabel } from "../daemon/launchd-label.js";
 import { resolveLaunchAgentPlistPath } from "../daemon/launchd-service-files.js";
 import { findInstalledSystemdGatewayScope } from "../daemon/systemd-scope.js";
@@ -1448,9 +1448,7 @@ function resolveGatewayServiceRecovery(
     return { kind: "launchd", uid, label, plistPath: resolveLaunchAgentPlistPath(env) };
   }
   if (supervisor === "schtasks") {
-    const taskName =
-      env.OPENCLAW_WINDOWS_TASK_NAME?.trim() || resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE);
-    return { kind: "schtasks", taskName };
+    return { kind: "schtasks", taskName: resolveGatewayWindowsTaskNameFromEnv(env) };
   }
   return undefined;
 }

@@ -10,7 +10,7 @@ import {
 } from "../infra/windows-launcher-encoding.js";
 import { parseCmdScriptCommandLine, quoteCmdScriptArg } from "./cmd-argv.js";
 import { assertNoCmdLineBreak, parseCmdSetAssignment, renderCmdSetAssignment } from "./cmd-set.js";
-import { resolveGatewayWindowsTaskName } from "./constants.js";
+import { resolveGatewayWindowsTaskNameFromEnv } from "./constants.js";
 import { resolveGatewayTaskScriptPath } from "./paths.js";
 import type {
   GatewayServiceCommandConfig,
@@ -18,14 +18,6 @@ import type {
   GatewayServiceRenderArgs,
 } from "./service-types.js";
 import { WINDOWS_TASK_SUPERVISOR_FLAG } from "./windows-task-supervisor-contract.js";
-
-export function resolveTaskName(env: GatewayServiceEnv): string {
-  const override = env.OPENCLAW_WINDOWS_TASK_NAME?.trim();
-  if (override) {
-    return override;
-  }
-  return resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE);
-}
 
 // Keeps the service gateway's stdin off the (possibly hidden) console so TTY
 // heuristics fail closed for permission prompts (#112173).
@@ -76,7 +68,7 @@ function sanitizeWindowsFilename(value: string): string {
 }
 
 export function resolveStartupEntryPath(env: GatewayServiceEnv, extension?: "cmd" | "vbs"): string {
-  const taskName = resolveTaskName(env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(env);
   const entryExtension = extension ?? (shouldUseHiddenWindowsTaskLauncher(env) ? "vbs" : "cmd");
   return path.join(
     resolveWindowsStartupDir(env),

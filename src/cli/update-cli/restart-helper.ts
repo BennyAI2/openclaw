@@ -8,7 +8,7 @@ import { DEFAULT_GATEWAY_PORT } from "../../config/paths.js";
 import { quoteCmdScriptArg } from "../../daemon/cmd-argv.js";
 import {
   resolveGatewaySystemdServiceName,
-  resolveGatewayWindowsTaskName,
+  resolveGatewayWindowsTaskNameFromEnv,
 } from "../../daemon/constants.js";
 import { resolveLaunchAgentLabel } from "../../daemon/launchd-label.js";
 import { renderSystemLaunchDaemonOwnershipShellProbe } from "../../daemon/launchd-system.js";
@@ -44,14 +44,6 @@ function resolveSystemdUnit(env: NodeJS.ProcessEnv): string {
     return override.endsWith(".service") ? override : `${override}.service`;
   }
   return `${resolveGatewaySystemdServiceName(env.OPENCLAW_PROFILE)}.service`;
-}
-
-function resolveWindowsTaskName(env: NodeJS.ProcessEnv): string {
-  const override = env.OPENCLAW_WINDOWS_TASK_NAME?.trim();
-  if (override) {
-    return override;
-  }
-  return resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE);
 }
 
 function resolveLinuxFilesystemBusUid(busAddress: string | undefined): string | undefined {
@@ -233,7 +225,7 @@ rmdir "$script_dir" 2>/dev/null || true
 exit "$status"
 `;
     } else if (platform === "win32") {
-      const taskName = resolveWindowsTaskName(env);
+      const taskName = resolveGatewayWindowsTaskNameFromEnv(env);
       if (!isWindowsTaskNameSafe(taskName)) {
         return null;
       }

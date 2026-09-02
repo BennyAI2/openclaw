@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { resolveGatewayServiceDescription } from "./constants.js";
+import {
+  resolveGatewayServiceDescription,
+  resolveGatewayWindowsTaskNameFromEnv,
+} from "./constants.js";
 import { formatLine, writeFormattedLines } from "./output.js";
 import {
   restartRegisteredScheduledTask,
@@ -20,7 +23,6 @@ import {
   readScheduledTaskCommand,
   resolveStartupEntryPath,
   resolveTaskLauncherScriptPath,
-  resolveTaskName,
   resolveTaskScriptPath,
   resolveTaskUser,
   shouldFallbackToStartupEntry,
@@ -219,7 +221,7 @@ async function activateScheduledTask(params: {
   description?: string;
 }): Promise<ScheduledTaskActivation | "startup-fallback"> {
   const taskDescription = params.description ?? "OpenClaw Gateway";
-  const taskName = resolveTaskName(params.env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(params.env);
   const quotedLaunchPath = quoteSchtasksArg(params.taskLaunchPath);
   const existingActivation = await updateExistingScheduledTask({
     ...params,
@@ -390,7 +392,7 @@ export async function uninstallScheduledTask({
   stdout,
 }: GatewayServiceManageArgs): Promise<void> {
   await assertSchtasksAvailable();
-  const taskName = resolveTaskName(env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(env);
   const query = await execSchtasks(["/Query", "/TN", taskName]);
   const queryDetail = normalizeLowercaseStringOrEmpty(query.stderr || query.stdout);
   const exists =

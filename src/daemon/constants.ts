@@ -77,6 +77,13 @@ export function resolveGatewayWindowsTaskName(profile?: string): string {
   return `OpenClaw Gateway (${normalized})`;
 }
 
+export function resolveGatewayWindowsTaskNameFromEnv(
+  env: Record<string, string | undefined>,
+): string {
+  const override = env.OPENCLAW_WINDOWS_TASK_NAME?.trim();
+  return override || resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE);
+}
+
 type GatewayNativeServiceIdentityConflict = {
   envKey: "OPENCLAW_LAUNCHD_LABEL" | "OPENCLAW_SYSTEMD_UNIT" | "OPENCLAW_WINDOWS_TASK_NAME";
   expected: string;

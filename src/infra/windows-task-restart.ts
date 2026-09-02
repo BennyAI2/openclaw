@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { quoteCmdScriptArg } from "../daemon/cmd-argv.js";
-import { resolveGatewayWindowsTaskName } from "../daemon/constants.js";
+import { resolveGatewayWindowsTaskNameFromEnv } from "../daemon/constants.js";
 import { renderCmdRestartLogSetup } from "../daemon/restart-logs.js";
 import { resolveTaskScriptPath } from "../daemon/schtasks.js";
 import { formatErrorMessage } from "./errors.js";
@@ -18,14 +18,6 @@ const TASK_RESTART_RETRY_DELAY_SEC = 1;
 
 function quotePowerShellSingleQuotedLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
-}
-
-function resolveWindowsTaskName(env: NodeJS.ProcessEnv): string {
-  const override = env.OPENCLAW_WINDOWS_TASK_NAME?.trim();
-  if (override) {
-    return override;
-  }
-  return resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE);
 }
 
 function buildScheduledTaskRestartScript(params: {
@@ -81,7 +73,7 @@ function buildScheduledTaskRestartScript(params: {
 }
 
 export function relaunchGatewayScheduledTask(env: NodeJS.ProcessEnv = process.env): RestartAttempt {
-  const taskName = resolveWindowsTaskName(env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(env);
   const taskScriptPath = resolveTaskScriptPath(env);
   const scriptPath = path.join(
     resolvePreferredOpenClawTmpDir(),

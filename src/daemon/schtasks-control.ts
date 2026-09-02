@@ -1,14 +1,11 @@
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { isGatewayArgv } from "../infra/gateway-process-argv.js";
 import { sleep } from "../utils.js";
+import { resolveGatewayWindowsTaskNameFromEnv } from "./constants.js";
 import { resolveGatewayServiceProbeHosts } from "./gateway-service-probe-hosts.js";
 import { formatLine } from "./output.js";
 import { execSchtasks } from "./schtasks-exec.js";
-import {
-  readScheduledTaskCommand,
-  resolveTaskName,
-  resolveTaskScriptPath,
-} from "./schtasks-layout.js";
+import { readScheduledTaskCommand, resolveTaskScriptPath } from "./schtasks-layout.js";
 import {
   findInstalledProcessPid,
   isNodeHostArgv,
@@ -203,7 +200,7 @@ async function changeScheduledTaskEnabledState(params: {
   env: GatewayServiceEnv;
   enabled: boolean;
 }): Promise<boolean> {
-  const taskName = resolveTaskName(params.env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(params.env);
   if (!params.enabled) {
     const query = await execSchtasks(["/Query", "/TN", taskName, "/XML"]);
     if (query.code !== 0) {
@@ -286,7 +283,7 @@ export async function stopScheduledTask({
     await stopStartupEntry(effectiveEnv, stdout, () => reportMutation("startup-entry-stop"));
     return;
   }
-  const taskName = resolveTaskName(effectiveEnv);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(effectiveEnv);
   const res = await execSchtasks(["/End", "/TN", taskName]);
   if (res.code !== 0 && !isScheduledTaskDefinitelyNotRunning(taskName)) {
     throw new Error(`schtasks end failed: ${res.stderr || res.stdout}`.trim());
@@ -326,7 +323,7 @@ export async function startScheduledTask({
     await startStartupEntry(effectiveEnv, stdout, () => reportMutation("startup-entry-start"));
     return;
   }
-  const taskName = resolveTaskName(effectiveEnv);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(effectiveEnv);
   await runScheduledTaskOrThrow({
     taskName,
     env: effectiveEnv,
@@ -344,7 +341,7 @@ export async function restartRegisteredScheduledTask(params: {
   onEndMutation?: () => void;
   onRunMutation?: () => void;
 }): Promise<GatewayServiceRestartResult> {
-  const taskName = resolveTaskName(params.env);
+  const taskName = resolveGatewayWindowsTaskNameFromEnv(params.env);
   const end = await execSchtasks(["/End", "/TN", taskName]);
   if (end.code === 0) {
     params.onEndMutation?.();
