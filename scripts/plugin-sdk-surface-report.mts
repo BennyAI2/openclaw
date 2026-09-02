@@ -337,8 +337,9 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared presentation delivery policy for core and channel plugins.
       // +2: shipped conversation-binding inspection function and result type.
       // +4: canonical node CLI option, envelope, presentation, and error owners.
+      // +1: Gateway caller ownership for standalone browser routing.
       // +1: canonical user-turn operational metadata restoration for native harnesses.
-      4369,
+      4370,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -450,8 +451,9 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared presentation delivery policy for core and channel plugins.
       // +1: shipped read-only conversation-binding inspection function.
       // +4: canonical node CLI option, envelope, presentation, and error owners.
+      // +1: Gateway caller ownership for standalone browser routing.
       // +1: canonical user-turn operational metadata restoration for native harnesses.
-      2603,
+      2604,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
