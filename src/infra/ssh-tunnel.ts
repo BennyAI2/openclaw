@@ -4,7 +4,9 @@ import net from "node:net";
 import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { createAbortError, isAbortError, racePromiseWithAbortSignal } from "./abort-signal.js";
+import { sleepWithAbort } from "./backoff.js";
 import { formatErrorMessage, isErrno } from "./errors.js";
+import { tryListenOnPort } from "./ports-probe.js";
 import { ensurePortAvailable, PortInUseError } from "./ports.js";
 import { resolveSshClient } from "./ssh-client.js";
 
@@ -94,28 +96,11 @@ export function parseSshTarget(raw: string): SshParsedTarget | null {
   return { user: userPart, host: hostPart, port: 22 };
 }
 
-async function pickEphemeralPort(): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      server.close(() => {
-        if (!addr || typeof addr === "string") {
-          reject(new Error("failed to allocate a local port"));
-          return;
-        }
-        resolve(addr.port);
-      });
-    });
-  });
-}
-
-async function canConnectLocal(port: number): Promise<boolean> {
+async function canConnectLocal(port: number, signal: AbortSignal): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
-    const socket = net.connect({ host: "127.0.0.1", port });
+    const socket = net.connect({ host: "127.0.0.1", port, signal });
     const done = (ok: boolean) => {
-      socket.removeAllListeners();
+      // Keep Node's stream lifecycle listeners so closing detaches its abort subscription.
       socket.destroy();
       resolve(ok);
     };
@@ -125,15 +110,17 @@ async function canConnectLocal(port: number): Promise<boolean> {
   });
 }
 
-async function waitForLocalListener(port: number, timeoutMs: number): Promise<void> {
+async function waitForLocalListener(
+  port: number,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (await canConnectLocal(port)) {
+    if (await canConnectLocal(port, signal)) {
       return;
     }
-    await new Promise((r) => {
-      setTimeout(r, 50);
-    });
+    await sleepWithAbort(50, signal);
   }
   throw new Error(`ssh tunnel did not start listening on localhost:${port}`);
 }
@@ -161,7 +148,7 @@ export async function startSshPortForward(opts: {
     await ensurePortAvailable(localPort, "127.0.0.1");
   } catch (err) {
     if (err instanceof PortInUseError || (isErrno(err) && err.code === "EADDRINUSE")) {
-      localPort = await pickEphemeralPort();
+      localPort = await tryListenOnPort({ port: 0, host: "127.0.0.1" });
     } else {
       throw err;
     }
@@ -217,6 +204,13 @@ export async function startSshPortForward(opts: {
     child.once("exit", () => resolve());
     child.once("close", () => resolve());
   });
+  // Retire Node's client abort hooks when readiness ends, independently of the caller's signal.
+  const probeController = new AbortController();
+  const listening = waitForLocalListener(
+    localPort,
+    Math.max(250, opts.timeoutMs),
+    probeController.signal,
+  ).finally(() => probeController.abort());
   let onAbort: (() => void) | undefined;
   const detachAbort = () => {
     if (onAbort) {
@@ -228,11 +222,12 @@ export async function startSshPortForward(opts: {
   const stop = () =>
     (stopping ??= (async () => {
       detachAbort();
-      // Sending a signal is not exit; every caller must await the same child lifetime.
+      // Startup's losing probe must stop too; every caller joins both owned resources.
+      probeController.abort();
       const timer = setTimeout(() => child.kill("SIGKILL"), 1500);
       try {
         child.kill("SIGTERM");
-        await exited;
+        await Promise.all([exited, listening.catch(() => {})]);
       } finally {
         clearTimeout(timer);
       }
@@ -241,7 +236,7 @@ export async function startSshPortForward(opts: {
   try {
     await racePromiseWithAbortSignal(
       Promise.race([
-        waitForLocalListener(localPort, Math.max(250, opts.timeoutMs)),
+        listening,
         new Promise<void>((_, reject) => {
           child.once("error", (err) => reject(err));
           child.once("exit", (code, signal) => {
