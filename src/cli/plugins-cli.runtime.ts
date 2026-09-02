@@ -41,14 +41,6 @@ type PluginInstallActionOptions = {
   marketplace?: string;
 };
 
-function createModuleLoader<T>(load: () => Promise<T>): () => Promise<T> {
-  let promise: Promise<T> | undefined;
-  return () => (promise ??= load());
-}
-
-const loadPluginsStatus = createModuleLoader(() => import("../plugins/status.js"));
-const loadPluginsCommandHelpers = createModuleLoader(() => import("./plugins-command-helpers.js"));
-
 function countEnabledPlugins(plugins: readonly { enabled: boolean }[]): number {
   return plugins.filter((plugin) => plugin.enabled).length;
 }
@@ -354,7 +346,7 @@ export async function runPluginsDoctorCommand(opts: PluginDoctorOptions = {}): P
     buildPluginCompatibilityNotices,
     buildPluginDiagnosticsReport,
     formatPluginCompatibilityNotice,
-  } = await loadPluginsStatus();
+  } = await import("../plugins/status.js");
   const {
     collectStalePluginConfigWarnings,
     isStalePluginAutoRepairBlocked,
@@ -957,7 +949,8 @@ export async function runPluginMarketplaceListCommand(
   opts: PluginMarketplaceListOptions,
 ): Promise<void> {
   const { listMarketplacePlugins } = await import("../plugins/marketplace.js");
-  const { createPluginInstallLogger, quietPluginJsonLogger } = await loadPluginsCommandHelpers();
+  const { createPluginInstallLogger, quietPluginJsonLogger } =
+    await import("./plugins-command-helpers.js");
   const result = await listMarketplacePlugins({
     marketplace: source,
     logger: opts.json ? quietPluginJsonLogger : createPluginInstallLogger(),
