@@ -1,12 +1,8 @@
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import {
-  isToolCallContentType,
-  isToolResultContentType,
-} from "../../../../src/chat/tool-content.js";
 import type { ChatItem, MessageGroup } from "../../lib/chat/chat-types.ts";
-import { extractTextCached } from "../../lib/chat/message-extract.ts";
 import { normalizeRoleForGrouping } from "../../lib/chat/message-normalizer.ts";
+import { resolveMessageVisibleContent } from "../../lib/chat/message-visibility.ts";
 import { senderIdentityKey } from "../../lib/chat/sender-label.ts";
 import { isContextCompactionActivity } from "./chat-progress.ts";
 import { prepareMessagesForGrouping } from "./chat-thread-duplicates.ts";
@@ -21,7 +17,6 @@ import {
   assistantGroupIsForwardedBoundary,
   chatItemStartsUserTurn,
   hasForwardedSource,
-  safeNormalizeMessage,
 } from "./chat-turn-boundary.ts";
 import { indexTurnContinuations, persistedSteerTargetRunId } from "./stream-causal-boundary.ts";
 
@@ -77,6 +72,9 @@ export function groupMessages(items: ChatItem[]): Array<ChatItem | MessageGroup>
 
     const { item, normalized } = prepared;
     const role = normalizeRoleForGrouping(normalized.role);
+    // Classify after content projection and keep the fact with its group; later
+    // presentation passes reuse it, while a rebuild sees in-place message changes.
+    const visibleContent = resolveMessageVisibleContent(item.message, normalized);
     const senderLabel =
       role === "user" || role === "assistant" ? (normalized.senderLabel ?? null) : null;
     const sender = role === "user" ? normalized.sender : undefined;
@@ -127,11 +125,15 @@ export function groupMessages(items: ChatItem[]): Array<ChatItem | MessageGroup>
         ...(normalized.senderSession ? { senderSession: normalized.senderSession } : {}),
         ...(sender ? { sender } : {}),
         messages: [{ message: item.message, key: item.key, duplicateCount: item.duplicateCount }],
+        visibleContent,
         timestamp,
         isStreaming: false,
         ...(runId ? { runId } : {}),
       };
     } else {
+      if (visibleContent === "non-text" || currentGroup.visibleContent === "none") {
+        currentGroup.visibleContent = visibleContent;
+      }
       currentGroup.messages.push({
         message: item.message,
         key: item.key,
@@ -217,23 +219,8 @@ function isCollapsibleWorkGroup(item: TurnRenderItem): item is MessageGroup {
   return role === "tool" || (role === "assistant" && !assistantGroupIsForwardedBoundary(item));
 }
 
-// Attachment/canvas/media-only replies carry no text but are still the turn's
-// visible outcome; they must never fold into the work rollup. Normalized
-// content passes unknown block types through (e.g. raw image blocks), so
-// anything that is not a tool block counts as visible reply content.
 function groupHasVisibleReplyContent(group: MessageGroup, includeText = true): boolean {
-  return group.messages.some(({ message }) => {
-    if (includeText && extractTextCached(message)?.trim()) {
-      return true;
-    }
-    const content = safeNormalizeMessage(message)?.content ?? [];
-    return content.some((block) => {
-      if (block.type === "text") {
-        return includeText && Boolean(block.text?.trim());
-      }
-      return !isToolCallContentType(block.type) && !isToolResultContentType(block.type);
-    });
-  });
+  return group.visibleContent === "non-text" || (includeText && group.visibleContent === "text");
 }
 
 export function assistantGroupCanOwnActiveRunStatus(group: MessageGroup): boolean {

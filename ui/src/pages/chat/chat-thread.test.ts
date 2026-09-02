@@ -39,6 +39,7 @@ describe("assistantGroupCanOwnActiveRunStatus", () => {
     timestamp: 1,
     isStreaming: false,
     messages: [{ key: "message:1", message }],
+    visibleContent: "text",
   });
 
   it("accepts visible replies and rejects forwarded assistant input", () => {
@@ -1300,6 +1301,7 @@ describe("coalesceActivityRuns", () => {
       key: "group:assistant:reply",
       role: "assistant",
       messages: [{ key: "assistant:reply", message: assistantMessage("Done.", 3_500) }],
+      visibleContent: "text",
       timestamp: 3_500,
       isStreaming: false,
       runId: "run-2",
@@ -1354,6 +1356,7 @@ describe("coalesceActivityRuns", () => {
           ),
         },
       ],
+      visibleContent: "none",
       timestamp: 1_000 * index,
       isStreaming: false,
       runId: `hb-run-${index}`,
@@ -1387,6 +1390,7 @@ describe("coalesceActivityRuns", () => {
       key: "group:user:boundary",
       role: "user",
       messages: [{ key: "user:boundary", message: userMessage("stop", 4_000) }],
+      visibleContent: "text",
       timestamp: 4_000,
       isStreaming: false,
     };
@@ -4597,6 +4601,7 @@ describe("tool expansion state", () => {
           message: { role: "assistant", content: "No tools in this row" },
         },
       ],
+      visibleContent: "text",
       timestamp: 1,
       isStreaming: false,
     };
@@ -4637,6 +4642,7 @@ describe("tool expansion state", () => {
           },
         },
       ],
+      visibleContent: "none",
       timestamp: 1,
       isStreaming: false,
     };
@@ -4664,6 +4670,7 @@ describe("tool expansion state", () => {
           },
         },
       ],
+      visibleContent: "text",
       timestamp: 1,
       isStreaming: false,
     };
@@ -4789,6 +4796,7 @@ describe("expansion-state render dependencies", () => {
           },
         },
       ],
+      visibleContent: "none",
       timestamp: 1,
       isStreaming: false,
     });
@@ -4873,6 +4881,7 @@ describe("expansion-state render dependencies", () => {
           },
         },
       ],
+      visibleContent: "none",
       timestamp: 1,
       isStreaming: false,
     };

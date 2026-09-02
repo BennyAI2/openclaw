@@ -123,7 +123,6 @@ function buildRedactionLookup(hints: ConfigUiHints): Set<string> {
       if (part.endsWith("[]")) {
         result.add(`${joinedPath}.${part.slice(0, -2)}`);
       }
-      // hey, greptile, notice how this is *NOT* in an else block?
       joinedPath = `${joinedPath}.${part}`;
       result.add(joinedPath);
     }
@@ -151,18 +150,8 @@ function withoutRedactionLookup(context: RedactionContext): RedactionContext {
 }
 
 /** Deep-walk an object and replace values at sensitive paths with the redaction sentinel. */
-function redactObject<T>(obj: T, hints?: ConfigUiHints): T {
-  return redactValue(obj, "", [], createRedactionContext(hints)) as T;
-}
-
-/**
- * Collect all sensitive string values from a config object.
- * Used for text-based redaction of the raw JSON5 source.
- */
-function collectSensitiveValues(obj: unknown, hints?: ConfigUiHints): string[] {
-  const result: string[] = [];
-  redactValue(obj, "", result, createRedactionContext(hints));
-  return result;
+function redactObject<T>(obj: T, context: RedactionContext, values: string[] = []): T {
+  return redactValue(obj, "", values, context) as T;
 }
 
 function redactValue(
@@ -279,19 +268,6 @@ function redactValue(
   return result;
 }
 
-/**
- * Replace known sensitive values in a raw JSON5 string with the sentinel.
- * Values are replaced longest-first to avoid partial matches.
- */
-function redactRawText(raw: string, config: unknown, hints?: ConfigUiHints): string {
-  const sensitiveValues = collectSensitiveValues(config, hints);
-  return replaceSensitiveValuesInRaw({
-    raw,
-    sensitiveValues,
-    redactedSentinel: REDACTED_SENTINEL,
-  });
-}
-
 let suppressRestoreWarnings = false;
 
 function withRestoreWarningsSuppressed<T>(fn: () => T): T {
@@ -310,7 +286,7 @@ function withRestoreWarningsSuppressed<T>(fn: () => T): T {
  * leaking credentials in their responses.
  */
 export function redactConfigObject<T>(value: T, uiHints?: ConfigUiHints): T {
-  return redactObject(value, uiHints);
+  return redactObject(value, createRedactionContext(uiHints));
 }
 
 /**
@@ -346,9 +322,19 @@ export function redactConfigSnapshot(
       resolved: redactedResolved,
     };
   }
-  const redactedConfig = redactObject(snapshot.config, uiHints);
-  const redactedParsed = snapshot.parsed ? redactObject(snapshot.parsed, uiHints) : snapshot.parsed;
-  let redactedRaw = snapshot.raw ? redactRawText(snapshot.raw, snapshot.config, uiHints) : null;
+  const context = createRedactionContext(uiHints);
+  // Raw replacement uses only runtime-config secrets. Other projections can hold
+  // different values, so their redaction must not contribute to this collection.
+  const sensitiveValues: string[] = [];
+  const redactedConfig = redactObject(snapshot.config, context, sensitiveValues);
+  const redactedParsed = snapshot.parsed ? redactObject(snapshot.parsed, context) : snapshot.parsed;
+  let redactedRaw = snapshot.raw
+    ? replaceSensitiveValuesInRaw({
+        raw: snapshot.raw,
+        sensitiveValues,
+        redactedSentinel: REDACTED_SENTINEL,
+      })
+    : null;
   if (
     redactedRaw &&
     shouldFallbackToStructuredRawRedaction({
@@ -356,14 +342,14 @@ export function redactConfigSnapshot(
       originalConfig: snapshot.parsed ?? snapshot.config,
       restoreParsed: (parsed) =>
         withRestoreWarningsSuppressed(() =>
-          restoreRedactedValues(parsed, snapshot.config, uiHints),
+          restoreRedactedValuesWithContext(parsed, snapshot.config, context),
         ),
     })
   ) {
     redactedRaw = null;
   }
   // Also redact the resolved config (contains values after ${ENV} substitution)
-  const redactedResolved = redactConfigObject(snapshot.resolved, uiHints);
+  const redactedResolved = redactObject(snapshot.resolved, context);
   return {
     ...publicSnapshot,
     sourceConfig: redactedResolved,
@@ -394,6 +380,14 @@ export function restoreRedactedValues(
   original: unknown,
   hints?: ConfigUiHints,
 ): RedactionResult {
+  return restoreRedactedValuesWithContext(incoming, original, createRedactionContext(hints));
+}
+
+function restoreRedactedValuesWithContext(
+  incoming: unknown,
+  original: unknown,
+  context: RedactionContext,
+): RedactionResult {
   if (incoming === null || incoming === undefined) {
     return { ok: false, error: "no input" };
   }
@@ -401,7 +395,7 @@ export function restoreRedactedValues(
     return { ok: false, error: "input not an object" };
   }
   try {
-    const restored = restoreRedactedValue(incoming, original, "", createRedactionContext(hints));
+    const restored = restoreRedactedValue(incoming, original, "", context);
     assertNoRedactedSentinel(restored, "");
     return { ok: true, result: restored };
   } catch (err) {

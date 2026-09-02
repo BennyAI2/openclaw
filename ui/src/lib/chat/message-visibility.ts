@@ -1,14 +1,41 @@
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import {
+  isToolCallContentType,
+  isToolResultContentType,
+} from "../../../../src/chat/tool-content.js";
+import type { MessageGroup, NormalizedMessage } from "./chat-types.ts";
+import {
   isAssistantHeartbeatAckForDisplay,
   stripHeartbeatTokenForDisplay,
 } from "./heartbeat-display.ts";
-import { extractText, isEmptyUserTextOnlyMessage } from "./message-extract.ts";
+import { extractText, extractTextCached, isEmptyUserTextOnlyMessage } from "./message-extract.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
 const SYNTHETIC_TRANSCRIPT_REPAIR_RESULT =
   "[openclaw] missing tool result in session history; inserted synthetic error result for transcript repair.";
+
+// Media and unknown non-tool blocks are visible outcomes even without text;
+// classifying prepared content keeps them out of collapsed work rollups.
+export function resolveMessageVisibleContent(
+  message: unknown,
+  normalized: NormalizedMessage,
+): MessageGroup["visibleContent"] {
+  if (
+    normalized.content.some(
+      (block) =>
+        block.type !== "text" &&
+        !isToolCallContentType(block.type) &&
+        !isToolResultContentType(block.type),
+    )
+  ) {
+    return "non-text";
+  }
+  return normalized.content.some((block) => block.type === "text" && block.text?.trim()) ||
+    extractTextCached(message)?.trim()
+    ? "text"
+    : "none";
+}
 
 export function isSilentReplyStream(text: string): boolean {
   return SILENT_REPLY_PATTERN.test(text);

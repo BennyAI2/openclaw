@@ -80,6 +80,7 @@ function sameMessageGroup(previous: MessageGroup, next: MessageGroup): boolean {
     JSON.stringify(previous.sender) === JSON.stringify(next.sender) &&
     JSON.stringify(previous.replyToSender) === JSON.stringify(next.replyToSender) &&
     previous.isStreaming === next.isStreaming &&
+    previous.visibleContent === next.visibleContent &&
     previous.runId === next.runId &&
     previous.messages.length === next.messages.length &&
     previous.messages.every((entry, index) => {
