@@ -9,8 +9,6 @@ import { prepareMessagesForGrouping } from "./chat-thread-duplicates.ts";
 import { userTurnRunId } from "./chat-thread-items.ts";
 import {
   isKeyedAssistantStreamFallbackMessage,
-  streamPartBoundaryId,
-  streamPartRunId,
   transcriptRunId,
 } from "./chat-thread-run-identity.ts";
 import {
@@ -154,7 +152,7 @@ export type StreamRunRenderItem = {
   key: string;
   runId?: string;
   boundaryId?: string;
-  parts: Array<Extract<ChatItem, { kind: "stream" | "reading-indicator" | "question" }>>;
+  parts: Array<Extract<ChatItem, { kind: "stream" | "reading-indicator" }>>;
 };
 export function coalesceStreamRuns(
   items: RenderChatItem[],
@@ -164,8 +162,7 @@ export function coalesceStreamRuns(
   const flush = () => {
     const [first] = run;
     if (first) {
-      const runId = streamPartRunId(first);
-      const boundaryId = streamPartBoundaryId(first);
+      const { runId, boundaryId } = first;
       result.push({
         kind: "stream-run",
         key: `stream-run:${first.key}`,
@@ -179,10 +176,7 @@ export function coalesceStreamRuns(
   for (const item of items) {
     if (item.kind === "stream" || item.kind === "reading-indicator") {
       const first = run[0];
-      if (
-        first &&
-        (streamPartRunId(first) !== item.runId || streamPartBoundaryId(first) !== item.boundaryId)
-      ) {
+      if (first && (first.runId !== item.runId || first.boundaryId !== item.boundaryId)) {
         flush();
       }
       run.push(item);
