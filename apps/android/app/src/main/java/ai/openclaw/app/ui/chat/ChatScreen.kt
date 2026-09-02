@@ -914,6 +914,7 @@ fun ChatScreen(
             composerState.cancelMediaAcquisition(mediaAuthorizationId)
             return@launch
           }
+          dictationController.cancel()
           if (voiceNoteRecorder.start(recordingId)) {
             if (
               viewModel.isCurrentChatComposerOwner(ownerSnapshot) &&
@@ -2529,6 +2530,9 @@ private fun ChatComposer(
 
     VoiceNoteRecorderError(voiceNoteState)
     ChatDictationError(dictationState)
+    if (recordVoiceNoteEnabled && (dictationState as? ChatDictationState.Failure)?.reason == ChatDictationFailure.Unavailable) {
+      TextButton(onClick = onStartVoiceNote) { Text(voiceNoteRecordLabel()) }
+    }
 
     if (!healthOk && gatewayOffline) {
       ChatOfflineNotice(
