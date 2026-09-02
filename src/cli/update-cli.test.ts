@@ -5711,6 +5711,17 @@ describe("update-cli", () => {
         handoffId: "test-handoff",
         installRoot: root,
       });
+      expect(serviceReadCommand).toHaveBeenCalledTimes(git ? 2 : 3);
+      const serviceStateCommandReads = serviceReadCommand.mock.calls.filter(
+        ([options]) =>
+          typeof options === "object" && options !== null && "requireEffective" in options,
+      );
+      expect(serviceStateCommandReads).toEqual([
+        [{ requireEffective: true }],
+        [{ requireEffective: true }],
+      ]);
+      expect(serviceReadRuntime).toHaveBeenCalledTimes(2);
+      expect(managedUpdateHandoff.start).toHaveBeenCalledTimes(1);
       expectNoSideEffects(serviceStop, serviceRestart, runRestartScript);
       if (git) {
         expect(runGatewayUpdate).toHaveBeenCalledWith(
