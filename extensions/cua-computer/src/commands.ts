@@ -70,7 +70,7 @@ type ImageProcessor = {
     options: {
       format: "jpeg" | "png";
       quality?: number;
-      resize?: { width: number; enlarge: false };
+      resize?: { maxSide: number; enlarge: false };
     },
   ): Promise<{ data: Buffer; width: number; height: number }>;
 };
@@ -554,11 +554,11 @@ export function createCuaComputerProvider(
             let encoded = nativePng;
             let width = geometry.screenshotWidth;
             let height = geometry.screenshotHeight;
-            if (format === "jpeg" || width > maxWidth) {
+            if (format === "jpeg" || Math.max(width, height) > maxWidth) {
               const result = await imageProcessor.encode(nativePng, {
                 format,
                 ...(format === "jpeg" ? { quality: Math.round(quality * 100) } : {}),
-                ...(width > maxWidth ? { resize: { width: maxWidth, enlarge: false } } : {}),
+                resize: { maxSide: maxWidth, enlarge: false },
               });
               encoded = result.data;
               width = result.width;

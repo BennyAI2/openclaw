@@ -361,10 +361,8 @@ export function issueFrame(
   geometry: CuaDesktopGeometry,
   capture: { width: number; height: number; referenceWidth: number },
 ): string {
-  // projectScreenshotResult caps the encoded image's longest edge to this same
-  // reference width. Keep the cap separate from the rounded pixels the model
-  // sees: small displays are not enlarged, and portrait captures shrink again.
-  const scale = Math.min(1, capture.referenceWidth / Math.max(capture.width, capture.height));
+  // Snapshot encoding bounds both dimensions before issuing the frame, so direct
+  // callers and the model receive the same bitmap without another coordinate projection.
   const digest = createHash("sha256")
     .update(JSON.stringify([state.generation, geometry, capture]))
     .digest("hex");
@@ -374,8 +372,8 @@ export function issueFrame(
     referenceWidth: capture.referenceWidth,
     nativeWidth: geometry.screenshotWidth,
     nativeHeight: geometry.screenshotHeight,
-    deliveredWidth: Math.max(1, Math.round(capture.width * scale)),
-    deliveredHeight: Math.max(1, Math.round(capture.height * scale)),
+    deliveredWidth: capture.width,
+    deliveredHeight: capture.height,
     geometry: {
       width: geometry.screenWidth,
       height: geometry.screenHeight,
@@ -408,7 +406,9 @@ export function verifyFrame(
     state.lastFrame = undefined;
     throw staleFrame("the primary display geometry changed");
   }
-  if (refWidth !== frame.referenceWidth) {
+  // Core echoes the requested cap; direct callers echo the returned bitmap width.
+  // Both identify the same bounded image. Other widths cannot authorize input.
+  if (refWidth !== frame.referenceWidth && refWidth !== frame.deliveredWidth) {
     state.lastFrame = undefined;
     throw staleFrame("the coordinate reference width changed");
   }
