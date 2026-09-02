@@ -3269,7 +3269,7 @@ src/mcp/channel-bridge.ts	6
 src/mcp/channel-shared.ts	3
 src/mcp/codex-supervision-tools-serve.ts	6
 src/mcp/openclaw-tools-serve-config.ts	1
-src/mcp/plugin-tools-handlers.ts	3
+src/mcp/plugin-tools-handlers.ts	2
 src/media-generation/provider-registry.ts	1
 src/media-understanding/attachments.select.ts	1
 src/media-understanding/entry-capabilities.ts	1
@@ -3440,7 +3440,6 @@ src/plugins/host-hook-runtime.ts	1
 src/plugins/host-hook-scheduled-turns.ts	7
 src/plugins/host-hook-state.ts	8
 src/plugins/host-hooks.ts	1
-src/plugins/install-managed-npm-state.ts	2
 src/plugins/install-npm-metadata.ts	1
 src/plugins/install-persistence.ts	1
 src/plugins/install-record-commit.ts	3
@@ -3465,7 +3464,7 @@ src/plugins/loader-runtime-candidate.ts	1
 src/plugins/loader-runtime-load.ts	2
 src/plugins/loader-shared.ts	2
 src/plugins/managed-npm-retention.ts	4
-src/plugins/management-service.ts	3
+src/plugins/management-service.ts	1
 src/plugins/manifest-capability-normalizers.ts	3
 src/plugins/manifest-install-owner.ts	1
 src/plugins/manifest-registry.ts	2
@@ -3478,14 +3477,14 @@ src/plugins/official-external-plugin-catalog-snapshot-store.ts	4
 src/plugins/official-external-plugin-targets.ts	1
 src/plugins/official-external-provider-endpoints.ts	1
 src/plugins/openai-compatible-embedding-provider.ts	2
-src/plugins/plugin-cache-primitives.ts	2
+src/plugins/plugin-cache-primitives.ts	1
 src/plugins/plugin-command-dispatch-contract.ts	1
 src/plugins/plugin-command-execution.ts	2
 src/plugins/plugin-command-runtime.ts	3
 src/plugins/plugin-config-trust.ts	1
 src/plugins/plugin-metadata-snapshot.runtime.ts	2
 src/plugins/plugin-package-update.ts	1
-src/plugins/plugin-peer-link.ts	5
+src/plugins/plugin-peer-link.ts	3
 src/plugins/plugin-sdk-native-resolver.ts	3
 src/plugins/prepared-message-tool-catalog.ts	1
 src/plugins/provider-api-key-auth.ts	2
@@ -3502,7 +3501,7 @@ src/plugins/provider-policy-surface.ts	1
 src/plugins/provider-self-hosted-setup.ts	1
 src/plugins/provider-thinking-active.ts	1
 src/plugins/providers.ts	1
-src/plugins/public-surface-loader.ts	3
+src/plugins/public-surface-loader.ts	2
 src/plugins/recommended-tool-installs.ts	1
 src/plugins/register-plugin-cli-command-groups.ts	1
 src/plugins/registry-registrars-capabilities.ts	1

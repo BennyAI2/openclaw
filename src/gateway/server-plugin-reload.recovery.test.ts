@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +13,7 @@ import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.
 import { createPluginRegistry } from "../plugins/registry.js";
 import {
   clearActivePluginRegistry,
+  createPluginRegistryOwner,
   disposePluginRegistryInstances,
   resetPluginRuntimeStateForTest,
   setActivePluginRegistry,
@@ -387,18 +389,20 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
         currentServices = handle;
       },
     });
+    const registryOwner = createPluginRegistryOwner(initial.pluginRegistry, workspaceDir);
     const loaded = [initial];
     cleanups.push(async () => {
       try {
-        await currentServices?.stop({ strict: true });
+        await currentServices?.stop({ strict: true, deadlineAtMs: Date.now() + 5_000 });
       } finally {
         for (const generation of loaded) {
           generation.retireGatewayRuntimeBindings?.();
         }
+        await registryOwner.close();
       }
     });
     const runtime = {
-      pluginRuntime: { registry: initial.pluginRegistry },
+      pluginRuntime: registryOwner,
       pluginWorkspaceDir: workspaceDir,
       kernel: { pluginRuntimeGeneration: owner },
       runtimeState: { cronState: {} },
@@ -415,8 +419,9 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
     const probe = async (id: string) => {
       const method = `${id}.probe`;
       const respond = vi.fn();
-      expect(runtime.pluginRuntime.registry.gatewayHandlers[method]).toBeTypeOf("function");
-      await runtime.pluginRuntime.registry.gatewayHandlers[method]({
+      const handler = runtime.pluginRuntime.registry.gatewayHandlers[method];
+      assert.ok(handler, `${method} must be registered`);
+      await handler({
         req: { type: "req", id: "ledger-reload", method },
         params: {},
         client: null,
@@ -430,7 +435,9 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
         starts: 1,
         stops: 0,
       });
-      return respond.mock.calls[0][1];
+      const response = respond.mock.calls[0];
+      assert.ok(response);
+      return response[1];
     };
     const sibling = await probe("sibling");
     const siblingRecord = initial.pluginRegistry.plugins.find((record) => record.id === "sibling");
@@ -477,7 +484,7 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
                   workspaceDir,
                   runtime.pluginRuntime.registry,
                 );
-                runtime.pluginRuntime.registry = candidate.pluginRegistry;
+                registryOwner.publish(candidate.pluginRegistry);
               },
               afterCommit: () => {},
             };
