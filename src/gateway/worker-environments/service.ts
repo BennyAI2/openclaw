@@ -42,32 +42,12 @@ import type { WorkerProviderLifecycleInputOptions } from "./provider-lifecycle.t
 import type { WorkerEnvironmentState } from "./state.js";
 import type { WorkerTunnelStopReason } from "./tunnel-contract.js";
 import type { WorkerTunnelManager } from "./tunnel.js";
-import { boundedWorkerError as boundedError } from "./worker-error.js";
+import {
+  boundedWorkerError as boundedError,
+  createWorkerEnvironmentServiceError as serviceError,
+  WorkerEnvironmentServiceError,
+} from "./worker-error.js";
 import { createWorkerTurnRpc } from "./worker-turn-rpc.js";
-
-type WorkerEnvironmentServiceErrorCode =
-  | "profile_not_found"
-  | "provider_not_found"
-  | "environment_not_found"
-  | "invalid_profile"
-  | "invalid_state"
-  | "desktop_app_not_found"
-  | "unsupported_platform"
-  | "launcher_failure"
-  | "provider_failure"
-  | "bootstrap_failure";
-
-class WorkerEnvironmentServiceError extends Error {
-  constructor(
-    readonly code: WorkerEnvironmentServiceErrorCode,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-const serviceError = (code: WorkerEnvironmentServiceErrorCode, message: string) =>
-  new WorkerEnvironmentServiceError(code, message);
 
 type WorkerEnvironmentServiceOptions = WorkerProviderLifecycleInputOptions & {
   prepareComputer?: (
