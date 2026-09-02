@@ -3097,6 +3097,8 @@ export const en: TranslationMap & {
     tryAgain: "Try again",
     loading: "Loading plugins…",
     searching: "Searching ClawHub…",
+    searchResultCountOne: "{count} result",
+    searchResultCount: "{count} results",
     fromClawHub: "From ClawHub",
     noClawHubResultsBody: "ClawHub has no results for “{query}”.",
     noDiscoverMatchTitle: "Nothing to discover matches",
