@@ -293,6 +293,11 @@ run_agent_turn() {
     dump_profile_debug "$profile" "$out_json" >&2 || true
     return "$status"
   fi
+  if grep -Fq "EMBEDDED FALLBACK:" "$out_json"; then
+    echo "ERROR: agent turn used embedded fallback instead of the profile Gateway ($profile)" >&2
+    dump_profile_debug "$profile" "$out_json" >&2 || true
+    return 1
+  fi
   node - <<'NODE' "$out_json"
 const fs = require("node:fs");
 

@@ -3936,6 +3936,8 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
     expect(runner).toContain("run_agent_turn_bg");
     expect(runner).toContain("wait_agent_turn_batch");
     expect(runner).toContain("agent_turn_outputs_include_billing_drift");
+    expect(runner).toContain('grep -Fq "EMBEDDED FALLBACK:" "$out_json"');
+    expect(runner).toContain("agent turn used embedded fallback instead of the profile Gateway");
     expect(runner).toContain("SKIP: Anthropic billing drift during installer agent tool smoke");
     expect(runner).not.toContain('run_agent_turn_bg "read proof"');
     expect(runner).toContain('run_agent_turn_bg "image write"');
