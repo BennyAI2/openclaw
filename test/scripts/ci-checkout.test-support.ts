@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import type { Result } from "@openclaw/normalization-core/result";
 import { parse } from "yaml";
 import { z } from "zod";
 import {
@@ -72,19 +73,17 @@ export function renderGitTestClock(
 ) {
   // Command deadlines and TERM grace are independent. Real-clock callers keep
   // real grace unless they explicitly opt into the fixture's immediate escalation.
-  if (!(options.realDrain ?? options.realClock)) {
-    source = source.replace(
-      "kill_at = deadline - cleanup_seconds / 2",
-      "kill_at = time.monotonic()",
-    );
-  }
+  const drainPolicySource =
+    (options.realDrain ?? options.realClock)
+      ? source
+      : source.replace("kill_at = deadline - cleanup_seconds / 2", "kill_at = time.monotonic()");
   if (options.realClock) {
-    return source;
+    return drainPolicySource;
   }
   // Only a ready, deliberately stalled tree advances the fetch clock. Real
   // process startup and teardown retain their independent wall-clock watchdogs.
   return (
-    source
+    drainPolicySource
       .replace(/fetch_timeout_seconds = [^\n]+/u, "fetch_timeout_seconds = 2")
       .replace(
         "def run_git(",
@@ -160,7 +159,9 @@ export async function withCiCheckoutFixture<T>(
     try {
       rmSync(root, { recursive: true, force: true });
     } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], `Checkout setup failed; retained ${root}`);
+      throw new AggregateError([error, cleanupError], `Checkout setup failed; retained ${root}`, {
+        cause: cleanupError,
+      });
     }
     throw error;
   }
@@ -221,6 +222,7 @@ export async function withCiCheckoutFixture<T>(
   };
   let report: Report | undefined;
   let exercising = false;
+  let outcome: Result<T, unknown>;
   try {
     exercising = true;
     await exercise?.({ stop, wait: () => join(observationDeadline), observationDeadline }, root);
@@ -230,72 +232,75 @@ export async function withCiCheckoutFixture<T>(
       throw spawnError;
     }
     report = reportSchema.parse(JSON.parse(readFileSync(path.join(root, "report.json"), "utf8")));
-    return await inspect(report, completed, stderr, root);
+    outcome = { ok: true, value: await inspect(report, completed, stderr, root) };
   } catch (error) {
     errors.push(error);
-    throw error;
-  } finally {
-    try {
-      if (report) {
-        await join(caseDeadline);
-        // A consumer assertion failure does not revoke the producer's release receipt.
-        rmSync(root, { recursive: true, force: true });
-      } else {
-        if (exercising && !physicalClose) {
-          stop();
-          // Give the producer its existing cleanup allowance before emergency
-          // teardown. A failed action remains failed even if this drain succeeds.
-          try {
-            await join(Math.min(caseDeadline, Date.now() + 4_000));
-          } catch (error) {
-            errors.push(error);
-          }
-        }
-        const deadline = Math.min(caseDeadline, Date.now() + 4_000);
-        // Keep IPC attached through termination: explicit disconnect can suppress Node's close.
-        // Let lease-bound Git descendants stop even if the supervisor cannot run cleanup.
-        rmSync(path.join(root, "lease"), { force: true });
-        const termination = terminateManagedChild(supervisor, "SIGKILL", {
-          taskkillTimeoutMs: 2_000,
-          processGroupFallback: "never",
-        });
-        const groupDead = () =>
-          !supervisor.pid ||
-          (process.platform === "win32"
-            ? termination?.processTreeState === "terminated"
-            : inspectManagedProcessGroup(supervisor, { errorPolicy: "indeterminate" }) === "dead");
-        // Join actual close before checking extinction, sharing the original cleanup budget.
-        let didClose = false;
+    outcome = { ok: false, error };
+  }
+  try {
+    if (report) {
+      await join(caseDeadline);
+      // A consumer assertion failure does not revoke the producer's release receipt.
+      rmSync(root, { recursive: true, force: true });
+    } else {
+      if (exercising && !physicalClose) {
+        stop();
+        // Give the producer its existing cleanup allowance before emergency
+        // teardown. A failed action remains failed even if this drain succeeds.
         try {
-          await join(deadline);
-          didClose = true;
+          await join(Math.min(caseDeadline, Date.now() + 4_000));
         } catch (error) {
           errors.push(error);
         }
-        while (!groupDead()) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) {
-            break;
-          }
-          await delay(Math.min(10, remaining));
-        }
-        console.error(
-          `Checkout fixture retained at ${root}; no completed report. ` +
-            `Supervisor close: ${didClose}; group extinction: ${groupDead()}. ` +
-            `Inspect workflow.log and stop remaining owned writers before removing this exact directory.\n${stderr}`,
-        );
-        if (!didClose || !groupDead()) {
-          errors.push(new Error(`Checkout emergency cleanup unverified; retained ${root}`));
-        }
       }
-    } catch (error) {
-      errors.push(error);
+      const deadline = Math.min(caseDeadline, Date.now() + 4_000);
+      // Keep IPC attached through termination: explicit disconnect can suppress Node's close.
+      // Let lease-bound Git descendants stop even if the supervisor cannot run cleanup.
+      rmSync(path.join(root, "lease"), { force: true });
+      const termination = terminateManagedChild(supervisor, "SIGKILL", {
+        taskkillTimeoutMs: 2_000,
+        processGroupFallback: "never",
+      });
+      const groupDead = () =>
+        !supervisor.pid ||
+        (process.platform === "win32"
+          ? termination?.processTreeState === "terminated"
+          : inspectManagedProcessGroup(supervisor, { errorPolicy: "indeterminate" }) === "dead");
+      // Join actual close before checking extinction, sharing the original cleanup budget.
+      let didClose = false;
+      try {
+        await join(deadline);
+        didClose = true;
+      } catch (error) {
+        errors.push(error);
+      }
+      while (!groupDead()) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          break;
+        }
+        await delay(Math.min(10, remaining));
+      }
+      console.error(
+        `Checkout fixture retained at ${root}; no completed report. ` +
+          `Supervisor close: ${didClose}; group extinction: ${groupDead()}. ` +
+          `Inspect workflow.log and stop remaining owned writers before removing this exact directory.\n${stderr}`,
+      );
+      if (!didClose || !groupDead()) {
+        errors.push(new Error(`Checkout emergency cleanup unverified; retained ${root}`));
+      }
     }
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, `Checkout fixture failed at ${root}`);
-    }
+  } catch (error) {
+    errors.push(error);
   }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, `Checkout fixture failed at ${root}`);
+  }
+  if (!outcome.ok) {
+    throw outcome.error;
+  }
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  return outcome.value;
 }

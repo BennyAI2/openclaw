@@ -495,7 +495,9 @@ it.skipIf(process.platform === "win32").each(["exec-Python", "prepared raw Pytho
     void prematureReceipt.promise.catch(() => undefined);
     server.once("connection", (socket) => {
       control = socket;
-      controlClosed = new Promise<void>((closed) => socket.once("close", closed));
+      controlClosed = new Promise<void>((closed) => {
+        socket.once("close", closed);
+      });
       socket.once("end", () => (controlEnded = true));
       socket.once("error", (error) => {
         errors.push(error);
@@ -631,7 +633,9 @@ printf 'raw owner returned\\n'
       // Release the held actor on red/setup-failure paths and join only within
       // the original fixture deadline; disposing our socket never proves peer death.
       releasing = true;
-      const serverClosed = new Promise<void>((resolve) => server.close(() => resolve()));
+      const serverClosed = new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
       if (control && !control.writableEnded && !control.destroyed) {
         control.end();
       }
