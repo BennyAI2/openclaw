@@ -13,6 +13,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import { readWorkspaceFileCache, writeWorkspaceFileCache } from "./workspace-file-cache.js";
 import { resolveWorkspaceStateIdentity } from "./workspace-state-identity.js";
 import {
   clearExpiredWorkspaceStateForVanishedWorkspace,
@@ -380,6 +381,22 @@ describe("workspace state store", () => {
     expect(aliases).toEqual([]);
   });
 
+  it("retires canonical cached files after deleting through an alias", () => {
+    const dir = workspaceDir();
+    const alias = testState!.path("workspace-link");
+    const filePath = path.join(dir, "AGENTS.md");
+    fs.symlinkSync(dir, alias, process.platform === "win32" ? "junction" : "dir");
+    mergeWorkspaceSetupState(alias, { bootstrapSeededAt: "2026-07-16T01:00:00.000Z" }, 1_000);
+    writeWorkspaceFileCache({ filePath, content: "cached", identity: "identity" });
+    const deletion = prepareWorkspaceStateDeletion(alias);
+    fs.unlinkSync(alias);
+
+    deleteWorkspaceState(deletion);
+
+    expect(readWorkspaceStateSnapshot(dir).setupExists).toBe(false);
+    expect(readWorkspaceFileCache(filePath, "identity")).toBeUndefined();
+  });
+
   it("clears expired setup-only state for a vanished workspace", () => {
     const dir = workspaceDir();
     mergeWorkspaceSetupState(dir, { bootstrapSeededAt: "2026-07-16T01:00:00.000Z" }, 1_000);
@@ -435,6 +452,8 @@ describe("workspace state store", () => {
 
   it("does not recreate a missing database during delete-only cleanup", () => {
     const dir = workspaceDir();
+    const filePath = path.join(dir, "AGENTS.md");
+    writeWorkspaceFileCache({ filePath, content: "cached", identity: "identity" });
     const databasePath = resolveOpenClawStateSqlitePath();
     closeOpenClawStateDatabaseForTest();
     fs.rmSync(path.dirname(databasePath), { recursive: true, force: true });
@@ -443,6 +462,7 @@ describe("workspace state store", () => {
 
     expect(fs.existsSync(databasePath)).toBe(false);
     expect(fs.existsSync(path.dirname(databasePath))).toBe(false);
+    expect(readWorkspaceFileCache(filePath, "identity")).toBeUndefined();
   });
 
   it("deletes migration receipts owned by the workspace", () => {
