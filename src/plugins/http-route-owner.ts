@@ -1,7 +1,11 @@
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { pluginInstanceState, type PluginInstanceHandle } from "./plugin-instance-scope.js";
 import { isPluginRegistryRetired } from "./registry-lifecycle.js";
-import type { PluginHttpRouteRegistration, PluginRegistry } from "./registry-types.js";
+import type {
+  PluginHttpRouteRegistration,
+  PluginRecord,
+  PluginRegistry,
+} from "./registry-types.js";
 
 type RouteViews = Set<WeakRef<PluginRegistry>>;
 type RouteOwner = PluginInstanceHandle | string | undefined;
@@ -62,13 +66,13 @@ export function getPluginHttpRouteViews(
   return liveViews(ownerViews(registry, resolveOwner(registry, pluginId, instance)));
 }
 
-/** Only the loader's exact-record retention path shares an owner's route projections. */
+/** Exact records own routes even when registration fails before registry insertion. */
 export function projectPluginHttpRoutes(
   source: PluginRegistry,
-  pluginId: string,
+  record: PluginRecord,
   target?: PluginRegistry,
 ): void {
-  const owner = resolveOwner(source, pluginId);
+  const owner = pluginInstanceState.records.get(record)?.instance ?? record.id;
   const views = ownerViews(source, owner);
   const owns = (route: PluginHttpRouteRegistration) =>
     resolveOwner(source, route.pluginId, pluginInstanceState.values.get(route.handler)) === owner;

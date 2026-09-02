@@ -1,6 +1,6 @@
 import { projectPluginHttpRoutes } from "./http-route-owner.js";
 import { pluginArrays, pluginMaps } from "./registry-empty.js";
-import type { PluginRegistry } from "./registry-types.js";
+import type { PluginRecord, PluginRegistry } from "./registry-types.js";
 
 function projectArray<T>(source: T[], target: T[] | undefined, owns: (entry: T) => boolean): void {
   if (target) {
@@ -34,10 +34,11 @@ function projectMap<K, V>(
 /** Copy exact owned contributions into a candidate, or remove them during failed registration. */
 export function projectPluginContributions(
   source: PluginRegistry,
-  pluginId: string,
+  record: PluginRecord,
   target?: PluginRegistry,
 ): void {
-  projectPluginHttpRoutes(source, pluginId, target);
+  const pluginId = record.id;
+  projectPluginHttpRoutes(source, record, target);
   const owns = (entry: { pluginId?: string }) => entry.pluginId === pluginId;
   for (const key of pluginArrays) {
     projectArray<{ pluginId?: string }>(source[key], target?.[key], owns);

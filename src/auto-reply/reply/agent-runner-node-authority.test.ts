@@ -62,6 +62,7 @@ describe("webchat admission to plugin node duplex authority", () => {
         "runtime-retired",
         "runtime-reactivated",
         "gateway-reactivated",
+        "gateway-republished",
         "runtime-record-revoked",
       ] as const
     ).flatMap((mode) => (["startup", "policy"] as const).map((phase) => ({ mode, phase }))),
@@ -319,6 +320,10 @@ describe("webchat admission to plugin node duplex authority", () => {
                     markPluginRegistryActive(preparedRegistry);
                     break;
                   case "gateway-reactivated":
+                    markPluginRegistryRetired(registry);
+                    markPluginRegistryActive(registry);
+                    break;
+                  case "gateway-republished":
                     markPluginRegistryActive(registry);
                     break;
                   case "runtime-record-revoked":
@@ -410,7 +415,7 @@ describe("webchat admission to plugin node duplex authority", () => {
         expect(reply).toMatchObject({ kind: "success" });
       }
       expect(state.runEmbeddedAgentMock).toHaveBeenCalledOnce();
-      if (mode === "full" || mode === "shared") {
+      if (mode === "full" || mode === "shared" || mode === "gateway-republished") {
         expect(launchErrors).toEqual([]);
         expect(prompt).not.toHaveBeenCalled();
         expect(invoke).toHaveBeenCalledOnce();

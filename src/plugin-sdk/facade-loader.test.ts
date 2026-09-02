@@ -343,7 +343,9 @@ describe("plugin-sdk facade loader", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(MissingPublicSurfaceError);
-    expect(error.message).toBe(`Unable to open bundled plugin public surface ${outsidePath}`);
+    expect(error.message).toBe(
+      `Unable to open bundled plugin public surface ${outsidePath}: outside plugin root`,
+    );
   });
 
   it("shares loaded facade ids with facade-runtime", () => {

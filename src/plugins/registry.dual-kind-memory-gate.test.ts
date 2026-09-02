@@ -4,9 +4,14 @@ import {
   registerTestPlugin,
   registerVirtualTestPlugin,
 } from "openclaw/plugin-sdk/plugin-test-contracts";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveMemoryCapabilityRegistration } from "./memory-state.js";
+import { clearActivePluginRegistry, setActivePluginRegistry } from "./runtime.js";
 import { createPluginRecord } from "./status.test-fixtures.js";
+
+afterEach(async () => {
+  await clearActivePluginRegistry();
+});
 
 function createStubMemoryRuntime() {
   return {
@@ -43,6 +48,7 @@ describe("dual-kind memory registration gate", () => {
         api.registerMemoryCapability({ runtime: createStubMemoryRuntime() });
       },
     });
+    setActivePluginRegistry(registry.registry);
     expect(registry.registry.memoryCapabilities).toStrictEqual([]);
     expect(registry.registry.diagnostics).toEqual([
       {
@@ -71,9 +77,10 @@ describe("dual-kind memory registration gate", () => {
         api.registerMemoryCapability({ runtime: createStubMemoryRuntime() });
       },
     });
+    setActivePluginRegistry(registry.registry);
     expect(
       requireMemoryRuntime(registry).resolveMemoryBackendConfig({
-        cfg: {} as never,
+        cfg: config,
         agentId: "main",
       }),
     ).toEqual({ backend: "builtin" });
@@ -97,9 +104,10 @@ describe("dual-kind memory registration gate", () => {
         api.registerMemoryCapability({ runtime: createStubMemoryRuntime() });
       },
     });
+    setActivePluginRegistry(registry.registry);
     expect(
       requireMemoryRuntime(registry).resolveMemoryBackendConfig({
-        cfg: {} as never,
+        cfg: config,
         agentId: "main",
       }),
     ).toEqual({ backend: "builtin" });
@@ -126,24 +134,22 @@ describe("dual-kind memory registration gate", () => {
         });
       },
     });
-    expect(registry.registry.memoryCapabilities).toEqual([
-      {
-        pluginId: "dual-plugin",
-        capability: {
-          runtime,
-          promptBuilder,
-        },
-      },
+    setActivePluginRegistry(registry.registry);
+    expect(registry.registry.memoryCapabilities).toHaveLength(1);
+    const registered = registry.registry.memoryCapabilities[0]!;
+    expect(registered.pluginId).toBe("dual-plugin");
+    expect(registered.capability.promptBuilder?.({ availableTools: new Set() })).toEqual([
+      "memory capability",
     ]);
     expect(
       requireMemoryRuntime(registry).resolveMemoryBackendConfig({
-        cfg: {} as never,
+        cfg: config,
         agentId: "main",
       }),
     ).toEqual({ backend: "builtin" });
   });
 
-  it("preserves an earlier memory capability when an artifact bridge fails", () => {
+  it("preserves an earlier memory capability when an artifact bridge fails", async () => {
     const { config, registry } = createPluginRegistryFixture();
     const runtime = createStubMemoryRuntime();
     const flushPlanResolver = () => null;
@@ -160,6 +166,7 @@ describe("dual-kind memory registration gate", () => {
         api.registerMemoryCapability({ runtime, flushPlanResolver });
       },
     });
+    const registered = registry.registry.memoryCapabilities[0]!;
 
     const bridgeRecord = createPluginRecord({
       id: "memory-bridge",
@@ -181,16 +188,18 @@ describe("dual-kind memory registration gate", () => {
     ).toThrow("bridge failed");
     registry.rollbackPluginGlobalSideEffects(bridgeRecord.id, bridgeRecord);
 
-    expect(registry.registry.memoryCapabilities).toEqual([
-      { pluginId: "memory-core", capability: { runtime, flushPlanResolver } },
-    ]);
-    expect(resolveMemoryCapabilityRegistration(registry.registry.memoryCapabilities)).toEqual({
-      pluginId: "memory-core",
-      capability: { runtime, flushPlanResolver },
-    });
+    setActivePluginRegistry(registry.registry);
+    expect(registry.registry.memoryCapabilities).toEqual([registered]);
+    const effective = resolveMemoryCapabilityRegistration(registry.registry.memoryCapabilities)!;
+    expect(effective.pluginId).toBe("memory-core");
+    expect(effective.capability.publicArtifacts).toBeUndefined();
+    expect(effective.capability.flushPlanResolver?.({ cfg: config })).toBeNull();
+    await expect(
+      effective.capability.runtime?.getMemorySearchManager({ cfg: config, agentId: "main" }),
+    ).resolves.toEqual({ manager: null, error: "missing" });
   });
 
-  it("layers same-plugin public artifacts over its runtime capability", () => {
+  it("layers same-plugin public artifacts over its runtime capability", async () => {
     const { config, registry } = createPluginRegistryFixture();
     const runtime = createStubMemoryRuntime();
     const flushPlanResolver = () => null;
@@ -206,13 +215,15 @@ describe("dual-kind memory registration gate", () => {
       },
     });
 
-    expect(resolveMemoryCapabilityRegistration(registry.registry.memoryCapabilities)).toEqual({
-      pluginId: "memory-core",
-      capability: {
-        runtime,
-        flushPlanResolver,
-        publicArtifacts: expect.any(Object),
-      },
-    });
+    setActivePluginRegistry(registry.registry);
+    const effective = resolveMemoryCapabilityRegistration(registry.registry.memoryCapabilities)!;
+    expect(effective.pluginId).toBe("memory-core");
+    expect(effective.capability.flushPlanResolver?.({ cfg: config })).toBeNull();
+    await expect(
+      effective.capability.runtime?.getMemorySearchManager({ cfg: config, agentId: "main" }),
+    ).resolves.toEqual({ manager: null, error: "missing" });
+    await expect(
+      effective.capability.publicArtifacts?.listArtifacts({ cfg: config }),
+    ).resolves.toEqual([]);
   });
 });

@@ -25,11 +25,6 @@ function clonePluginRecord(record: RegistryPluginRecord): RegistryPluginRecord {
   ) as RegistryPluginRecord;
 }
 
-function restorePluginRecord(record: RegistryPluginRecord, snapshot: RegistryPluginRecord): void {
-  Object.keys(record).forEach((key) => Reflect.deleteProperty(record, key));
-  Object.assign(record, snapshot);
-}
-
 /**
  * Compose the registry state, domain registrars, scoped runtime, and plugin API.
  * Domain modules own validation and mutation; this function owns lifecycle wiring only.
@@ -52,10 +47,11 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
 
   const rollbackPluginGlobalSideEffects = (pluginId: string, record: RegistryPluginRecord) => {
     runtimeResolver.revokePluginRuntimeRecord(pluginId, record);
-    projectPluginContributions(state.registry, pluginId);
+    projectPluginContributions(state.registry, record);
     const recordSnapshot = registrationRecordSnapshots.get(record);
     if (recordSnapshot) {
-      restorePluginRecord(record, recordSnapshot);
+      Object.keys(record).forEach((key) => Reflect.deleteProperty(record, key));
+      Object.assign(record, recordSnapshot);
       registrationRecordSnapshots.delete(record);
     }
   };

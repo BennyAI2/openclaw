@@ -41,6 +41,7 @@ export class PluginLruCache<T> {
     if (!this.#entries.has(cacheKey)) {
       return { hit: false };
     }
+    // SAFETY: has() proved the key exists; undefined remains a valid cached T.
     const cached = this.#entries.get(cacheKey) as T;
     this.#entries.delete(cacheKey);
     this.#entries.set(cacheKey, cached);

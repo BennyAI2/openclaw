@@ -169,13 +169,13 @@ export async function reloadGatewayPlugins(
     }
   };
   try {
+    // Refresh this operation's cache while retaining the durable ledger of installed package roots.
     const nextMetadata = withPluginCache(cache, () =>
       loadPluginMetadataSnapshot({
         config: params.sourceConfig,
         workspaceDir: pluginWorkspaceDir,
         env: params.env,
         allowCurrent: false,
-        preferPersisted: false,
       }),
     );
     const activationConfig = resolveGatewayStartupPluginActivationConfig({

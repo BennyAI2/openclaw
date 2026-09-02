@@ -2040,7 +2040,7 @@ describe("loadGatewayPlugins", () => {
         } else {
           const next = createEmptyPluginRegistry();
           next.plugins.push(retained.record);
-          projectPluginContributions(loaded.pluginRegistry, retained.record.id, next);
+          projectPluginContributions(loaded.pluginRegistry, retained.record, next);
           runtimeRegistryModule.setActivePluginRegistry(next);
           if (retirement === "publication") {
             const onMessage = channel.onMessage;

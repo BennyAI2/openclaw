@@ -66,13 +66,16 @@ export const pluginMaps = [
 ] as const satisfies ReadonlyArray<keyof PluginRegistry>;
 
 export function createEmptyPluginRegistry(): PluginRegistry {
-  // SAFETY: The inventories contain only array and Map fields, initialized with empty values.
   const contributions = Object.fromEntries([
     ...pluginArrays.map((key) => [key, []]),
     ...pluginMaps.map((key) => [key, new Map()]),
-  ]) as Pick<PluginRegistry, (typeof pluginArrays)[number] | (typeof pluginMaps)[number]>;
+  ]);
   return {
-    ...contributions,
+    // SAFETY: The inventories contain only array and Map fields, initialized with empty values.
+    ...(contributions as Pick<
+      PluginRegistry,
+      (typeof pluginArrays)[number] | (typeof pluginMaps)[number]
+    >),
     httpRoutes: [],
     plugins: [],
     pluginRuntimeArtifacts: new Map(),

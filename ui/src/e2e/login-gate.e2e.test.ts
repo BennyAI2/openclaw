@@ -394,24 +394,24 @@ suite.define(() => {
       recordVideo: { dir: RECOVERY_ARTIFACT_DIR, size: viewport },
     });
     const page = await context.newPage();
-    const gateway = await installMockGateway(page, { deferredMethods: ["connect"] });
+    const gateway = await installMockGateway(page, {
+      methodResponses: { connect: { __mockError: fixture.error } },
+    });
 
     try {
       await page.goto(suite.server.baseUrl);
       await gateway.waitForRequest("connect");
-      await gateway.rejectDeferred("connect", fixture.error);
 
-      await page.locator(".login-gate__failure").waitFor();
-      await page.screenshot({
-        path: path.join(RECOVERY_ARTIFACT_DIR, "login-failure.png"),
-        fullPage: true,
-        animations: "disabled",
-      });
       const failure = page.locator(`.login-gate__failure[data-kind="${fixture.expectedKind}"]`);
       await failure.waitFor({ timeout: 10_000 });
       expect(await failure.locator(".login-gate__failure-title").textContent()).toBe(
         fixture.expectedTitle,
       );
+      await page.screenshot({
+        path: path.join(RECOVERY_ARTIFACT_DIR, "login-failure.png"),
+        fullPage: true,
+        animations: "disabled",
+      });
     } finally {
       await closeContext(context);
     }

@@ -946,7 +946,7 @@ describe("buildPluginRegistrySnapshotReport", () => {
     expect(isColdPluginRuntimeLoaded(fixture)).toBe(false);
   });
 
-  it("preserves the real runtime import error while explaining missing dependencies", () => {
+  it("explains missing required dependencies before executing plugin runtime", () => {
     const rootDir = makeTempDir();
     const bundledRoot = makeTempDir();
     const fixture = createColdPluginFixture({
@@ -974,16 +974,16 @@ describe("buildPluginRegistrySnapshotReport", () => {
     const diagnostics = report.diagnostics.filter((entry) => entry.pluginId === fixture.pluginId);
 
     expectFields(plugin, { status: "error" });
-    expect(String(plugin.error)).toContain("Cannot find module");
+    expect(String(plugin.error)).toContain("Plugin dependency missing-runtime is missing");
     expect(String(plugin.error)).toContain("Install the plugin dependencies");
     expectFields(requireRecord(plugin.dependencyStatus), {
       missing: ["missing-runtime"],
       missingOptional: ["optional-runtime"],
     });
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]?.message).toContain("Cannot find module");
+    expect(diagnostics[0]?.message).toContain("Plugin dependency missing-runtime is missing");
     expect(diagnostics[0]?.message).toContain("Install the plugin dependencies");
-    expect(isColdPluginRuntimeLoaded(fixture)).toBe(true);
+    expect(isColdPluginRuntimeLoaded(fixture)).toBe(false);
   });
 
   it("replays persisted list metadata without importing plugin runtime", async () => {

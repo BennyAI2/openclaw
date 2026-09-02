@@ -778,7 +778,8 @@ export const listManagedPlugins = withManagedPluginCache(
     const installedIconsById = new Map<string, string | undefined>();
     const installedClawHubPackages = new Set<string>();
     const capabilityConsentDiagnostics: PluginDiagnostic[] = [];
-    const plugins = metadata.index.plugins.map((record): ManagedPluginCatalogEntry => {
+    const plugins: ManagedPluginCatalogEntry[] = [];
+    for (const record of metadata.index.plugins) {
       const enabled = isInstalledPluginEnabled(metadata.index, record.pluginId, config, env);
       const manifest = metadata.byPluginId.get(record.pluginId);
       const localCatalog = normalizeCatalogMetadata(manifest?.catalog);
@@ -855,7 +856,7 @@ export const listManagedPlugins = withManagedPluginCache(
             normalizeOptionalString(metadata.byPluginId.get(normalizedPluginId)?.icon),
         );
       }
-      return {
+      plugins.push({
         id: record.pluginId,
         ...presentation,
         installed: true,
@@ -870,8 +871,8 @@ export const listManagedPlugins = withManagedPluginCache(
         ...(installedIconsById.get(normalizedPluginId) ? { hasIcon: true } : {}),
         ...(error ? { error } : {}),
         ...(category ? { category } : {}),
-      };
-    });
+      });
+    }
     const installedIds = new Set(plugins.map((plugin) => plugin.id));
     const installedPackageNames = new Set(
       plugins.flatMap((plugin) => (plugin.packageName ? [plugin.packageName] : [])),
@@ -1239,7 +1240,7 @@ async function installManagedPluginSource(
 ): Promise<ManagedPluginSourceInstallResult> {
   const { request } = params;
   if (request.source === "official") {
-    const { attempt } = await installWithSourceFallback({
+    const { attempt: installed } = await installWithSourceFallback({
       sources: request.installSources,
       install: async (source) =>
         await installManagedPluginSource({
@@ -1257,7 +1258,7 @@ async function installManagedPluginSource(
       result: (attempt) => attempt,
       onFallback: (message) => params.logger?.warn?.(message),
     });
-    return attempt;
+    return installed;
   }
   const registryRequest =
     request.source === "npm" || request.source === "clawhub" ? request : undefined;
@@ -1396,12 +1397,13 @@ async function installResolvedManagedPluginSource(
     beforePersistentApply: params.beforePersistentApply,
     onBeforePluginArtifactCommit: capabilityConsent?.onBeforePluginArtifactCommit,
   });
-  const complete = async <T extends Extract<InstallPluginResult, { ok: true }>>(
-    installResult: Promise<T | SourceInstallFailure>,
-    createInstallRecord: (result: T) => PluginInstallRecord,
+  const complete = async <T extends InstallPluginResult | SourceInstallFailure>(
+    installResult: Promise<T>,
+    createInstallRecord: (result: T & { ok: true }) => PluginInstallRecord,
     snapshot = params.snapshot,
   ): Promise<ManagedPluginSourceInstallResult> => {
-    const installed = await installResult;
+    // Keep the result union visible so narrowing preserves each installer's metadata.
+    const installed: T & (InstallPluginResult | SourceInstallFailure) = await installResult;
     if (!installed.ok) {
       return installed;
     }
@@ -1494,9 +1496,7 @@ async function installResolvedManagedPluginSource(
   }
 
   if (request.source === "npm-pack") {
-    return await complete<
-      Extract<Awaited<ReturnType<typeof installPluginFromNpmPackArchive>>, { ok: true }>
-    >(
+    return await complete(
       installPluginFromNpmPackArchive({
         ...common,
         archivePath: request.archivePath,

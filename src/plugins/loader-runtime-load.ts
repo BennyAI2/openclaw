@@ -237,7 +237,7 @@ function loadOpenClawPluginsInternal(
         registryInputs.get(options.previousRegistry!)?.get(manifest.id) === input
       ) {
         retained.set(manifest.id, previous);
-        projectPluginContributions(options.previousRegistry!, manifest.id, registry);
+        projectPluginContributions(options.previousRegistry!, previous, registry);
       }
     }
     if (options.previousRegistry) {

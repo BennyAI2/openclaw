@@ -1510,12 +1510,12 @@ describe("startGatewayPostAttachRuntime", () => {
 
   it("adopts a winning plugin generation without publishing stale deferred startup state", async () => {
     const startupRegistry = {
+      ...createEmptyPluginRegistry(),
       plugins: [{ id: "startup", status: "loaded" }],
-      typedHooks: [],
     } as never;
     const winningRegistry = {
+      ...createEmptyPluginRegistry(),
       plugins: [{ id: "replacement", status: "loaded" }],
-      typedHooks: [],
     } as never;
     let startupClaimCurrent = true;
     let releasePluginLoad: (() => void) | undefined;
@@ -4236,13 +4236,13 @@ function createPostAttachParams(overrides: Partial<PostAttachParams> = {}): Post
     activationSourceConfig: { hooks: { internal: { enabled: false } } } as never,
     pluginManifestRecords: [],
     pluginRegistry: {
+      ...createEmptyPluginRegistry(),
       plugins: [
         { id: "beta", status: "loaded" },
         { id: "alpha", status: "loaded" },
         { id: "cold", status: "disabled" },
         { id: "broken", status: "error" },
       ],
-      typedHooks: [],
     } as never,
     defaultWorkspaceDir: "/tmp/openclaw-workspace",
     deps: {} as never,

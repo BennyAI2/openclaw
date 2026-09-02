@@ -265,7 +265,10 @@ export function capturePluginGenerationArtifact(rootDir: string, entryFile?: str
       const captured = copyPackage(dependencyRoot);
       // Preserve the normal sibling package layout used by native-addon loaders,
       // while each package's module directory owns its exact dependency versions.
-      const link = path.join(moduleRoot, name);
+      const sibling = path.join(moduleRoot, name);
+      // Source directories can share a dependency's name. npm nests conflicting
+      // packages so the dependency cannot replace its importing package.
+      const link = sibling === destination ? path.join(destination, "node_modules", name) : sibling;
       fs.mkdirSync(path.dirname(link), { recursive: true, mode: 0o700 });
       fs.symlinkSync(path.relative(path.dirname(link), captured), link, "junction");
     }

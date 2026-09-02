@@ -519,7 +519,7 @@ describe("plugins cli uninstall", () => {
     expect(deleteOrder).toBeGreaterThan(configWriteOrder);
     expect(finalConfigWriteOrder).toBeGreaterThan(deleteOrder);
     expect(refreshOrder).toBeGreaterThan(finalConfigWriteOrder);
-    expect(applyPluginUninstallDirectoryRemovalMock).toHaveBeenCalledWith({
+    expect(applyPluginUninstallDirectoryRemovalMock.mock.calls[0]?.[0]).toEqual({
       target: ALPHA_INSTALL_PATH,
     });
   });

@@ -26,15 +26,11 @@ import {
 } from "./plugin-cache.js";
 import { resolvePluginControlPlaneFingerprint } from "./plugin-control-plane-context.js";
 import { getPluginValueInstance, type PluginInstanceHandle } from "./plugin-instance-scope.js";
-import { PluginInstance } from "./plugin-instance.js";
 import { PluginLruCache } from "./plugin-lru-cache.js";
 import { resolvePluginMetadataEnvFingerprint } from "./plugin-metadata-snapshot.js";
-import {
-  bindPluginInstanceModuleLoader,
-  getCachedPluginModuleLoader,
-} from "./plugin-module-loader-cache.js";
 import { loadPluginManifestRegistryForPluginRegistry } from "./plugin-registry.js";
 import { resolvePreferredBundledRootArtifact } from "./plugin-runtime-artifact-selection.js";
+import { getPluginSetupModuleLoader } from "./plugin-setup-module.js";
 import { listSetupCliBackendIds, listSetupProviderIds } from "./setup-descriptors.js";
 import type {
   CliBackendPlugin,
@@ -126,31 +122,6 @@ function getSetupRegistryCache() {
   }
   return cached.results;
 }
-function getModuleLoader(record: PluginManifestRecord, source: string, rootDir: string) {
-  const cache = getPluginCache();
-  const key = `setup:${record.id}:${source}`;
-  const cached = cache.setupModules.get(key);
-  if (cached) {
-    return (entry: string) => cached.loadModule(entry);
-  }
-  if (cache.retirement) {
-    throw new Error(`Plugin ${record.id} setup inventory has retired`);
-  }
-  const instance = new PluginInstance(record.id);
-  cache.setupModules.set(key, instance);
-  bindPluginInstanceModuleLoader({
-    instance,
-    source,
-    rootDir,
-    origin: record.origin,
-    loadHostModule: getCachedPluginModuleLoader({
-      modulePath: source,
-      importerUrl: import.meta.url,
-    }),
-  });
-  return (entry: string) => instance.loadModule(entry);
-}
-
 function resolveSetupApiPath(
   rootDir: string,
   options?: { includeBundledSourceFallback?: boolean },
@@ -286,7 +257,7 @@ function resolveSetupRegistration(
 
   let mod: OpenClawPluginModule;
   try {
-    mod = getModuleLoader(
+    mod = getPluginSetupModuleLoader(
       record,
       setupSource,
       setupArtifact.rootDir,

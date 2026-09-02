@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { recordInstalledPluginIndexInstallOwner } from "../plugins/installed-plugin-index-install-owner.js";
+import * as pluginMetadata from "../plugins/plugin-metadata-snapshot.js";
 import {
   createInstalledPluginIndexSnapshot,
   createPluginRecord,
@@ -22,11 +23,6 @@ import {
 const workshopMocks = vi.hoisted(() => ({
   detectToolPolicyDiagnostic: vi.fn(),
   loadMetadata: vi.fn(),
-}));
-
-vi.mock("../plugins/plugin-metadata-snapshot.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../plugins/plugin-metadata-snapshot.js")>()),
-  loadPluginMetadataSnapshot: workshopMocks.loadMetadata,
 }));
 
 vi.mock("../skills/workshop/tool-policy-diagnostic.js", () => ({
@@ -53,7 +49,13 @@ describe("plugins cli inspect", () => {
     workshopMocks.detectToolPolicyDiagnostic.mockReset();
     workshopMocks.loadMetadata.mockReset();
     workshopMocks.loadMetadata.mockReturnValue({ index: createInstalledPluginIndexSnapshot([]) });
+    // Override the shared CLI fixture's module instance, rather than racing another mock factory.
+    vi.spyOn(pluginMetadata, "loadPluginMetadataSnapshot").mockImplementation(
+      workshopMocks.loadMetadata,
+    );
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   it.each([false, true])(
     "reports package-owned install provenance with runtime=%s",

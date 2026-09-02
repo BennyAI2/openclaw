@@ -6,6 +6,7 @@ import { installedPluginRoot } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { hashConfigIncludeRaw } from "../config/includes.js";
+import type { ClawHubPackageChannel } from "../infra/clawhub-packages.js";
 import { recordPluginManifestInstallOwner } from "../plugins/manifest-install-owner.js";
 import {
   listOfficialExternalPluginCatalogEntries,
@@ -113,7 +114,7 @@ function createClawHubInstallResult(params: {
   pluginId: string;
   packageName: string;
   version: string;
-  channel: string;
+  channel: ClawHubPackageChannel;
   trust?: {
     disposition: "clean" | "review-recommended" | "review-required";
     scanStatus?: string;
@@ -748,16 +749,6 @@ describe("plugins cli install", () => {
       const integrity = expectedIntegrity ?? "sha256-demo";
       const installedCfg = {
         update: { channel: "beta" },
-        hooks: {
-          internal: {
-            installs: {
-              "demo-hooks": {
-                source: "npm",
-                spec: pin ? resolvedSpec : selectedSpec,
-              },
-            },
-          },
-        },
       } satisfies OpenClawConfig;
       primeBlockedPluginConfigMutation({ config: { update: { channel: "beta" } } });
       if (route === "gateway") {
@@ -2164,7 +2155,7 @@ describe("plugins cli install", () => {
           pluginId: "matrix",
           packageName: "@openclaw/matrix",
           version: "1.2.3",
-          channel: "latest",
+          channel: "official",
         }),
       );
 

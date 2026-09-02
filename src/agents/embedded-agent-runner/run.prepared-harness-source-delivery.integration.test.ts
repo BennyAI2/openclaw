@@ -773,18 +773,14 @@ describe("prepared harness source delivery", () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    { name: "ordinary history", nativeHistory: false },
-    { name: "preserved native history", nativeHistory: true },
-  ])(
-    "re-admits repeated reloads with $name without losing committed work or changing run authority",
-    async ({ nativeHistory }) => {
+  it.each([false, true])(
+    "re-admits repeated reloads without losing committed work or changing run authority (native history=%s)",
+    async (nativeHistory) => {
       const { runEmbeddedAgent } = await loadSourceDeliveryHarness();
       const { getAgentRunContext } = await import("../../infra/agent-run-registry.js");
       const originalPrompt = "edit and reload twice";
       const originalMessage = { role: "user" as const, content: originalPrompt, timestamp: 1 };
       const nativeSnapshots: AgentMessage[][] = [1, 2].map((index) => [
-        ...(index === 1 ? [originalMessage] : []),
         {
           role: "toolResult",
           toolCallId: `committed-${index}`,
@@ -794,6 +790,7 @@ describe("prepared harness source delivery", () => {
           timestamp: index + 1,
         },
       ]);
+      nativeSnapshots[0]!.unshift(originalMessage);
       const onUserMessagePersisted = vi.fn();
       const base = await mockedAcquireAgentRunPreparedModelRuntime({
         agentId: "main",

@@ -23,7 +23,7 @@ function createWebhookOwner() {
   const prepare = () => {
     const next = createEmptyPluginRegistry();
     next.plugins.push(record);
-    projectPluginContributions(current, record.id, next);
+    projectPluginContributions(current, record, next);
     return next;
   };
   const publish = (next: typeof initial) => {

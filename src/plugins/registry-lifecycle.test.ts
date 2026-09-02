@@ -120,7 +120,7 @@ describe("plugin instance publication", () => {
     ).toBe(true);
     const next = builder();
     next.registry.plugins.push(record);
-    projectPluginContributions(first.registry, record.id, next.registry);
+    projectPluginContributions(first.registry, record, next.registry);
     setActivePluginRegistry(next.registry);
     expect(sdk.getPluginRecordRegistry(first.registry, record)).toBe(next.registry);
     expect(getPluginRecordRegistry(first.registry, record)).toBe(next.registry);
@@ -177,7 +177,7 @@ describe("plugin instance publication", () => {
     const replacedAuthority = capturePluginLifecycleAuthority(old.registry, replaced.record)!;
     const next = builder();
     next.registry.plugins.push(retained.record);
-    projectPluginContributions(old.registry, retained.record.id, next.registry);
+    projectPluginContributions(old.registry, retained.record, next.registry);
     addPlugin(next, "replaced");
     stageActivePluginRegistry(next.registry, null, "default");
     commitStagedPluginRegistry(old.registry, next.registry);
@@ -295,7 +295,7 @@ describe("plugin instance publication", () => {
 
     const next = builder();
     next.registry.plugins.push(retained.record);
-    projectPluginContributions(old.registry, "scheduler", next.registry);
+    projectPluginContributions(old.registry, retained.record, next.registry);
     setActivePluginRegistry(next.registry);
     await waitForPluginRegistryRetirement(old.registry);
     expect(next.registry.sessionSchedulerJobs[0]?.generation).toBe(originalGeneration);
@@ -525,7 +525,7 @@ describe("concurrent Gateway registry owners", () => {
       const publishedB = publish(b);
       const candidate = builder();
       candidate.registry.plugins.push(a.plugin.record);
-      projectPluginContributions(a.built.registry, a.plugin.record.id, candidate.registry);
+      projectPluginContributions(a.built.registry, a.plugin.record, candidate.registry);
       const replacement = addPlugin(candidate, "replaced");
       const replacementDisposed = vi.fn();
       replacement.onDispose(replacementDisposed);
@@ -574,7 +574,7 @@ describe("concurrent Gateway registry owners", () => {
       initializeGlobalHookRunner(b.built.registry);
       const candidate = builder();
       candidate.registry.plugins.push(a.plugin.record);
-      projectPluginContributions(a.built.registry, a.plugin.record.id, candidate.registry);
+      projectPluginContributions(a.built.registry, a.plugin.record, candidate.registry);
       const failed = addPlugin(candidate, "failed-candidate");
       const failedCleanup = vi.fn();
       const failedDisposed = vi.fn();
@@ -912,7 +912,7 @@ describe("registered generation cleanup", () => {
     const before = captureActivePluginRegistrySnapshot();
     const candidate = builder();
     candidate.registry.plugins.push(retained.record);
-    projectPluginContributions(previous.registry, "retained", candidate.registry);
+    projectPluginContributions(previous.registry, retained.record, candidate.registry);
     const failed = addPlugin(candidate, "failed");
     const failedCleanup = vi.fn();
     const disposed = vi.fn();
