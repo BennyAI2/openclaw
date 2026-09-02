@@ -272,6 +272,8 @@ private struct ChatMermaidPreviewView: View {
         .background(OpenClawChatTheme.assistantBubble)
         #if os(macOS)
         .frame(minWidth: 500, idealWidth: 900, minHeight: 350, idealHeight: 600)
+        // Mac sheets default to a form width; fit both axes so Expand honors the ideal size.
+        .presentationSizing(.fitted)
         #endif
     }
 }
