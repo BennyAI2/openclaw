@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalAndroidVersionCode,
   extractChangelogSection,
-  normalizeGatewayVersionToPinnedAndroidVersion,
   normalizePinnedAndroidVersion,
   renderAndroidReleaseNotes,
   renderAndroidVersionProperties,
@@ -181,15 +180,6 @@ describe("resolveAndroidVersion", () => {
 });
 
 describe("gateway version normalization", () => {
-  it("keeps stable gateway release values", () => {
-    expect(normalizeGatewayVersionToPinnedAndroidVersion("2026.6.2")).toBe("2026.6.2");
-  });
-
-  it("strips prerelease suffixes when pinning from gateway version", () => {
-    expect(normalizeGatewayVersionToPinnedAndroidVersion("2026.6.2-beta.3")).toBe("2026.6.2");
-    expect(normalizeGatewayVersionToPinnedAndroidVersion("2026.6.2-alpha.1")).toBe("2026.6.2");
-  });
-
   it("derives the default Play-compatible versionCode from the pinned version", () => {
     expect(canonicalAndroidVersionCode("2026.6.2")).toBe(2026060201);
   });
@@ -198,15 +188,6 @@ describe("gateway version normalization", () => {
     expect(() => canonicalAndroidVersionCode("2026.6.100")).toThrow(
       "Unable to derive Android versionCode from 2026.6.100",
     );
-  });
-
-  it("rejects impossible gateway release versions", () => {
-    expect(() => normalizeGatewayVersionToPinnedAndroidVersion("2026.13.2-beta.1")).toThrow(
-      "Expected YYYY.M.PATCH",
-    );
-    expect(() =>
-      normalizeGatewayVersionToPinnedAndroidVersion("2026.6.2-beta.9007199254740993"),
-    ).toThrow("Expected YYYY.M.PATCH");
   });
 
   it("reads and normalizes the root package version for Android releases", () => {

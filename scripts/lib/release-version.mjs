@@ -123,6 +123,38 @@ export function parseReleaseVersion(version) {
 }
 
 /**
+ * @param {string} rawVersion
+ * @returns {string | null}
+ */
+export function parsePinnedReleaseVersion(rawVersion) {
+  const parsed = parseReleaseVersion(rawVersion.trim());
+  if (!parsed || parsed.version !== parsed.baseVersion) {
+    return null;
+  }
+  return parsed.baseVersion;
+}
+
+/**
+ * @param {string} rawVersion
+ * @returns {string}
+ */
+export function pinGatewayVersion(rawVersion) {
+  const trimmed = rawVersion.trim().replace(/^v/u, "");
+  if (!trimmed) {
+    throw new Error("Missing root package.json version.");
+  }
+
+  const parsed = parseReleaseVersion(trimmed);
+  if (!parsed) {
+    throw new Error(
+      `Invalid gateway version '${rawVersion}'. Expected YYYY.M.PATCH, YYYY.M.PATCH-alpha.N, YYYY.M.PATCH-beta.N, or YYYY.M.PATCH-N.`,
+    );
+  }
+
+  return parsed.baseVersion;
+}
+
+/**
  * Patch 33 and later final releases belong to the trailing-month
  * extended-stable line; correction suffixes are not valid on that line.
  *

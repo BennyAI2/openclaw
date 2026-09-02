@@ -18,6 +18,8 @@ type ReleaseTrain =
   | "unsupported-extended-stable-correction";
 
 export function parseReleaseVersion(version: string): ParsedReleaseVersion | null;
+export function parsePinnedReleaseVersion(rawVersion: string): string | null;
+export function pinGatewayVersion(rawVersion: string): string;
 export function classifyReleaseTrain(parsedVersion: ParsedReleaseVersion): ReleaseTrain;
 export function collectReleaseVersionFloorErrors(
   version: string | ParsedReleaseVersion | null,

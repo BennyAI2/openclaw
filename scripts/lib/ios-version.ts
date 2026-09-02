@@ -1,7 +1,11 @@
 // Ios Version script supports OpenClaw repository automation.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { parseReleaseVersion } from "./release-version.mjs";
+import {
+  parsePinnedReleaseVersion,
+  parseReleaseVersion,
+  pinGatewayVersion,
+} from "./release-version.mjs";
 
 const IOS_CHANGELOG_FILE = "apps/ios/CHANGELOG.md";
 export const MAX_IOS_APP_STORE_REVISION = 9;
@@ -19,14 +23,6 @@ type ResolvedIosVersion = {
 };
 
 type SyncIosVersioningMode = "check" | "write";
-
-function parsePinnedReleaseVersion(rawVersion: string): string | null {
-  const parsed = parseReleaseVersion(rawVersion.trim());
-  if (!parsed || parsed.version !== parsed.baseVersion) {
-    return null;
-  }
-  return parsed.baseVersion;
-}
 
 export function normalizePinnedIosVersion(rawVersion: string): string {
   const trimmed = rawVersion.trim();
@@ -79,22 +75,6 @@ export function encodeIosAppStoreVersion(
   return `${parsed.year}.${parsed.month}.${encodedPatch}`;
 }
 
-export function normalizeGatewayVersionToPinnedIosVersion(rawVersion: string): string {
-  const trimmed = rawVersion.trim().replace(/^v/u, "");
-  if (!trimmed) {
-    throw new Error("Missing root package.json version.");
-  }
-
-  const parsed = parseReleaseVersion(trimmed);
-  if (!parsed) {
-    throw new Error(
-      `Invalid gateway version '${rawVersion}'. Expected YYYY.M.PATCH, YYYY.M.PATCH-alpha.N, YYYY.M.PATCH-beta.N, or YYYY.M.PATCH-N.`,
-    );
-  }
-
-  return parsed.baseVersion;
-}
-
 function rootPackageJsonPath(rootDir = path.resolve(".")): string {
   return path.join(rootDir, "package.json");
 }
@@ -116,7 +96,7 @@ export function resolveGatewayVersionForIosRelease(rootDir = path.resolve(".")):
   const packageVersion = readRootPackageVersion(rootDir);
   return {
     packageVersion,
-    pinnedIosVersion: normalizeGatewayVersionToPinnedIosVersion(packageVersion),
+    pinnedIosVersion: pinGatewayVersion(packageVersion),
   };
 }
 

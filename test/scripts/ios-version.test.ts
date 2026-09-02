@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   encodeIosAppStoreVersion,
   extractChangelogSection,
-  normalizeGatewayVersionToPinnedIosVersion,
   normalizeIosAppStoreRevision,
   normalizePinnedIosVersion,
   renderIosReleaseNotes,
@@ -258,31 +257,6 @@ describe("resolveIosVersion", () => {
 });
 
 describe("gateway version normalization", () => {
-  it("keeps stable gateway release values", () => {
-    expect(normalizeGatewayVersionToPinnedIosVersion("2026.4.6")).toBe("2026.4.6");
-  });
-
-  it("strips beta suffixes when pinning from gateway version", () => {
-    expect(normalizeGatewayVersionToPinnedIosVersion("2026.4.6-beta.2")).toBe("2026.4.6");
-  });
-
-  it("strips alpha suffixes when pinning from gateway version", () => {
-    expect(normalizeGatewayVersionToPinnedIosVersion("2026.4.6-alpha.2")).toBe("2026.4.6");
-  });
-
-  it("strips fallback correction suffixes when pinning from gateway version", () => {
-    expect(normalizeGatewayVersionToPinnedIosVersion("2026.4.6-3")).toBe("2026.4.6");
-  });
-
-  it("rejects impossible gateway release versions", () => {
-    expect(() => normalizeGatewayVersionToPinnedIosVersion("2026.13.6-alpha.1")).toThrow(
-      "Expected YYYY.M.PATCH",
-    );
-    expect(() =>
-      normalizeGatewayVersionToPinnedIosVersion("2026.4.6-alpha.9007199254740993"),
-    ).toThrow("Expected YYYY.M.PATCH");
-  });
-
   it("reads and normalizes the root package version for iOS releases", () => {
     const rootDir = writeIosFixture({
       packageVersion: "2026.4.7-beta.5",

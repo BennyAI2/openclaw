@@ -1,7 +1,7 @@
 // Android Version script supports OpenClaw repository automation.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { parseReleaseVersion } from "./release-version.mjs";
+import { parsePinnedReleaseVersion, pinGatewayVersion } from "./release-version.mjs";
 
 const ANDROID_VERSION_FILE = "apps/android/version.json";
 const ANDROID_CHANGELOG_FILE = "apps/android/CHANGELOG.md";
@@ -29,14 +29,6 @@ function normalizeTrailingNewline(value: string): string {
   return value.endsWith("\n") ? value : `${value}\n`;
 }
 
-function parsePinnedReleaseVersion(rawVersion: string): string | null {
-  const parsed = parseReleaseVersion(rawVersion.trim());
-  if (!parsed || parsed.version !== parsed.baseVersion) {
-    return null;
-  }
-  return parsed.baseVersion;
-}
-
 export function normalizePinnedAndroidVersion(rawVersion: string): string {
   const trimmed = rawVersion.trim();
   if (!trimmed) {
@@ -51,22 +43,6 @@ export function normalizePinnedAndroidVersion(rawVersion: string): string {
   }
 
   return pinnedVersion;
-}
-
-export function normalizeGatewayVersionToPinnedAndroidVersion(rawVersion: string): string {
-  const trimmed = rawVersion.trim().replace(/^v/u, "");
-  if (!trimmed) {
-    throw new Error("Missing root package.json version.");
-  }
-
-  const parsed = parseReleaseVersion(trimmed);
-  if (!parsed) {
-    throw new Error(
-      `Invalid gateway version '${rawVersion}'. Expected YYYY.M.PATCH, YYYY.M.PATCH-alpha.N, YYYY.M.PATCH-beta.N, or YYYY.M.PATCH-N.`,
-    );
-  }
-
-  return parsed.baseVersion;
 }
 
 export function canonicalAndroidVersionCode(version: string): number {
@@ -130,7 +106,7 @@ export function resolveGatewayVersionForAndroidRelease(rootDir = path.resolve(".
   versionCode: number;
 } {
   const packageVersion = readRootPackageVersion(rootDir);
-  const pinnedAndroidVersion = normalizeGatewayVersionToPinnedAndroidVersion(packageVersion);
+  const pinnedAndroidVersion = pinGatewayVersion(packageVersion);
   return {
     packageVersion,
     pinnedAndroidVersion,

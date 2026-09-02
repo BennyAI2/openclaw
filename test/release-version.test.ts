@@ -3,7 +3,9 @@ import {
   classifyReleaseTrain,
   collectReleaseVersionFloorErrors,
   compareReleaseVersions,
+  parsePinnedReleaseVersion,
   parseReleaseVersion,
+  pinGatewayVersion,
 } from "../scripts/lib/release-version.mjs";
 
 describe("release version policy", () => {
@@ -41,5 +43,38 @@ describe("release version policy", () => {
     expect(compareReleaseVersions("2026.3.29-alpha.2", "2026.3.29-beta.1")).toBe(-1);
     expect(compareReleaseVersions("2026.3.29-beta.1", "2026.3.29")).toBe(-1);
     expect(compareReleaseVersions("2026.3.29-2", "2026.3.29")).toBe(1);
+  });
+
+  it("parses only pinned release versions", () => {
+    expect(parsePinnedReleaseVersion(" 2026.4.6 ")).toBe("2026.4.6");
+    expect(parsePinnedReleaseVersion("2026.4.6-beta.2")).toBeNull();
+    expect(parsePinnedReleaseVersion("2026.4.6-3")).toBeNull();
+  });
+
+  it.each([
+    ["2026.4.6", "2026.4.6"],
+    [" 2026.4.6 ", "2026.4.6"],
+    ["v2026.4.6", "2026.4.6"],
+    ["2026.4.6-alpha.2", "2026.4.6"],
+    ["2026.4.6-beta.2", "2026.4.6"],
+    ["2026.4.6-3", "2026.4.6"],
+  ])("pins gateway version %j as %s", (rawVersion, expected) => {
+    expect(pinGatewayVersion(rawVersion)).toBe(expected);
+  });
+
+  it.each(["", " ", "v"])("rejects missing gateway version %j", (rawVersion) => {
+    expect(() => pinGatewayVersion(rawVersion)).toThrow("Missing root package.json version.");
+  });
+
+  it.each([
+    "vv2026.4.6",
+    "V2026.4.6",
+    "2026.13.6-alpha.1",
+    "2026.4.6+build.1",
+    "2026.4.6-alpha.9007199254740993",
+  ])("rejects invalid gateway version %j with the release contract", (rawVersion) => {
+    expect(() => pinGatewayVersion(rawVersion)).toThrow(
+      `Invalid gateway version '${rawVersion}'. Expected YYYY.M.PATCH, YYYY.M.PATCH-alpha.N, YYYY.M.PATCH-beta.N, or YYYY.M.PATCH-N.`,
+    );
   });
 });
