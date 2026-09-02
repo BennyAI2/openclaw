@@ -2,6 +2,7 @@
 // rotation, output extraction, and decision summaries.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { findNormalizedProviderValue } from "@openclaw/model-catalog-core/provider-id";
 import { expectDefined } from "@openclaw/normalization-core";
 import {
   normalizeLowercaseStringOrEmpty,
@@ -29,7 +30,7 @@ import {
 import type { RuntimeMsgContext as MsgContext, TemplateContext } from "../auto-reply/templating.js";
 import { applyTemplate } from "../auto-reply/templating.js";
 import { formatCliCommand } from "../cli/command-format.js";
-import type { ModelProviderConfig, OpenClawConfig } from "../config/types.js";
+import type { OpenClawConfig } from "../config/types.js";
 import type {
   MediaUnderstandingConfig,
   MediaUnderstandingModelConfig,
@@ -66,6 +67,7 @@ import { resolveOpenAiAudioAuthModelApi } from "./openai-audio-api.js";
 import { getMediaUnderstandingProvider, normalizeMediaProviderId } from "./provider-registry.js";
 import { resolveMaxBytes, resolveMaxChars, resolvePrompt, resolveTimeoutMs } from "./resolve.js";
 import type {
+  AudioTranscriptionResult,
   MediaAttachment,
   MediaUnderstandingCapability,
   MediaUnderstandingDecision,
@@ -473,20 +475,11 @@ type ProviderExecutionAuth =
       kind: "api-key";
       apiKeys: string[];
       source?: string;
-      providerConfig?: ModelProviderConfig;
     }
   | {
       kind: "none";
       source: string;
-      providerConfig?: ModelProviderConfig;
     };
-
-function resolveProviderExecutionAuthModelApi(params: {
-  capability: MediaUnderstandingCapability;
-  providerId: string;
-}): string | undefined {
-  return resolveOpenAiAudioAuthModelApi(params);
-}
 
 async function resolveProviderExecutionAuth(params: {
   capability: MediaUnderstandingCapability;
@@ -497,11 +490,10 @@ async function resolveProviderExecutionAuth(params: {
   agentDir?: string;
   workspaceDir?: string;
 }): Promise<ProviderExecutionAuth> {
-  const providerConfig = params.cfg.models?.providers?.[params.providerId];
-  const modelApi = resolveProviderExecutionAuthModelApi({
-    capability: params.capability,
-    providerId: params.providerId,
-  });
+  const providerConfig = findNormalizedProviderValue(
+    params.cfg.models?.providers,
+    params.providerId,
+  );
   const literalApiKey = resolveLiteralProviderApiKey({
     cfg: params.cfg,
     providerId: params.providerId,
@@ -514,7 +506,6 @@ async function resolveProviderExecutionAuth(params: {
         primaryApiKey: literalApiKey,
       }),
       source: `models.providers.${params.providerId}.apiKey`,
-      providerConfig,
     };
   }
   const resolveMediaProviderAuth = (): ProviderExecutionAuth | undefined => {
@@ -536,7 +527,6 @@ async function resolveProviderExecutionAuth(params: {
               primaryApiKey: syntheticApiKey,
             }),
             source: syntheticSource,
-            providerConfig,
           }
         : undefined;
     }
@@ -544,7 +534,6 @@ async function resolveProviderExecutionAuth(params: {
       return {
         kind: "none",
         source: providerAuth.source,
-        providerConfig,
       };
     }
     const apiKey = providerAuth.apiKey.trim();
@@ -558,7 +547,6 @@ async function resolveProviderExecutionAuth(params: {
         primaryApiKey: apiKey,
       }),
       source: providerAuth.source,
-      providerConfig,
     };
   };
   const { isProviderAuthError, requireApiKey, resolveApiKeyForProviderCore } =
@@ -571,7 +559,10 @@ async function resolveProviderExecutionAuth(params: {
       preferredProfile: params.entry.preferredProfile,
       agentDir: params.agentDir,
       workspaceDir: params.workspaceDir,
-      modelApi,
+      modelApi: resolveOpenAiAudioAuthModelApi({
+        capability: params.capability,
+        providerId: params.providerId,
+      }),
     });
     const apiKey = requireApiKey(auth, params.providerId);
     return {
@@ -581,7 +572,6 @@ async function resolveProviderExecutionAuth(params: {
         primaryApiKey: apiKey,
       }),
       source: auth.source,
-      providerConfig,
     };
   } catch (err) {
     if (
@@ -598,26 +588,16 @@ async function resolveProviderExecutionAuth(params: {
   }
 }
 
-async function resolveProviderExecutionContext(params: {
-  capability: MediaUnderstandingCapability;
+function resolveProviderRequestContext(params: {
   providerId: string;
-  provider?: MediaUnderstandingProvider;
   cfg: OpenClawConfig;
   entry: MediaUnderstandingModelConfig;
   config?: MediaUnderstandingConfig;
-  agentDir?: string;
-  workspaceDir?: string;
 }) {
-  const auth = await resolveProviderExecutionAuth({
-    capability: params.capability,
-    providerId: params.providerId,
-    provider: params.provider,
-    cfg: params.cfg,
-    entry: params.entry,
-    agentDir: params.agentDir,
-    workspaceDir: params.workspaceDir,
-  });
-  const providerConfig = auth.providerConfig;
+  const providerConfig = findNormalizedProviderValue(
+    params.cfg.models?.providers,
+    params.providerId,
+  );
   const baseUrl = params.entry.baseUrl ?? params.config?.baseUrl ?? providerConfig?.baseUrl;
   const mergedHeaders = {
     ...sanitizeProviderHeaders(providerConfig?.headers as Record<string, unknown> | undefined),
@@ -630,7 +610,37 @@ async function resolveProviderExecutionContext(params: {
     sanitizeConfiguredProviderRequest(params.config?.request),
     sanitizeConfiguredProviderRequest(params.entry.request),
   );
-  return { auth, baseUrl, headers, request };
+  return { baseUrl, headers, request };
+}
+
+/** Prepares auth and routing before an automatic audio candidate becomes the winner. */
+export async function prepareProviderAudioTranscription(params: {
+  prepare: NonNullable<MediaUnderstandingProvider["prepareAudioTranscription"]>;
+  providerId: string;
+  entry: MediaUnderstandingModelConfig;
+  cfg: OpenClawConfig;
+  config?: MediaUnderstandingConfig;
+  requestedModel?: string;
+  agentDir?: string;
+  workspaceDir?: string;
+}) {
+  assertRuntimeMediaRequestSecretOwnerAvailable({ capability: "audio", entry: params.entry });
+  const { prompt, hasConfiguredPrompt } = resolveEntryRunOptions({
+    ...params,
+    capability: "audio",
+  });
+  return params.prepare({
+    cfg: params.cfg,
+    agentDir: params.agentDir,
+    workspaceDir: params.workspaceDir,
+    profile: params.entry.profile,
+    preferredProfile: params.entry.preferredProfile,
+    requestedModel: params.requestedModel,
+    prompt:
+      resolveMediaRequestOverrides(params.config).prompt ??
+      (hasConfiguredPrompt ? prompt : undefined),
+    ...resolveProviderRequestContext(params),
+  });
 }
 
 /** Formats a compact operator-facing summary of a media-understanding decision. */
@@ -769,7 +779,11 @@ export async function runProviderEntry(params: {
   workspaceDir?: string;
   providerRegistry: ProviderRegistry;
   config?: MediaUnderstandingConfig;
+  requestedModel?: string;
   secretOwnerId?: string;
+  preparedAudioTranscription?: Awaited<
+    ReturnType<NonNullable<MediaUnderstandingProvider["prepareAudioTranscription"]>>
+  >;
 }): Promise<MediaUnderstandingOutput | null> {
   const { entry, capability, cfg } = params;
   const providerIdRaw = entry.provider?.trim();
@@ -848,10 +862,9 @@ export async function runProviderEntry(params: {
   const fetchFn = resolveProxyFetchFromEnv();
 
   if (capability === "audio") {
-    if (!provider.transcribeAudio) {
+    if (!provider.transcribeAudio && !provider.prepareAudioTranscription) {
       throw new Error(`Audio transcription provider "${providerId}" not available.`);
     }
-    const transcribeAudio = provider.transcribeAudio;
     const requestOverrides = resolveMediaRequestOverrides(params.config);
     const media = await params.cache.getBuffer({
       attachmentIndex: params.attachmentIndex,
@@ -867,15 +880,11 @@ export async function runProviderEntry(params: {
         hasConfiguredPrompt,
         language: audioLanguage,
       });
-    const { auth, baseUrl, headers, request } = await resolveProviderExecutionContext({
-      capability,
+    const transport = resolveProviderRequestContext({
       providerId,
-      provider,
       cfg,
       entry,
       config: params.config,
-      agentDir: params.agentDir,
-      workspaceDir: params.workspaceDir,
     });
     const providerQuery = resolveProviderQuery({
       providerId,
@@ -891,41 +900,68 @@ export async function runProviderEntry(params: {
         workspaceDir: params.workspaceDir,
       }) ||
       entry.model;
-    const authSource = auth.source ?? `provider:${providerId}`;
-    const buildRequest = (requestAuth: { kind: "api-key"; apiKey: string } | { kind: "none" }) => ({
+    const input = {
       buffer: media.buffer,
       fileName: media.fileName,
       mime: media.mime,
-      apiKey: requestAuth.kind === "api-key" ? requestAuth.apiKey : CUSTOM_LOCAL_AUTH_MARKER,
-      auth:
-        requestAuth.kind === "api-key"
-          ? { kind: "api-key" as const, apiKey: requestAuth.apiKey, source: auth.source }
-          : { kind: "none" as const, source: authSource },
-      baseUrl,
-      headers,
-      request,
+      ...transport,
       model,
       language: audioLanguage,
       prompt: audioPrompt,
       query: providerQuery,
       timeoutMs,
       fetchFn,
-    });
-    const result =
-      auth.kind === "api-key"
-        ? await executeWithApiKeyRotation({
-            provider: providerId,
-            apiKeys: auth.apiKeys,
-            transientRetry: providerOperationRetryConfig("read"),
-            execute: async (apiKey) => transcribeAudio(buildRequest({ kind: "api-key", apiKey })),
-          })
-        : await transcribeAudio(buildRequest({ kind: "none" }));
+    };
+    let result: AudioTranscriptionResult;
+    if (provider.prepareAudioTranscription) {
+      const transcribe =
+        params.preparedAudioTranscription ??
+        (await prepareProviderAudioTranscription({
+          ...params,
+          providerId,
+          prepare: provider.prepareAudioTranscription,
+        }));
+      result = await transcribe(input);
+    } else {
+      const transcribeAudio = expectDefined(
+        provider.transcribeAudio,
+        "audio transcription callback",
+      );
+      const auth = await resolveProviderExecutionAuth({
+        capability,
+        providerId,
+        provider,
+        cfg,
+        entry,
+        agentDir: params.agentDir,
+        workspaceDir: params.workspaceDir,
+      });
+      const buildRequest = (
+        requestAuth: { kind: "api-key"; apiKey: string } | { kind: "none" },
+      ) => ({
+        ...input,
+        apiKey: requestAuth.kind === "api-key" ? requestAuth.apiKey : CUSTOM_LOCAL_AUTH_MARKER,
+        auth:
+          requestAuth.kind === "api-key"
+            ? { kind: "api-key" as const, apiKey: requestAuth.apiKey, source: auth.source }
+            : { kind: "none" as const, source: auth.source ?? `provider:${providerId}` },
+      });
+      result =
+        auth.kind === "api-key"
+          ? await executeWithApiKeyRotation({
+              provider: providerId,
+              apiKeys: auth.apiKeys,
+              transientRetry: providerOperationRetryConfig("read"),
+              execute: async (apiKey) => transcribeAudio(buildRequest({ kind: "api-key", apiKey })),
+            })
+          : await transcribeAudio(buildRequest({ kind: "none" }));
+    }
     return {
       kind: "audio.transcription",
       attachmentIndex: params.attachmentIndex,
       text: trimOutput(result.text, maxChars),
       provider: providerId,
-      model: result.model ?? model,
+      model: provider.prepareAudioTranscription ? result.model : (result.model ?? model),
     };
   }
 
@@ -946,15 +982,20 @@ export async function runProviderEntry(params: {
       `Video attachment ${params.attachmentIndex + 1} base64 payload ${estimatedBase64Bytes} exceeds ${maxBase64Bytes}`,
     );
   }
-  const { auth, baseUrl, headers, request } = await resolveProviderExecutionContext({
+  const auth = await resolveProviderExecutionAuth({
     capability,
     providerId,
     provider,
     cfg,
     entry,
-    config: params.config,
     agentDir: params.agentDir,
     workspaceDir: params.workspaceDir,
+  });
+  const { baseUrl, headers, request } = resolveProviderRequestContext({
+    providerId,
+    cfg,
+    entry,
+    config: params.config,
   });
   const authSource = auth.source ?? `provider:${providerId}`;
   const model =

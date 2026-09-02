@@ -17,6 +17,7 @@ import {
 } from "../../packages/media-understanding-common/src/provider-id.js";
 import { providerSupportsCapability } from "../../packages/media-understanding-common/src/provider-supports.js";
 import { isMinimaxVlmModel, isMinimaxVlmProvider } from "../agents/minimax-vlm.js";
+import { isProviderAuthError } from "../agents/model-auth-runtime-shared.js";
 import {
   buildModelAliasIndex,
   inferUniqueProviderFromConfiguredModels,
@@ -63,6 +64,7 @@ import {
 import {
   buildModelDecision,
   formatDecisionSummary,
+  prepareProviderAudioTranscription,
   runCliEntry,
   runProviderEntry,
 } from "./runner.entries.js";
@@ -485,33 +487,65 @@ async function resolveAutoEntries(params: {
   capability: MediaUnderstandingCapability;
   activeModel?: ActiveMediaModel;
   nativeVisionActive: boolean;
-}): Promise<MediaUnderstandingModelConfig[]> {
+  config?: MediaUnderstandingConfig;
+}): Promise<ResolvedMediaModelEntry[]> {
+  if (params.capability === "audio") {
+    const rejected: ResolvedMediaModelEntry[] = [];
+    const activeProvider = normalizeMediaExecutionProviderId(
+      params.activeModel?.provider?.trim() ?? "",
+    );
+    const providers = uniqueStrings([
+      ...(activeProvider ? [activeProvider] : []),
+      ...resolveConfiguredKeyProviderOrder({
+        ...params,
+        fallbackProviders: resolveAutoMediaKeyProvidersFromRegistry(params),
+      }),
+    ]);
+    for (const providerId of providers) {
+      const entry = await resolveAutoProviderModelEntry(params, providerId, () => undefined);
+      if (!entry) {
+        continue;
+      }
+      const provider = getMediaUnderstandingProvider(providerId, params.providerRegistry);
+      if (!provider?.prepareAudioTranscription) {
+        return [...rejected, { entry }];
+      }
+      try {
+        const transcribe = await prepareProviderAudioTranscription({
+          ...params,
+          entry,
+          providerId,
+          prepare: provider.prepareAudioTranscription,
+        });
+        return [...rejected, { entry, audioPreparation: { status: "ready", transcribe } }];
+      } catch (error) {
+        if (isProviderAuthError(error, "missing-provider-auth")) {
+          continue;
+        }
+        // Preserve the rejected route for the same attempt reporting used by execution.
+        // The next candidate may be usable without uploading audio to this one.
+        rejected.push({ entry, audioPreparation: { status: "failed", error } });
+      }
+    }
+    const localAudio = await inspectLocalAudioSelection();
+    return [...rejected, ...localAudio.entries.map((entry) => ({ entry }))];
+  }
   if (params.capability === "image" && !params.nativeVisionActive) {
     const imageModelEntries = resolveImageModelFromAgentDefaults({
       cfg: params.cfg,
       agentId: params.agentId,
     });
     if (imageModelEntries.length > 0) {
-      return imageModelEntries;
+      return imageModelEntries.map((entry) => ({ entry }));
     }
   }
   const activeEntry = await resolveActiveModelEntry(params);
   if (activeEntry) {
-    return [activeEntry];
-  }
-  if (params.capability === "audio") {
-    const keyEntry = await resolveKeyEntry(params);
-    if (keyEntry) {
-      return [keyEntry];
-    }
-    const localAudio = await inspectLocalAudioSelection();
-    if (localAudio.entries.length > 0) {
-      return localAudio.entries;
-    }
+    return [{ entry: activeEntry }];
   }
   const keys = await resolveKeyEntry(params);
   if (keys) {
-    return [keys];
+    return [{ entry: keys }];
   }
   return [];
 }
@@ -530,7 +564,7 @@ export async function resolveAutoImageModel(params: {
     capability: "image",
     nativeVisionActive: false,
   });
-  for (const entry of entries) {
+  for (const { entry } of entries) {
     if (entry.type === "cli") {
       continue;
     }
@@ -579,14 +613,16 @@ async function resolveAutoProviderModelEntry(
   if (!providerSupportsCapability(provider, params.capability)) {
     return null;
   }
-  const hasAuth = await hasProviderAuthAvailable({
-    capability: params.capability,
-    provider: providerId,
-    cfg: params.cfg,
-    agentDir: params.agentDir,
-    workspaceDir: params.workspaceDir,
-  });
-  if (!hasAuth) {
+  if (
+    !(params.capability === "audio" && provider?.prepareAudioTranscription) &&
+    !(await hasProviderAuthAvailable({
+      capability: params.capability,
+      provider: providerId,
+      cfg: params.cfg,
+      agentDir: params.agentDir,
+      workspaceDir: params.workspaceDir,
+    }))
+  ) {
     return null;
   }
   // Active selection reads its model after auth; key selection captures it before auth.
@@ -650,6 +686,9 @@ async function runAttachmentEntries(params: {
     const { entry } = candidate;
     const entryType = entry.type ?? (entry.command ? "cli" : "provider");
     try {
+      if (candidate.audioPreparation?.status === "failed") {
+        throw candidate.audioPreparation.error;
+      }
       const result =
         entryType === "cli"
           ? await runCliEntry({
@@ -673,16 +712,16 @@ async function runAttachmentEntries(params: {
               workspaceDir: params.workspaceDir,
               providerRegistry: params.providerRegistry,
               config: params.config,
+              requestedModel: candidate.requestedModel,
               secretOwnerId: candidate.secretOwnerId,
+              preparedAudioTranscription: candidate.audioPreparation?.transcribe,
             });
       if (result?.text) {
         const decision = buildModelDecision({ entry, entryType, outcome: "success" });
         if (result.provider) {
           decision.provider = result.provider;
         }
-        if (result.model) {
-          decision.model = result.model;
-        }
+        decision.model = result.model;
         if (result.requestedBackend) {
           decision.requestedBackend = result.requestedBackend;
         }
@@ -909,18 +948,17 @@ export async function runCapability(params: {
   });
   let resolvedEntries: ResolvedMediaModelEntry[] = entries;
   if (resolvedEntries.length === 0) {
-    resolvedEntries = (
-      await resolveAutoEntries({
-        cfg,
-        agentId: params.agentId,
-        agentDir: params.agentDir,
-        workspaceDir: params.workspaceDir,
-        providerRegistry: params.providerRegistry,
-        capability,
-        activeModel: params.activeModel,
-        nativeVisionActive: capability === "image" && (await resolveNativeVisionFlag()) === true,
-      })
-    ).map((entry) => ({ entry }));
+    resolvedEntries = await resolveAutoEntries({
+      cfg,
+      agentId: params.agentId,
+      agentDir: params.agentDir,
+      workspaceDir: params.workspaceDir,
+      providerRegistry: params.providerRegistry,
+      capability,
+      activeModel: params.activeModel,
+      config,
+      nativeVisionActive: capability === "image" && (await resolveNativeVisionFlag()) === true,
+    });
   }
   if (resolvedEntries.length === 0) {
     return {

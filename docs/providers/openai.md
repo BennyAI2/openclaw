@@ -923,6 +923,15 @@ value into `plugins.entries.openai.config.personality` when that key is unset.
     The bundled `openai` plugin registers batch speech-to-text through
     OpenClaw's media-understanding transcription surface.
 
+    Automatic selection can use an OpenClaw ChatGPT OAuth profile with the
+    account's dictation endpoint when no Platform key is available. This route
+    supports a file and language hint, without promising a particular model.
+    Explicit models, custom prompts, endpoints, or request overrides require a
+    Platform API key. See [Audio and voice notes](/nodes/audio#openai-transcription-alongside-chatgptcodex-oauth)
+    for keeping an audio API-key profile separate from normal OAuth inference.
+
+    With Platform API-key auth:
+
     - Default model: `gpt-4o-transcribe`
     - Endpoint: OpenAI REST `/v1/audio/transcriptions`
     - Input path: multipart audio file upload

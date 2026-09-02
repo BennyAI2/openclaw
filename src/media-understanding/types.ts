@@ -120,6 +120,23 @@ export type AudioTranscriptionResult = {
   model?: string;
 };
 
+export type AudioTranscriptionInput = Omit<AudioTranscriptionRequest, "apiKey" | "auth">;
+
+export type AudioTranscriptionContext = Pick<
+  AudioTranscriptionRequest,
+  "baseUrl" | "headers" | "request"
+> & {
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  workspaceDir?: string;
+  profile?: string;
+  preferredProfile?: string;
+  /** Explicit model selection; automatic provider defaults leave this absent. */
+  requestedModel?: string;
+  /** An operator-authored prompt, excluding the host's default transcription prompt. */
+  prompt?: string;
+};
+
 export type VideoDescriptionRequest = {
   buffer: Buffer;
   fileName: string;
@@ -274,6 +291,10 @@ export type MediaUnderstandingProvider = {
     ctx: MediaUnderstandingProviderAuthContext,
   ) => MediaUnderstandingProviderSyntheticAuthResult | null | undefined;
   transcribeAudio?: (req: AudioTranscriptionRequest) => Promise<AudioTranscriptionResult>;
+  /** Resolves provider-owned routing/auth once, without uploading audio during preparation. */
+  prepareAudioTranscription?: (
+    ctx: AudioTranscriptionContext,
+  ) => Promise<(req: AudioTranscriptionInput) => Promise<AudioTranscriptionResult>>;
   describeVideo?: (req: VideoDescriptionRequest) => Promise<VideoDescriptionResult>;
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;
   describeImages?: (req: ImagesDescriptionRequest) => Promise<ImagesDescriptionResult>;

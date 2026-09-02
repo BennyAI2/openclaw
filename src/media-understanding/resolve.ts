@@ -21,11 +21,20 @@ import {
 } from "./defaults.constants.js";
 import { resolveEffectiveMediaEntryCapabilities } from "./entry-capabilities.js";
 import { normalizeMediaUnderstandingChatType, resolveMediaUnderstandingScope } from "./scope.js";
-import type { MediaUnderstandingCapability } from "./types.js";
+import type { MediaUnderstandingCapability, MediaUnderstandingProvider } from "./types.js";
 
 export type ResolvedMediaModelEntry = {
   entry: MediaUnderstandingModelConfig;
+  requestedModel?: string;
   secretOwnerId?: string;
+  audioPreparation?:
+    | {
+        status: "ready";
+        transcribe: Awaited<
+          ReturnType<NonNullable<MediaUnderstandingProvider["prepareAudioTranscription"]>>
+        >;
+      }
+    | { status: "failed"; error: unknown };
 };
 
 /** Default per-provider media-understanding runtime timeout in milliseconds. */
@@ -148,7 +157,7 @@ export function resolveModelEntries(params: {
       }
       return caps.includes(capability);
     })
-    .map(({ entry, secretOwnerId }) => ({ entry, secretOwnerId }))
+    .map(({ entry, secretOwnerId }) => ({ entry, requestedModel: entry.model, secretOwnerId }))
     .toSorted((left, right) => {
       const preferred = config?.preferredModel?.trim();
       if (!preferred) {
