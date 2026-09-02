@@ -216,14 +216,7 @@ class ChatControllerBranchCoordinationTest {
       assertTrue(controller.messages.value.isEmpty())
 
       releaseRetryHistory.complete(Unit)
-      withContext(Dispatchers.Default.limitedParallelism(1)) {
-        withTimeout(5_000) {
-          while (gateway.callCount("chat.send") == 0) {
-            runCurrent()
-            kotlinx.coroutines.delay(10)
-          }
-        }
-      }
+      awaitBranchProgress { gateway.callCount("chat.send") > 0 }
 
       assertFalse(outbox.branchState("gateway-a", ChatOutboxScope("main", "main"))?.needsReconciliation == true)
       assertEquals(1, gateway.callCount("chat.send"))
@@ -308,13 +301,8 @@ class ChatControllerBranchCoordinationTest {
       assertTrue(controller.healthOk.value)
 
       assertTrue(controller.sendMessageAwaitAcceptance("dispatch without branches", "off", emptyList()))
-      withContext(Dispatchers.Default.limitedParallelism(1)) {
-        withTimeout(5_000) {
-          while (gateway.callCount("chat.send") == 0 && gateway.callCount("sessions.branches.list") == 0) {
-            runCurrent()
-            kotlinx.coroutines.delay(10)
-          }
-        }
+      awaitBranchProgress {
+        gateway.callCount("chat.send") > 0 || gateway.callCount("sessions.branches.list") > 0
       }
 
       assertEquals(0, gateway.callCount("sessions.branches.list"))
@@ -878,11 +866,11 @@ class ChatControllerBranchCoordinationTest {
 
   private enum class ReplacementGate { None, History, Branches, StaleBranches, ReconnectHealth }
 
-  private suspend fun TestScope.awaitBranchProgress(condition: suspend () -> Boolean) {
+  private suspend fun awaitBranchProgress(condition: suspend () -> Boolean) {
+    // runTest drives the scheduler; pumping it here would run controller callbacks concurrently.
     withContext(Dispatchers.Default.limitedParallelism(1)) {
       withTimeout(5_000) {
         while (true) {
-          runCurrent()
           if (condition()) return@withTimeout
           kotlinx.coroutines.delay(10)
         }
