@@ -484,7 +484,10 @@ class GatewaySessionReconnectTest {
               val methods = if (connectRequests.incrementAndGet() == 1) initialMethods else replacementMethods
               webSocket.send(connectResponseFrame(id, methods))
             }
-            "health" -> webSocket.send("""{"type":"res","id":"$id","ok":true,"payload":{}}""")
+
+            "health" -> {
+              webSocket.send("""{"type":"res","id":"$id","ok":true,"payload":{}}""")
+            }
           }
         }
       val harness =
